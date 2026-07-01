@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(mkdir -p /tmp/spritetest)",
+      "Bash(sips -c 460 2752 --cropOffset 1076 0 characteranddices.png --out /tmp/spritetest/chars.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight /tmp/spritetest/chars.png)",
+      "Bash(sips -c 440 2752 --cropOffset 1096 0 characteranddices.png --out /tmp/spritetest/chargrid.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight /tmp/spritetest/chargrid.png)",
+      "Bash(sips --cropOffset 1096 0 -c 440 2752 characteranddices.png --out /tmp/spritetest/g.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight /tmp/spritetest/g.png)",
+      "Bash(sips -c 440 2752 characteranddices.png --out /tmp/spritetest/g2.png)",
+      "Bash(sips -g pixelHeight /tmp/spritetest/g2.png)",
+      "Bash(python3 -c \"import PIL; print\\('PIL', PIL.__version__\\)\")",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"import numpy, scipy; print\\('numpy', numpy.__version__, 'scipy', scipy.__version__\\)\")",
+      "Bash(cd *)",
+      "Bash(python3 /tmp/slice_sprites.py)"
+    ]
+  }
+}

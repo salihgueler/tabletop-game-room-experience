@@ -1,2 +1,6 @@
-/.DS_Store
-/.claude
+node_modules/
+dist/
+.bb-data/
+.blocks-sandbox/
+*.log
+.DS_Store
