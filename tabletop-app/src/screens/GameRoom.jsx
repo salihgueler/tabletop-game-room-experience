@@ -1,39 +1,117 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Cabinet, { RailBtn } from '../components/Cabinet.jsx'
 import Chat from '../components/Chat.jsx'
 import Sprite from '../components/Sprite.jsx'
 import { CLASSES } from '../data/classes.js'
-import { useGame } from '../engine/useGame.js'
 import { diceUrl } from '../data/dice.js'
+import { api } from '../api.js'
 
 const INV_ICON = { scroll: '📜', potion: '🧪', key: '🗝', gem: '💎', map: '🗺' }
 
 // The active game table, laid out inside the wooden cabinet to mirror gamepage.png:
 // turn-order rail, stone-tile dungeon board with glowing character discs, DM
 // narration overlay + centered action list, chat, inventory, dice tray.
-export default function GameRoom({ config, onLeave }) {
-  const { state, current, act, sendChat } = useGame(config)
-  const isMyTurn = state.phase === 'player' && current?.isHuman
-  const humanClass = CLASSES[state.players[0].classKey]
-  const dmActive = state.phase !== 'player'
+//
+// All game state is authoritative on the backend. We fetch it via getState,
+// subscribe to the Realtime `state` channel for live updates (from bots / other
+// players), and drive turns with takeAction. Chat uses the backend + Realtime.
+export default function GameRoom({ gameId, character, onLeave }) {
+  const [state, setState] = useState(null)
+  const [chat, setChat] = useState([])
+  const [acting, setActing] = useState(false)
+  const [error, setError] = useState('')
+
+  const refreshState = useCallback(async () => {
+    try {
+      setState(await api.getState(gameId))
+    } catch (e) {
+      setError(e?.message || 'Could not load game.')
+    }
+  }, [gameId])
+
+  // Initial load: state + chat history.
+  useEffect(() => {
+    refreshState()
+    api.getChatHistory(gameId).then(setChat).catch(() => {})
+  }, [gameId, refreshState])
+
+  // Subscribe to live state updates (bots acting, other players).
+  useEffect(() => {
+    let sub
+    ;(async () => {
+      try {
+        const channel = await api.getStateChannel(gameId)
+        sub = channel.subscribe(() => refreshState())
+        await sub.established
+      } catch { /* realtime unavailable — polling on action still works */ }
+    })()
+    return () => sub?.unsubscribe()
+  }, [gameId, refreshState])
+
+  // Subscribe to live chat.
+  useEffect(() => {
+    let sub
+    ;(async () => {
+      try {
+        const channel = await api.getChatChannel(gameId)
+        sub = channel.subscribe((msg) => setChat((c) => [...c, msg]))
+        await sub.established
+      } catch { /* ignore */ }
+    })()
+    return () => sub?.unsubscribe()
+  }, [gameId])
+
+  const act = useCallback(async (action) => {
+    setActing(true)
+    setError('')
+    try {
+      setState(await api.takeAction(gameId, action))
+    } catch (e) {
+      setError(e?.message || 'Action failed.')
+    } finally {
+      setActing(false)
+    }
+  }, [gameId])
+
+  const sendChat = useCallback(async (text) => {
+    if (!text.trim()) return
+    try { await api.sendChat(gameId, text) } catch { /* ignore */ }
+  }, [gameId])
 
   const left = (
     <>
-      <RailBtn title="Leave" onClick={onLeave}>⚙</RailBtn>
+      <RailBtn title="Leave Table" onClick={onLeave}>⎋</RailBtn>
       <RailBtn title="Help">?</RailBtn>
     </>
   )
   const right = (
     <>
       <div>
-        <RailBtn title="Profile">
-          <Sprite src={state.players[0].sprite} alt="you" style={{ height: 30, width: 'auto' }} />
+        <RailBtn title={character.name}>
+          <Sprite src={character.sprite} alt="you" style={{ height: 30, width: 'auto' }} />
         </RailBtn>
         <RailBtn title="Party">☰</RailBtn>
-        <RailBtn title="Link">⚭</RailBtn>
+        <RailBtn title="Refresh" onClick={refreshState}>⟳</RailBtn>
       </div>
       <span />
     </>
   )
+
+  if (!state) {
+    return (
+      <Cabinet leftRail={left} rightRail={right}>
+        <div className="col center" style={{ height: '100%', color: 'var(--text-meta)', fontSize: 22 }}>
+          {error ? <span style={{ color: '#ff6b6b' }}>⚠ {error}</span> : 'Entering the dungeon…'}
+        </div>
+      </Cabinet>
+    )
+  }
+
+  const me = state.players.find((p) => p.userId === character.userId) || state.players[0]
+  const current = state.players[state.turnIndex]
+  const isMyTurn = state.phase === 'player' && current?.id === me.id && !acting
+  const myClass = CLASSES[me.classKey]
+  const dmActive = state.phase !== 'player'
 
   return (
     <Cabinet leftRail={left} rightRail={right}>
@@ -57,10 +135,10 @@ export default function GameRoom({ config, onLeave }) {
             dmName={state.dmName}
             dmActive={dmActive}
             narration={lastDm(state)}
-            actions={humanClass.actions}
+            actions={myClass?.actions || []}
             enabled={isMyTurn}
             onAct={act}
-            phase={state.phase}
+            phase={acting ? 'resolving' : state.phase}
             current={current}
           />
         </div>
@@ -68,7 +146,7 @@ export default function GameRoom({ config, onLeave }) {
         {/* RIGHT: chat + inventory + dice */}
         <div className="col gap" style={{ flex: '0 0 260px' }}>
           <div className="grow" style={{ display: 'flex', minHeight: 0 }}>
-            <Chat title="CHAT" messages={state.chat} onSend={sendChat} />
+            <Chat title="CHAT" messages={chat} onSend={sendChat} />
           </div>
 
           <div className="panel" style={{ flex: '0 0 auto' }}>

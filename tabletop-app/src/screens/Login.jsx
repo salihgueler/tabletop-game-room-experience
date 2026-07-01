@@ -2,17 +2,35 @@ import { useState } from 'react'
 import Frame from '../components/Frame.jsx'
 import Sprite from '../components/Sprite.jsx'
 import { ALL_CHARACTERS, CLASSES } from '../data/classes.js'
+import { api } from '../api.js'
 
-// Login + character select. Name entry and a grid of the 20 character sprites.
-export default function Login({ onEnter }) {
-  const [name, setName] = useState('')
+// Character select. Name entry (defaults to the account username) and a grid of
+// the 20 character sprites. On confirm, persists the character via the backend
+// (api.saveCharacter) and hands the saved record back to App.
+export default function Login({ user, onEnter }) {
+  const [name, setName] = useState(user?.username ?? '')
   const [picked, setPicked] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  const canEnter = name.trim().length >= 2 && picked
+  const canEnter = name.trim().length >= 2 && picked && !busy
 
-  const enter = () => {
+  const enter = async () => {
     if (!canEnter) return
-    onEnter({ name: name.trim(), classKey: picked.classKey, sprite: picked.sprite, id: picked.id })
+    setBusy(true)
+    setError('')
+    try {
+      const character = await api.saveCharacter({
+        name: name.trim(),
+        classKey: picked.classKey,
+        spriteId: picked.id,
+        sprite: picked.sprite,
+      })
+      onEnter(character)
+    } catch (err) {
+      setError(err?.message || 'Could not save character.')
+      setBusy(false)
+    }
   }
 
   const pickedClass = picked ? CLASSES[picked.classKey] : null
@@ -36,6 +54,7 @@ export default function Login({ onEnter }) {
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && enter()}
               />
+              {error && <span style={{ color: '#ff6b6b', fontSize: 16 }}>⚠ {error}</span>}
             </div>
 
             <div className="panel col center" style={{ padding: 16, minHeight: 220 }}>
@@ -67,7 +86,7 @@ export default function Login({ onEnter }) {
             </div>
 
             <button className="btn" disabled={!canEnter} onClick={enter}>
-              ENTER GUILD HALL
+              {busy ? 'SAVING…' : 'ENTER GUILD HALL'}
             </button>
           </div>
 

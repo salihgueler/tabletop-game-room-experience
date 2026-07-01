@@ -27,9 +27,11 @@ import { z } from 'zod';
 // Short scope id — Realtime namespace names must stay under 50 chars.
 const scope = new Scope('tt');
 
-// ─── Domain constants (shared shape with the frontend via API) ───────────────
-export const SCENARIOS = ['Cave Crypt', 'Dungeon Crawl', 'Magic Tower', 'Frozen Keep', 'Sunken Vault'] as const
-export const DM_TYPES = ['Grimjaw', 'Xandros', 'Mistweaver', 'Hollowvoice'] as const
+// ─── Domain constants (exposed to the frontend via the getConstants() method,
+// NOT as module exports — the client codegen turns every export into an API
+// namespace) ─────────────────────────────────────────────────────────────────
+const SCENARIOS = ['Cave Crypt', 'Dungeon Crawl', 'Magic Tower', 'Frozen Keep', 'Sunken Vault'] as const
+const DM_TYPES = ['Grimjaw', 'Xandros', 'Mistweaver', 'Hollowvoice'] as const
 const CORE_CLASSES = ['paladin', 'sorcerer', 'rogue', 'ranger'] as const
 const MAX_PARTY = 4
 

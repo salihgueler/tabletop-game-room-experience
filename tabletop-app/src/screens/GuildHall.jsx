@@ -1,35 +1,79 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Cabinet, { RailBtn } from '../components/Cabinet.jsx'
-import Chat from '../components/Chat.jsx'
 import Sprite from '../components/Sprite.jsx'
 import { CLASSES } from '../data/classes.js'
-import { MOCK_GAMES, SEED_CHAT, SCENARIOS, DM_TYPES } from '../data/mockGames.js'
 import { COLLECTION, diceUrl } from '../data/dice.js'
+import { api, signOut } from '../api.js'
 
 // The Adventurer's Guild Hall (home) — laid out inside the full-screen wooden
-// cabinet to mirror homepage.png.
-export default function GuildHall({ player, onLaunch, onJoin }) {
-  const [chat, setChat] = useState(SEED_CHAT)
-  const [scenario, setScenario] = useState(SCENARIOS[0])
-  const [dm, setDm] = useState(DM_TYPES[0])
-  const [open, setOpen] = useState(false)
+// cabinet to mirror homepage.png. All data comes from the AWS Blocks backend:
+// listGames / getConstants / createGame / joinPrivate.
+export default function GuildHall({ character, onOpenGame }) {
+  const [games, setGames] = useState([])
+  const [scenarios, setScenarios] = useState([])
+  const [dmTypes, setDmTypes] = useState([])
+  const [scenario, setScenario] = useState('')
+  const [dm, setDm] = useState('')
+  const [isPublic, setIsPublic] = useState(true)
   const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  const sendChat = (text) => {
-    if (!text.trim()) return
-    setChat((c) => [...c, { who: player.name, color: CLASSES[player.classKey].color, text }])
+  const refresh = useCallback(async () => {
+    try {
+      setGames(await api.listGames())
+    } catch (e) {
+      setError(e?.message || 'Could not load games.')
+    }
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const c = await api.getConstants()
+        setScenarios(c.scenarios)
+        setDmTypes(c.dmTypes)
+        setScenario(c.scenarios[0])
+        setDm(c.dmTypes[0])
+      } catch { /* ignore */ }
+      refresh()
+    })()
+  }, [refresh])
+
+  const launch = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const { gameId } = await api.createGame({ scenario, dmType: dm, isPublic, accessCode: code.trim() || undefined })
+      onOpenGame(gameId)
+    } catch (e) {
+      setError(e?.message || 'Could not create game.')
+      setBusy(false)
+    }
   }
 
-  const left = (<><RailBtn title="Settings">⚙</RailBtn><RailBtn title="Help">?</RailBtn></>)
+  const joinPrivate = async () => {
+    if (!code.trim()) return
+    setError('')
+    try {
+      const { gameId } = await api.joinPrivate(code.trim())
+      onOpenGame(gameId)
+    } catch (e) {
+      setError(e?.message || 'No game for that code.')
+    }
+  }
+
+  const cls = CLASSES[character.classKey]
+
+  const left = (<><RailBtn title="Sign Out" onClick={signOut}>⎋</RailBtn><RailBtn title="Help">?</RailBtn></>)
   const right = (
     <>
       <div>
-        <RailBtn title="Profile">
-          <Sprite src={player.sprite} alt="you" style={{ height: 30, width: 'auto' }} />
+        <RailBtn title={character.name}>
+          <Sprite src={character.sprite} alt="you" style={{ height: 30, width: 'auto' }} />
         </RailBtn>
-        <RailBtn title="Guild">⌂</RailBtn>
+        <RailBtn title="Refresh" onClick={refresh}>⟳</RailBtn>
         <RailBtn title="Party">☰</RailBtn>
-        <RailBtn title="Link">⚭</RailBtn>
       </div>
       <span />
     </>
@@ -53,19 +97,25 @@ export default function GuildHall({ player, onLaunch, onJoin }) {
               border: '2px solid var(--panel-line)', borderRadius: 14, padding: '2px 14px',
             }}
           >
-            AI DM: {dm}
+            Signed in as <span style={{ color: cls?.hex }}>{character.name}</span> · {cls?.name}
           </div>
         </div>
 
-        {/* Three columns */}
+        {error && <div style={{ color: '#ff6b6b', fontSize: 17, textAlign: 'center' }}>⚠ {error}</div>}
+
+        {/* Two columns: game list | create */}
         <div className="row gap grow" style={{ alignItems: 'stretch', minHeight: 0 }}>
           {/* PUBLIC GAME LIST */}
-          <div className="panel col" style={{ flex: '1.35' }}>
+          <div className="panel col" style={{ flex: '1.5' }}>
             <div className="panel-header">PUBLIC GAME LIST</div>
             <div className="grow" style={{ overflowY: 'auto', padding: 10 }}>
-              {MOCK_GAMES.map((g) => (
-                <GameCard key={g.id} game={g} onJoin={() => onJoin(g)} />
-              ))}
+              {games.length === 0 ? (
+                <p className="dim" style={{ textAlign: 'center', fontSize: 19, padding: 20 }}>
+                  No public games yet. Launch a new adventure →
+                </p>
+              ) : (
+                games.map((g) => <GameCard key={g.id} game={g} onJoin={() => onOpenGame(g.id)} />)
+              )}
             </div>
           </div>
 
@@ -76,36 +126,31 @@ export default function GuildHall({ player, onLaunch, onJoin }) {
               <div className="field">
                 <label>Scenario Theme</label>
                 <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
-                  {SCENARIOS.map((s) => <option key={s}>{s}</option>)}
+                  {scenarios.map((s) => <option key={s}>{s}</option>)}
                 </select>
               </div>
               <div className="field">
                 <label>AI DM Type</label>
                 <select value={dm} onChange={(e) => setDm(e.target.value)}>
-                  {DM_TYPES.map((d) => <option key={d}>{d}</option>)}
+                  {dmTypes.map((d) => <option key={d}>{d}</option>)}
                 </select>
               </div>
               <label className="row gap-sm" style={{ alignItems: 'center', margin: '2px 0 14px', fontSize: 20, cursor: 'pointer' }}>
-                <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} style={{ width: 18, height: 18 }} />
+                <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} style={{ width: 18, height: 18 }} />
                 <span className="meta">Open to Public?</span>
               </label>
-              <button className="btn" onClick={() => onLaunch({ scenario, dm, open })} style={{ fontSize: 13 }}>
-                🔥 LAUNCH NEW ADVENTURE
+              <button className="btn" onClick={launch} disabled={busy} style={{ fontSize: 13 }}>
+                {busy ? 'LAUNCHING…' : '🔥 LAUNCH NEW ADVENTURE'}
               </button>
 
               <div className="panel" style={{ marginTop: 16 }}>
                 <div className="panel-header">JOIN PRIVATE GAME</div>
                 <div className="row gap-sm" style={{ padding: 12 }}>
                   <input type="text" className="grow" placeholder="Access Code" value={code} onChange={(e) => setCode(e.target.value)} />
-                  <button className="btn small btn-ghost" onClick={() => code.trim() && onLaunch({ scenario, dm, open: false, code })}>→</button>
+                  <button className="btn small btn-ghost" onClick={joinPrivate}>→</button>
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* CHAT */}
-          <div style={{ flex: '0.85', display: 'flex' }}>
-            <Chat title="CHAT" messages={chat} onSend={sendChat} />
           </div>
         </div>
 
@@ -146,13 +191,13 @@ function GameCard({ game, onJoin }) {
         </div>
         <div className="col gap-sm" style={{ alignItems: 'flex-end' }}>
           <div className="row" style={{ gap: 2 }}>
-            {game.partyClasses.map((c, i) => (
-              <Sprite key={i} src={`/sprites/characters/${CLASSES[c].variants[0]}.png`} alt={c} style={{ height: 30, width: 'auto' }} />
+            {(game.partyClasses || []).map((c, i) => (
+              CLASSES[c] ? <Sprite key={i} src={`/sprites/characters/${CLASSES[c].variants[0]}.png`} alt={c} style={{ height: 30, width: 'auto' }} /> : null
             ))}
           </div>
           <div className="row gap-sm">
             <button className="btn small btn-ghost">View Party</button>
-            <button className="btn small" disabled={full} onClick={onJoin}>{full ? 'Full' : 'Join Game'}</button>
+            <button className="btn small" onClick={onJoin}>{full ? 'Enter' : 'Join Game'}</button>
           </div>
         </div>
       </div>
