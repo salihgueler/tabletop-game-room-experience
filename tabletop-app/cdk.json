@@ -1,0 +1,16 @@
+{
+  "app": "npx tsx -C cdk aws-blocks/index.cdk.ts",
+  "watch": {
+    "include": [
+      "**"
+    ],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "**/*.d.ts",
+      "node_modules/**",
+      ".blocks-sandbox/**",
+      "dist/**"
+    ]
+  }
+}

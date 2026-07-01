@@ -1,6 +1,10 @@
 node_modules/
 dist/
+build-temp/
 .bb-data/
 .blocks-sandbox/
+cdk.out/
+tabletop-app/aws-blocks/client.js
+tabletop-app/aws-blocks/blocks.spec.json
 *.log
 .DS_Store
