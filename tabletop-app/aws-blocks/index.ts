@@ -341,6 +341,41 @@ async function runBotTurns(state: GameState) {
   }
 }
 
+// Showcase public games seeded on first lobby load so the hall isn't empty.
+// Each is hosted by a system bot party (no human seat filled yet).
+const SEED_GAMES = [
+  { name: 'The Gloomspire Sanctum', theme: 'Cave Crypt', dmType: 'Grimjaw', dmLevel: 'Intermediate', host: 'paladin' },
+  { name: 'Rune-Carved Door Mystery', theme: 'Magic Tower', dmType: 'Grimjaw', dmLevel: 'Intermediate', host: 'rogue' },
+  { name: 'Frostbite Hollow', theme: 'Frozen Keep', dmType: 'Mistweaver', dmLevel: 'Master', host: 'ranger' },
+]
+
+async function seedIfEmpty() {
+  const existing = await Array.fromAsync(games.query({ index: 'byCreated', where: { listKey: { equals: 'all' } } }))
+  if (existing.length > 0) return
+  let i = 0
+  for (const g of SEED_GAMES) {
+    const gameId = `seed-${i}`
+    await games.put({
+      listKey: 'all', gameId, name: g.name, theme: g.theme, note: `A ${g.theme} adventure`,
+      dmType: g.dmType, dmLevel: g.dmLevel, maxParty: MAX_PARTY, status: 'Awaiting Players',
+      isPublic: true, accessCode: null, hostUserId: 'system', createdAt: i,
+    })
+    // Build a party led by a system-owned host character so it's playable/joinable.
+    const hostName = ['Kael', 'Zara', 'Lyra'][i] ?? 'Host'
+    const players = buildParty({ name: hostName, classKey: g.host, sprite: `/sprites/characters/${g.host}_a.png`, userId: 'system' })
+    await gameStates.put({
+      gameId, scenario: g.theme, dmName: g.dmType, players, turnIndex: 0, round: 1,
+      phase: 'player', dc: 12, lastRoll: null,
+      log: [
+        { kind: 'dm', who: `AI DM: ${g.dmType}`, text: OPENERS[g.theme] ?? OPENERS['Cave Crypt'] },
+        { kind: 'dm', who: `AI DM: ${g.dmType}`, text: promptFor(players[0].name) },
+      ],
+      inventory: ['scroll', 'potion', 'key', 'gem', 'map'], version: 0,
+    })
+    i += 1
+  }
+}
+
 // ─── API ─────────────────────────────────────────────────────────────────────
 export const api = new ApiNamespace(scope, 'api', (context) => ({
   // --- Reference data (no auth needed) ---
@@ -363,6 +398,7 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
 
   // --- Lobby ---
   async listGames() {
+    await seedIfEmpty()
     // Public listing via constant-PK GSI (no scan).
     const all = await Array.fromAsync(
       games.query({ index: 'byCreated', where: { listKey: { equals: 'all' } } }),
@@ -447,6 +483,31 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   async getState(gameId: string) {
     await auth.requireAuth(context)
     return await loadState(gameId)
+  },
+
+  // Claim a seat in a game. If the player already holds a seat, no-op. Otherwise
+  // take over the first system-owned (unclaimed) human seat so they can act.
+  async joinGame(gameId: string) {
+    const user = await auth.requireAuth(context)
+    const character = await characters.get({ userId: user.username })
+    if (!character) throw new Error('Choose a character first')
+    const state = await loadState(gameId)
+
+    if (state.players.some((p) => p.userId === user.username)) {
+      return { gameId } // already seated
+    }
+    const openSeat = state.players.find((p) => p.isHuman && (p.userId === 'system' || p.userId === null))
+    if (openSeat) {
+      openSeat.userId = user.username
+      openSeat.name = character.name
+      openSeat.classKey = character.classKey
+      openSeat.sprite = character.sprite
+      openSeat.color = CLASS_META[character.classKey]?.color ?? openSeat.color
+      const g = await games.get({ listKey: 'all', gameId })
+      if (g) await games.put({ ...g, status: 'In Session' })
+      await saveAndBroadcast(state)
+    }
+    return { gameId }
   },
 
   // --- Turn engine ---

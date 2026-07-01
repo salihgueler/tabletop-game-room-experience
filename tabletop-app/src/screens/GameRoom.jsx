@@ -29,9 +29,12 @@ export default function GameRoom({ gameId, character, onLeave }) {
     }
   }, [gameId])
 
-  // Initial load: state + chat history.
+  // Initial load: claim a seat, then fetch state + chat history.
   useEffect(() => {
-    refreshState()
+    ;(async () => {
+      try { await api.joinGame(gameId) } catch { /* already seated or full */ }
+      await refreshState()
+    })()
     api.getChatHistory(gameId).then(setChat).catch(() => {})
   }, [gameId, refreshState])
 

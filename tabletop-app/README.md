@@ -1,41 +1,72 @@
 # Adventurer's Guild Hall — Tabletop Game Room
 
-A 16-bit pixel-art tabletop RPG room experience. Log in, forge a hero from 20
+A 16-bit pixel-art tabletop RPG room experience. Sign in, forge a hero from 20
 character sprites, browse/create/join campaigns in the Guild Hall, then play a
-turn-based session with 3 players and one **AI Dungeon Master**.
+turn-based session with a 4-seat party and one **AI Dungeon Master**.
 
-All game logic runs client-side against **mock data** — no backend.
+Built on **AWS Blocks** — all game logic, persistence, auth, real-time sync, and
+AI narration run server-side. No mock data.
 
-## Run
+## Architecture
+
+```
+Frontend (React SPA, src/)  ── typed RPC + Realtime ──▶  aws-blocks/index.ts
+                                                          ├─ AuthBasic        (login/sessions)
+                                                          ├─ DistributedTable (games, gameStates, chat, characters)
+                                                          ├─ Realtime         (live state + chat per game)
+                                                          └─ Agent            (AI DM narration)
+```
+
+- **AI DM**: Bedrock (Claude Sonnet) when deployed, **Ollama `llama3.1:8b`** locally,
+  canned provider as an offline fallback. Configured in `aws-blocks/index.ts`.
+- The frontend imports the fully-typed `api` / `authApi` clients from the
+  `aws-blocks` workspace package. `client.js` is auto-generated — never edit it.
+
+## Run (local)
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # production build to dist/
+npm run dev        # client http://localhost:3000, backend http://localhost:3001
+npm run typecheck  # type-check the backend
+npm run build      # production frontend build to dist/
+```
+
+Local dev uses in-memory/file mocks for every block (persists to `.bb-data/` —
+delete to reset). For real AI DM responses locally, run Ollama:
+`ollama serve && ollama pull llama3.1:8b`. Otherwise the canned provider keeps
+the game playable offline.
+
+## Deploy (AWS)
+
+```bash
+npm run sandbox          # ephemeral sandbox (Lambda + API GW + DynamoDB + AppSync)
+npm run sandbox:destroy
+npm run deploy           # production deploy with Hosting
+npm run destroy
 ```
 
 ## Flow
 
-1. **Login / Character Select** — enter a name, pick one of 20 sprites (Paladin,
-   Sorcerer, Rogue, Ranger, Revenant), each mapped to a turn-ring color.
-2. **Guild Hall** (`homepage.png`) — public game list (Join / View Party),
-   Create-a-Game form (scenario theme, AI DM type, open-to-public), Join Private
-   Game by access code, tavern chat, footer nav, Guild Dice Collection.
-3. **Game Room** (`gamepage.png`) — turn-order rail (colored player rings + AI DM),
-   dungeon board with tokens, DM narration + action menu, chat, inventory, dice
-   tray. On your turn, choose an action → roll a d20 vs the round's DC → the AI DM
-   narrates the outcome → turn passes. Bots auto-act; the DM speaks between rounds.
+1. **Auth** — themed username/password sign-in / register (AuthBasic).
+2. **Character Select** — pick one of 20 sprites; persisted to your account.
+3. **Guild Hall** (`homepage.png`) — public game list (seeded on first load),
+   Create-a-Game (scenario, AI DM type, public toggle), Join Private by code.
+4. **Game Room** (`gamepage.png`) — turn-order rail, stone-tile dungeon board with
+   glowing character discs (nameplate + HP + ability icons), AI DM tab, narration
+   overlay + action list, chat, inventory, dice tray. On your turn: choose an
+   action → server rolls a d20 vs the round DC → **AI DM narrates** → bots
+   auto-resolve → Realtime broadcasts the new state to everyone at the table.
 
 ## Structure
 
-- `src/theme.css` — design system: full color palette as CSS variables, wooden
-  frames + gold studs, slate-navy panels, amber-gold buttons, Press Start 2P /
-  VT323 fonts in cream.
-- `src/data/` — classes, dice + character sprite manifests, mock games, DM
-  narration templates.
-- `src/engine/useGame.js` — the mock DnD engine (seeded RNG, turn rotation, d20
-  resolution, bot AI, DM narration).
-- `src/components/` — `Frame` (wooden border) and `Chat`.
-- `src/screens/` — `Login`, `GuildHall`, `GameRoom`.
-- `public/sprites/` — 20 character + 48 d20 dice sprites (sliced from the design
-  reference sheet).
+- `aws-blocks/index.ts` — **the backend**: schemas, auth, turn engine, AI DM,
+  realtime, seed data, and all API methods. The only place game logic lives.
+- `src/api.js` — frontend RPC/auth helpers (`api`, `authApi`, sign-in/up/out).
+- `src/theme.css` — design system: palette CSS variables, wooden cabinet + gold
+  corners, slate-navy panels, amber buttons, Press Start 2P / VT323 fonts.
+- `src/components/` — `Cabinet`, `Frame`, `Chat`, `Sprite` (with error fallback).
+- `src/screens/` — `AuthScreen`, `Login` (character select), `GuildHall`, `GameRoom`.
+- `src/data/classes.js`, `src/data/dice.js` — sprite manifests (presentation only).
+- `public/sprites/` — 20 character + 48 d20 dice sprites.
+- `public/ui/` — tavern background, skull crest, title banner, floor tile.
+```
