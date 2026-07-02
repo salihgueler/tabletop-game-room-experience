@@ -17,7 +17,14 @@ Frontend (React SPA, src/)  ── typed RPC + Realtime ──▶  aws-blocks/in
                                                           └─ Agent            (AI DM narration)
 ```
 
-- **AI DM**: Bedrock (Claude Sonnet) when deployed, **Ollama `llama3.1:8b`** locally,
+- **Multi-agent games**: every game session runs **one AI Dungeon Master agent
+  plus one AI companion agent per bot party member** (distinct Paladin / Sorcerer
+  / Rogue / Ranger personas). On a companion's turn its agent chooses an action
+  and speaks an in-character line in chat; the DM agent narrates the outcome. All
+  agents are stateless (`inferenceOnly`) one-shot calls, so many games run
+  concurrently, each fully isolated.
+- **Models**: DM uses Bedrock Claude Sonnet deployed; companions use Bedrock
+  Claude Haiku (FAST) deployed. Both use **Ollama `llama3.1:8b`** locally, with a
   canned provider as an offline fallback. Configured in `aws-blocks/index.ts`.
 - The frontend imports the fully-typed `api` / `authApi` clients from the
   `aws-blocks` workspace package. `client.js` is auto-generated — never edit it.

@@ -57,7 +57,11 @@ export default function GameRoom({ gameId, character, onLeave }) {
     ;(async () => {
       try {
         const channel = await api.getChatChannel(gameId)
-        sub = channel.subscribe((msg) => setChat((c) => [...c, msg]))
+        sub = channel.subscribe((msg) =>
+          // De-dupe by timestamp — guards against StrictMode double-subscribe in
+          // dev and any redelivery.
+          setChat((c) => (c.some((m) => m.ts === msg.ts && m.who === msg.who) ? c : [...c, msg])),
+        )
         await sub.established
       } catch { /* ignore */ }
     })()

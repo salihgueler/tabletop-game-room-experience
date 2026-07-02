@@ -191,6 +191,82 @@ const dm = new Agent(scope, 'dm', {
   ].join(' '),
 })
 
+// ─── AI Companion party members (one Agent persona per class) ────────────────
+// Each non-human seat is driven by its own agent. On its turn the companion
+// picks one of its class actions AND speaks a short in-character line. This is
+// what makes a session genuinely multi-agent: the DM plus up to three distinct
+// companion agents, each reasoning independently.
+//
+// FAST model when deployed (bots act often — keep latency/cost low), Ollama
+// locally, canned fallback offline. inferenceOnly: stateless one-shot calls.
+const COMPANION_PERSONAS: Record<string, string> = {
+  paladin: 'a stalwart, honorable Paladin who shields allies and speaks with steady resolve',
+  sorcerer: 'a brash, curious Sorcerer who loves flashy magic and dry wit',
+  rogue: 'a sly, cautious Rogue who trusts shadows and sarcasm over brute force',
+  ranger: 'a calm, watchful Ranger attuned to danger, terse and practical',
+}
+
+const companions: Record<string, Agent> = {}
+for (const cls of CORE_CLASSES) {
+  companions[cls] = new Agent(scope, `c-${cls}`, {
+    inferenceOnly: true,
+    model: {
+      deployed: BedrockModels.FAST,
+      local: OllamaModels.SMALL,
+    },
+    systemPrompt: [
+      `You role-play ${COMPANION_PERSONAS[cls]} in a 16-bit fantasy tabletop game.`,
+      'On your turn you MUST choose exactly one action from the list you are given,',
+      'and say one short in-character line (max 15 words) about doing it.',
+      'Respond with ONLY compact JSON, no prose, no code fences:',
+      '{"action":"<one exact action from the list>","line":"<your line>"}',
+    ].join(' '),
+  })
+}
+
+// Ask a companion agent to decide its move. Returns a chosen action (validated
+// against the allowed list) and an in-character quip. Falls back to a random
+// action + no quip if the model errors or returns garbage.
+async function companionDecide(
+  classKey: string,
+  name: string,
+  scenario: string,
+  situation: string,
+): Promise<{ action: string; line: string }> {
+  const options = CLASS_META[classKey]?.actions ?? ['Investigate']
+  const fallback = { action: options[Math.floor(Math.random() * options.length)], line: '' }
+  const agent = companions[classKey]
+  if (!agent) return fallback
+  const message = [
+    `Scenario: ${scenario}.`,
+    `Situation: ${situation}`,
+    `You are ${name}. Choose ONE action from: ${options.join(', ')}.`,
+    'Reply with JSON only.',
+  ].join(' ')
+  try {
+    const result = await agent.stream(message)
+    const done = await result.complete()
+    const raw = (done.text || '').trim()
+    // Extract the first {...} blob in case the model wraps it.
+    const match = raw.match(/\{[\s\S]*\}/)
+    if (match) {
+      const parsed = JSON.parse(match[0]) as { action?: string; line?: string }
+      // Match the model's action to an allowed one (case-insensitive contains).
+      const picked = options.find(
+        (o) => o.toLowerCase() === (parsed.action || '').toLowerCase() ||
+               (parsed.action || '').toLowerCase().includes(o.toLowerCase()) ||
+               o.toLowerCase().includes((parsed.action || '').toLowerCase()),
+      )
+      if (picked) {
+        return { action: picked, line: (parsed.line || '').toString().slice(0, 120) }
+      }
+    }
+  } catch {
+    // model unavailable / bad output — fall through
+  }
+  return fallback
+}
+
 // ─── Deterministic canned narration (fallback + variety) ─────────────────────
 function categorize(action: string): 'attack' | 'magic' | 'skill' | 'investigate' | 'support' {
   const s = action.toLowerCase()
@@ -327,15 +403,29 @@ function advanceTurn(state: GameState) {
   }
 }
 
+// Post an in-character companion line to the game's chat (persist + broadcast).
+async function postBotChat(gameId: string, name: string, color: string, text: string) {
+  const msg = { gameId, ts: Date.now(), who: name, color, text }
+  await chatMessages.put(msg)
+  await rt.publish('chat', gameId, msg)
+}
+
+// The most recent DM line — the "situation" a companion is reacting to.
+function currentSituation(state: GameState): string {
+  const lastDm = [...state.log].reverse().find((l) => l.kind === 'dm')
+  return lastDm?.text ?? state.scenario
+}
+
 // After a human acts, auto-resolve any consecutive bot turns until it's a
-// human's turn again (or we loop back to the human).
+// human's turn again (or we loop back to the human). Each bot seat is driven by
+// its own companion agent, which decides its action and speaks in character.
 async function runBotTurns(state: GameState) {
   let guard = 0
   while (state.phase === 'player' && !state.players[state.turnIndex].isHuman && guard < 8) {
     const bot = state.players[state.turnIndex]
-    const options = CLASS_META[bot.classKey]?.actions ?? ['Investigate']
-    const choice = options[Math.floor(Math.random() * options.length)]
-    await resolveAction(state, choice)
+    const { action, line } = await companionDecide(bot.classKey, bot.name, state.scenario, currentSituation(state))
+    if (line) await postBotChat(state.gameId, bot.name, bot.color, line)
+    await resolveAction(state, action)
     advanceTurn(state)
     guard += 1
   }
