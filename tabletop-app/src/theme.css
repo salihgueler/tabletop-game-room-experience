@@ -202,7 +202,12 @@ h1, h2, h3, .head {
 /* form controls */
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .field > label { font-size: 18px; color: var(--text-meta); text-transform: uppercase; letter-spacing: 1px; }
-select, input[type='text'], textarea {
+select,
+input[type='text'],
+input[type='password'],
+input[type='email'],
+input[type='number'],
+textarea {
   font-family: var(--font-body);
   font-size: 20px;
   color: var(--text);
@@ -212,7 +217,20 @@ select, input[type='text'], textarea {
   padding: 7px 9px;
   outline: none;
 }
+select::placeholder,
+input::placeholder,
+textarea::placeholder { color: var(--text-dim); }
 select:focus, input:focus, textarea:focus { border-color: var(--gold); }
+
+/* Kill the yellow/white autofill background browsers force onto inputs. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px #0f1120 inset;
+  caret-color: var(--text);
+  transition: background-color 9999s ease-in-out 0s;
+}
 
 /* scrollbars */
 *::-webkit-scrollbar { width: 10px; height: 10px; }
