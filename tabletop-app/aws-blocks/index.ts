@@ -85,7 +85,7 @@ const rollSchema = z.object({
 }).nullable()
 
 const logEntrySchema = z.object({
-  kind: z.enum(['dm', 'action', 'roll']),
+  kind: z.enum(['dm', 'action', 'roll', 'system']),
   who: z.string(),
   color: z.string().optional(),
   text: z.string(),
@@ -143,13 +143,18 @@ const gameStates = new DistributedTable(scope, 'gameStates', {
   key: { partitionKey: 'gameId' },
 })
 
-// Chat history per game.
+// Chat history per game — the full readable transcript. Every DM narration,
+// player/AI action, dice roll, and player message lands here.
 const chatSchema = z.object({
   gameId: z.string(),
   ts: z.number(),
   who: z.string(),
   color: z.string(),
   text: z.string(),
+  // How the line should read in the transcript. 'say' = spoken chat/quip,
+  // 'dm' = Dungeon Master narration, 'action' = a chosen action, 'roll' = a
+  // dice result, 'system' = lobby/status notes.
+  kind: z.enum(['say', 'dm', 'action', 'roll', 'system']).default('say'),
 })
 
 const chatMessages = new DistributedTable(scope, 'chat', {
@@ -379,6 +384,8 @@ async function narrate(scenario: string, action: string, actor: string, roll: nu
 // menu. Returns { prompt, options }. Falls back to a generic prompt + the
 // actor's class actions if the model errors or returns junk.
 async function nextScene(
+  gameId: string,
+  dmName: string,
   scenario: string,
   recentLog: string,
   actorName: string,
@@ -386,6 +393,10 @@ async function nextScene(
 ): Promise<{ prompt: string; options: string[] }> {
   const className = CLASS_META[actorClass]?.name ?? 'Adventurer'
   const fallback = { prompt: promptFor(actorName), options: CLASS_META[actorClass]?.actions ?? ['Investigate'] }
+  // The DM "thinks" on the shared thinking channel so the player watches the
+  // scene being set before their options unlock.
+  const emit = (phase: 'start' | 'delta' | 'end', text: string) =>
+    rt.publish('thinking', gameId, { gameId, who: `DM ${dmName}`, color: 'var(--dm)', phase, text })
   const message = [
     `Scenario: ${scenario}.`,
     `Recent events:\n${recentLog}`,
@@ -408,24 +419,36 @@ async function nextScene(
       .slice(0, 4)
   }
 
+  await emit('start', '')
   // Up to two attempts — the small local model occasionally emits malformed JSON.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const result = await dm.stream(message)
+      let raw = ''
+      try {
+        const channel = await result.channel
+        const sub = channel.subscribe((chunk) => {
+          if (chunk.type === 'text-delta' && chunk.text) { raw += chunk.text; void emit('delta', chunk.text) }
+        })
+        await sub.established
+      } catch { /* no channel (some mocks) — complete() still works */ }
       const done = await result.complete()
-      const raw = (done.text || '').trim()
-      const match = raw.match(/\{[\s\S]*\}/)
+      if (!raw) raw = (done.text || '')
+      const match = raw.trim().match(/\{[\s\S]*\}/)
       if (match) {
         const parsed = JSON.parse(match[0]) as { prompt?: string; options?: unknown }
         const opts = coerceOptions(parsed.options)
         if (opts.length >= 2) {
-          return { prompt: (parsed.prompt || fallback.prompt).toString().slice(0, 200), options: opts }
+          const prompt = (parsed.prompt || fallback.prompt).toString().slice(0, 200)
+          await emit('end', prompt)
+          return { prompt, options: opts }
         }
       }
     } catch {
       // malformed output — retry once, then fall through to fallback
     }
   }
+  await emit('end', fallback.prompt)
   return fallback
 }
 
@@ -503,17 +526,20 @@ function fillOpenSeatsWithAi(state: GameState) {
 
 const hasOpenSeat = (state: GameState) => state.players.some(isOpenSeat)
 
-// Flip a full room to 'live' and generate the opening scene for seat 0.
+// Flip a full room to 'live' and generate the opening scene for seat 0. The DM
+// "thinks" (phase 'dm', streamed) before the first player's actions unlock.
 async function beginAdventure(state: GameState) {
   if (state.roomPhase === 'live') return
   state.roomPhase = 'live'
   state.turnIndex = 0
-  state.phase = 'player'
+  state.phase = 'dm'
   const first = state.players[0]
   const opener = OPENERS[state.scenario] ?? OPENERS['Cave Crypt']
-  const { prompt, options } = await nextScene(state.scenario, opener, first.name, first.classKey)
+  await transcribe(state, [{ kind: 'dm', who: `AI DM: ${state.dmName}`, text: opener }])
+  const { prompt, options } = await nextScene(state.gameId, state.dmName, state.scenario, opener, first.name, first.classKey)
   state.options = options
-  state.log = [...state.log, { kind: 'dm', who: `AI DM: ${state.dmName}`, text: prompt }]
+  await transcribe(state, [{ kind: 'dm', who: `AI DM: ${state.dmName}`, text: prompt }])
+  state.phase = 'player'
 }
 
 // Keep the lobby row's status/joinability in sync with the live seat state.
@@ -535,7 +561,26 @@ async function saveAndBroadcast(state: GameState) {
   return next
 }
 
-// Resolve a single actor's action into narration + roll + log entries, mutating state.
+// Write one or more events to BOTH the board log (drives the board + DM context)
+// and the persistent chat transcript (the scrollable history), broadcasting each
+// to the chat channel. ts is made monotonic within the batch so ordering holds.
+async function transcribe(
+  state: GameState,
+  entries: Array<{ kind: 'dm' | 'action' | 'roll' | 'say' | 'system'; who: string; color?: string; text: string }>,
+) {
+  const withColor = entries.map((e) => ({ ...e, color: e.color ?? 'var(--dm)' }))
+  state.log = [...state.log, ...withColor.map((e) => ({ kind: (e.kind === 'say' ? 'dm' : e.kind) as 'dm' | 'action' | 'roll' | 'system', who: e.who, color: e.color, text: e.text }))]
+  const base = Date.now()
+  for (let i = 0; i < withColor.length; i++) {
+    const e = withColor[i]
+    const msg = { gameId: state.gameId, ts: base + i, who: e.who, color: e.color, text: e.text, kind: e.kind }
+    await chatMessages.put(msg)
+    await rt.publish('chat', state.gameId, msg)
+  }
+}
+
+// Resolve a single actor's action: roll a d20, resolve vs the DC, narrate the
+// outcome, and record the action + roll + narration to the log and chat.
 async function resolveAction(state: GameState, action: string) {
   const actor = state.players[state.turnIndex]
   const value = rollD20()
@@ -545,12 +590,11 @@ async function resolveAction(state: GameState, action: string) {
     value, sprite: spriteForRoll(value), color: diceColorFor(actor.classKey),
     dc: state.dc, success, actor: actor.name, action,
   }
-  state.log = [
-    ...state.log,
-    { kind: 'action', who: actor.name, color: actor.color, text: `${actor.name} chooses ${action}.` },
-    { kind: 'roll', who: actor.name, color: actor.color, text: `rolls a d20 → ${value} vs DC ${state.dc} (${success ? 'SUCCESS' : 'fail'})` },
+  await transcribe(state, [
+    { kind: 'action', who: actor.name, color: actor.color, text: `${actor.name} chooses “${action}”.` },
+    { kind: 'roll', who: actor.name, color: actor.color, text: `🎲 rolled ${value} vs DC ${state.dc} — ${success ? 'SUCCESS' : 'FAIL'}` },
     { kind: 'dm', who: `AI DM: ${state.dmName}`, text },
-  ]
+  ])
 }
 
 // A compact transcript of the last few log lines, fed to the DM so its scene
@@ -572,17 +616,20 @@ async function advanceTurn(state: GameState) {
   } else {
     state.turnIndex = next
   }
-  state.phase = 'player'
+  // DM sets the scene (thinking streams to the client); actions stay locked
+  // until this resolves and we flip back to the 'player' phase.
+  state.phase = 'dm'
   const actor = state.players[state.turnIndex]
-  const { prompt, options } = await nextScene(state.scenario, recentLog(state), actor.name, actor.classKey)
+  const { prompt, options } = await nextScene(state.gameId, state.dmName, state.scenario, recentLog(state), actor.name, actor.classKey)
   state.options = options
   const roundTag = next >= state.players.length ? `Round ${state.round}. ` : ''
-  state.log = [...state.log, { kind: 'dm', who: `AI DM: ${state.dmName}`, text: `${roundTag}${prompt}` }]
+  await transcribe(state, [{ kind: 'dm', who: `AI DM: ${state.dmName}`, text: `${roundTag}${prompt}` }])
+  state.phase = 'player'
 }
 
 // Post an in-character companion line to the game's chat (persist + broadcast).
 async function postBotChat(gameId: string, name: string, color: string, text: string) {
-  const msg = { gameId, ts: Date.now(), who: name, color, text }
+  const msg = { gameId, ts: Date.now(), who: name, color, text, kind: 'say' as const }
   await chatMessages.put(msg)
   await rt.publish('chat', gameId, msg)
 }
@@ -718,32 +765,25 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
     })
 
     const players = buildParty({ name: character.name, classKey: character.classKey, sprite: character.sprite, userId: user.username }, fillMode)
-    const roomPhase = fillMode === 'ai' ? 'live' : 'lobby'
-    const opener = OPENERS[scenario] ?? OPENERS['Cave Crypt']
-    // If starting live (AI-filled), generate the opening scene's choices now.
-    // If waiting for humans, hold in the lobby until the party is full.
-    const opening = roomPhase === 'live'
-      ? await nextScene(scenario, opener, players[0].name, players[0].classKey)
-      : { prompt: 'Waiting for adventurers to take their seats…', options: [] as string[] }
+    // Build the base state in the lobby, then (for AI-filled games) begin the
+    // adventure — which runs the DM's opening thinking + scene, consistently.
     const state: GameState = {
       gameId,
       scenario,
       dmName,
       players,
-      roomPhase,
+      roomPhase: 'lobby',
       turnIndex: 0,
       round: 1,
       phase: 'player',
       dc: 12,
       lastRoll: null,
-      log: [
-        { kind: 'dm', who: `AI DM: ${dmName}`, text: opener },
-        { kind: 'dm', who: `AI DM: ${dmName}`, text: opening.prompt },
-      ],
+      log: [{ kind: 'dm', who: `AI DM: ${dmName}`, text: 'Waiting for adventurers to take their seats…' }],
       inventory: ['scroll', 'potion', 'key', 'gem', 'map'],
-      options: opening.options,
+      options: [],
       version: 0,
     }
+    if (fillMode === 'ai') await beginAdventure(state)
     await gameStates.put(state)
     return { gameId }
   },
@@ -884,6 +924,7 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
       who: character?.name ?? user.username,
       color: character ? (CLASS_META[character.classKey]?.color ?? 'var(--text)') : 'var(--text)',
       text: text.trim(),
+      kind: 'say' as const,
     }
     await chatMessages.put(msg)
     await rt.publish('chat', gameId, msg)

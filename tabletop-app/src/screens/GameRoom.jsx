@@ -195,6 +195,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
     if (inLobby) return { text: 'Gathering the party — waiting for seats to fill…', tone: 'wait' }
     if (spectator) return { text: `👁 Watching — ${current ? `${current.name}'s turn` : 'in progress'}`, tone: 'idle' }
     if (acting) return { text: 'Resolving your action…', tone: 'busy' }
+    if (state.phase === 'dm') return { text: `${state.dmName} is setting the scene…`, tone: 'dm' }
     if (dmActive) return { text: `The Dungeon Master (${state.dmName}) is narrating…`, tone: 'dm' }
     if (currentIsMe) return { text: `Your turn, ${me.name} — choose an action`, tone: 'you' }
     if (current) return { text: `${current.name} the ${CLASSES[current.classKey]?.name ?? ''} is taking their turn…`, tone: 'wait' }
@@ -489,15 +490,30 @@ function ActionMenu({ actions, enabled, onAct, statusText, statusColor }) {
 /* --------------------------------------------------------------------- dice */
 // Large overlapping d20s tucked bottom-right, matching the design.
 function DiceCluster({ roll }) {
+  // Brief "tumbling" animation whenever a new roll arrives (keyed on actor+value+dc)
+  // so the roll reads as a real moment rather than a static number.
+  const rollKey = roll ? `${roll.actor}:${roll.value}:${roll.dc}` : ''
+  const [rolling, setRolling] = useState(false)
+  const [shownFace, setShownFace] = useState(20)
+  useEffect(() => {
+    if (!roll) return
+    setRolling(true)
+    // flicker random faces while "rolling", then settle on the real value
+    const iv = setInterval(() => setShownFace(1 + Math.floor(Math.random() * 20)), 80)
+    const done = setTimeout(() => { clearInterval(iv); setShownFace(roll.value); setRolling(false) }, 700)
+    return () => { clearInterval(iv); clearTimeout(done) }
+  }, [rollKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const redN = roll && roll.color === 'red' ? roll.sprite : 24
   const blueN = roll && roll.color === 'blue' ? roll.sprite : 20
   const glow = roll ? (roll.success ? 'var(--rogue)' : 'var(--ranger)') : '#dfa13b88'
+  const face = rolling ? shownFace : (roll ? roll.value : '')
   return (
     <div style={{ position: 'relative', width: 84, height: 60, flex: '0 0 auto' }} title={roll ? `${roll.actor}: ${roll.value} vs DC ${roll.dc}` : 'dice'}>
-      <Sprite src={diceUrl('red', redN)} alt="d20" style={{ position: 'absolute', left: 0, top: 0, height: 46, filter: `drop-shadow(0 0 8px ${roll?.color === 'red' ? glow : '#00000088'})` }} />
-      <Sprite src={diceUrl('blue', blueN)} alt="d20" style={{ position: 'absolute', right: 0, bottom: 0, height: 46, filter: `drop-shadow(0 0 8px ${roll?.color === 'blue' ? glow : '#00000088'})` }} />
+      <Sprite src={diceUrl('red', redN)} alt="d20" style={{ position: 'absolute', left: 0, top: 0, height: 46, transition: 'transform .1s', transform: rolling ? 'rotate(-14deg) scale(1.08)' : 'none', filter: `drop-shadow(0 0 8px ${roll?.color === 'red' ? glow : '#00000088'})` }} />
+      <Sprite src={diceUrl('blue', blueN)} alt="d20" style={{ position: 'absolute', right: 0, bottom: 0, height: 46, transition: 'transform .1s', transform: rolling ? 'rotate(12deg) scale(1.08)' : 'none', filter: `drop-shadow(0 0 8px ${roll?.color === 'blue' ? glow : '#00000088'})` }} />
       {roll && (
-        <span style={{ position: 'absolute', top: -8, right: -6, fontFamily: 'var(--font-head)', fontSize: 11, color: glow, textShadow: '0 1px 2px #000' }}>{roll.value}</span>
+        <span style={{ position: 'absolute', top: -8, right: -6, fontFamily: 'var(--font-head)', fontSize: 11, color: rolling ? 'var(--gold-bright)' : glow, textShadow: '0 1px 2px #000' }}>{face}</span>
       )}
     </div>
   )
