@@ -233,7 +233,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
             dmName={state.dmName}
             dmActive={dmActive}
             narration={lastDm(state)}
-            actions={myClass?.actions || []}
+            actions={state.options?.length ? state.options : (myClass?.actions || [])}
             enabled={isMyTurn}
             statusText={status.text}
             statusColor={statusColor}
