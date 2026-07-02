@@ -20,8 +20,8 @@ export default function GameRoom({ gameId, character, onLeave }) {
   const [chat, setChat] = useState([])
   const [acting, setActing] = useState(false)   // human action in flight
   const [botBusy, setBotBusy] = useState(false)  // a bot turn is resolving
+  const [thinking, setThinking] = useState(null) // { who, color, text } live agent reasoning
   const [error, setError] = useState('')
-  const stepping = useRef(false) // guards the bot-turn stepper from overlapping
 
   const refreshState = useCallback(async () => {
     try {
@@ -57,33 +57,58 @@ export default function GameRoom({ gameId, character, onLeave }) {
     return () => sub?.unsubscribe()
   }, [gameId])
 
+  // Live "thinking" feed — stream each acting companion's reasoning tokens.
+  useEffect(() => {
+    let sub
+    ;(async () => {
+      try {
+        const channel = await api.getThinkingChannel(gameId)
+        sub = channel.subscribe((ev) => {
+          if (ev.phase === 'start') setThinking({ who: ev.who, color: ev.color, text: '' })
+          else if (ev.phase === 'delta') setThinking((t) => t && t.who === ev.who ? { ...t, text: t.text + ev.text } : { who: ev.who, color: ev.color, text: ev.text })
+          else if (ev.phase === 'end') setThinking((t) => t && ev.text ? { ...t, text: ev.text } : t)
+        })
+        await sub.established
+      } catch { /* thinking feed unavailable */ }
+    })()
+    return () => sub?.unsubscribe()
+  }, [gameId])
+
   // Bot-turn stepper: whenever it becomes a bot's turn, resolve exactly one bot
   // turn (with a beat of pacing) so the player visibly sees each companion act
-  // and whose turn it is. Loops until control returns to a human.
+  // and whose turn it is. Re-runs on every state change, walking the whole bot
+  // sequence one turn at a time until control returns to a human.
+  //
+  // Guard is a ref set synchronously in the effect body and cleared in cleanup,
+  // so a StrictMode double-mount can't wedge it and runs never overlap. botBusy
+  // is separate UI state (drives the "resolving" banner + action lock).
+  const inflight = useRef(false)
   useEffect(() => {
-    if (!state || stepping.current) return
+    if (!state || inflight.current || acting) return
     const actor = state.players[state.turnIndex]
     if (state.phase !== 'player' || actor?.isHuman) return
 
-    stepping.current = true
+    inflight.current = true
     let cancelled = false
+    setBotBusy(true)
     ;(async () => {
       // brief beat so the "X is taking their turn…" banner is readable
-      await new Promise((r) => setTimeout(r, 1100))
-      if (cancelled) { stepping.current = false; return }
+      await new Promise((r) => setTimeout(r, 900))
+      if (cancelled) return
       try {
-        setBotBusy(true)
         const res = await api.advanceBotTurn(gameId)
         if (!cancelled && res?.state) setState(res.state)
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Companion turn failed.')
       } finally {
+        inflight.current = false
         setBotBusy(false)
-        stepping.current = false
+        setThinking(null)
       }
     })()
-    return () => { cancelled = true }
-  }, [state, gameId])
+    return () => { cancelled = true; inflight.current = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, gameId, acting])
 
   const act = useCallback(async (action) => {
     setActing(true)
@@ -169,6 +194,24 @@ export default function GameRoom({ gameId, character, onLeave }) {
           <span className="head" style={{ fontSize: 12, color: statusColor }}>{status.text}</span>
           {error && <span style={{ color: '#ff6b6b', fontSize: 16 }}>⚠ {error}</span>}
         </div>
+
+        {/* LIVE THINKING — streams the acting companion's reasoning as it arrives */}
+        {thinking && (
+          <div
+            className="row gap-sm"
+            style={{
+              flex: '0 0 auto', alignItems: 'flex-start', padding: '8px 14px', borderRadius: 8,
+              background: '#12142e', border: `2px dashed ${thinking.color}`, minHeight: 40,
+            }}
+          >
+            <span style={{ fontSize: 18, animation: 'pulseGlow 1.1s ease-in-out infinite', color: thinking.color }}>🤔</span>
+            <span style={{ fontSize: 18, lineHeight: 1.2 }}>
+              <span style={{ color: thinking.color }}>{thinking.who} is thinking:</span>{' '}
+              <span style={{ color: 'var(--text)' }}>{thinking.text || '…'}</span>
+              <span style={{ color: thinking.color }}>▋</span>
+            </span>
+          </div>
+        )}
 
         <div className="row gap grow" style={{ alignItems: 'stretch', minHeight: 0 }}>
         {/* TURN ORDER */}

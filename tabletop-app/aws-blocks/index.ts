@@ -169,6 +169,16 @@ const rt = new Realtime(scope, 'rt', {
   namespaces: {
     state: Realtime.namespace(z.object({ gameId: z.string(), version: z.number() })),
     chat: Realtime.namespace(chatSchema),
+    // Live "thinking" feed for the currently-acting companion: streamed tokens
+    // of its reasoning, plus start/end markers, so the player can watch the
+    // agent reason in real time.
+    thinking: Realtime.namespace(z.object({
+      gameId: z.string(),
+      who: z.string(),
+      color: z.string(),
+      phase: z.enum(['start', 'delta', 'end']),
+      text: z.string(),
+    })),
   },
 })
 
@@ -216,54 +226,87 @@ for (const cls of CORE_CLASSES) {
     },
     systemPrompt: [
       `You role-play ${COMPANION_PERSONAS[cls]} in a 16-bit fantasy tabletop game.`,
-      'On your turn you MUST choose exactly one action from the list you are given,',
-      'and say one short in-character line (max 15 words) about doing it.',
+      'On your turn you MUST choose exactly one action from the list you are given.',
+      'First think out loud in one short sentence (your in-character reasoning for the choice),',
+      'then give a short spoken line (max 15 words).',
       'Respond with ONLY compact JSON, no prose, no code fences:',
-      '{"action":"<one exact action from the list>","line":"<your line>"}',
+      '{"reasoning":"<one sentence of why>","action":"<one exact action from the list>","line":"<your spoken line>"}',
     ].join(' '),
   })
 }
 
-// Ask a companion agent to decide its move. Returns a chosen action (validated
-// against the allowed list) and an in-character quip. Falls back to a random
-// action + no quip if the model errors or returns garbage.
+// Ask a companion agent to decide its move. Streams the agent's raw reasoning
+// tokens to the `thinking` channel as they arrive (so the player watches it
+// think in real time), then returns the validated action + spoken line +
+// reasoning. Falls back to a random action if the model errors or returns junk.
 async function companionDecide(
+  gameId: string,
   classKey: string,
   name: string,
+  color: string,
   scenario: string,
   situation: string,
-): Promise<{ action: string; line: string }> {
+): Promise<{ action: string; line: string; reasoning: string }> {
   const options = CLASS_META[classKey]?.actions ?? ['Investigate']
-  const fallback = { action: options[Math.floor(Math.random() * options.length)], line: '' }
+  const fallback = { action: options[Math.floor(Math.random() * options.length)], line: '', reasoning: '' }
   const agent = companions[classKey]
-  if (!agent) return fallback
+  const emit = (phase: 'start' | 'delta' | 'end', text: string) =>
+    rt.publish('thinking', gameId, { gameId, who: name, color, phase, text })
+
+  if (!agent) {
+    await emit('start', ''); await emit('end', '')
+    return fallback
+  }
+
   const message = [
     `Scenario: ${scenario}.`,
     `Situation: ${situation}`,
     `You are ${name}. Choose ONE action from: ${options.join(', ')}.`,
     'Reply with JSON only.',
   ].join(' ')
+
+  await emit('start', '')
+  let raw = ''
   try {
     const result = await agent.stream(message)
+    // Stream tokens live to the thinking channel as the agent produces them.
+    try {
+      const channel = await result.channel
+      const sub = channel.subscribe((chunk) => {
+        if (chunk.type === 'text-delta' && chunk.text) {
+          raw += chunk.text
+          void emit('delta', chunk.text)
+        }
+      })
+      await sub.established
+    } catch {
+      // channel not available (e.g. some local mocks) — complete() still works
+    }
     const done = await result.complete()
-    const raw = (done.text || '').trim()
-    // Extract the first {...} blob in case the model wraps it.
+    if (!raw) raw = (done.text || '')
+    raw = raw.trim()
+
     const match = raw.match(/\{[\s\S]*\}/)
     if (match) {
-      const parsed = JSON.parse(match[0]) as { action?: string; line?: string }
-      // Match the model's action to an allowed one (case-insensitive contains).
+      const parsed = JSON.parse(match[0]) as { action?: string; line?: string; reasoning?: string }
       const picked = options.find(
         (o) => o.toLowerCase() === (parsed.action || '').toLowerCase() ||
                (parsed.action || '').toLowerCase().includes(o.toLowerCase()) ||
                o.toLowerCase().includes((parsed.action || '').toLowerCase()),
       )
       if (picked) {
-        return { action: picked, line: (parsed.line || '').toString().slice(0, 120) }
+        await emit('end', (parsed.reasoning || '').toString().slice(0, 200))
+        return {
+          action: picked,
+          line: (parsed.line || '').toString().slice(0, 120),
+          reasoning: (parsed.reasoning || '').toString().slice(0, 200),
+        }
       }
     }
   } catch {
     // model unavailable / bad output — fall through
   }
+  await emit('end', '')
   return fallback
 }
 
@@ -613,7 +656,9 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
     if (state.phase !== 'player' || actor.isHuman) {
       return { state, botActed: false, botTurnPending: false }
     }
-    const { action, line } = await companionDecide(actor.classKey, actor.name, state.scenario, currentSituation(state))
+    const { action, line } = await companionDecide(
+      state.gameId, actor.classKey, actor.name, actor.color, state.scenario, currentSituation(state),
+    )
     if (line) await postBotChat(state.gameId, actor.name, actor.color, line)
     await resolveAction(state, action)
     advanceTurn(state)
@@ -632,6 +677,11 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   async getChatChannel(gameId: string) {
     await auth.requireAuth(context)
     return rt.getChannel('chat', gameId)
+  },
+
+  async getThinkingChannel(gameId: string) {
+    await auth.requireAuth(context)
+    return rt.getChannel('thinking', gameId)
   },
 
   // --- Chat ---
