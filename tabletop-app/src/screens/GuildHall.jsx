@@ -176,7 +176,9 @@ export default function GuildHall({ character, onOpenGame }) {
 }
 
 function GameCard({ game, onJoin }) {
+  const [showParty, setShowParty] = useState(false)
   const full = game.party >= game.maxParty
+  const members = game.members || []
   return (
     <div className="panel" style={{ padding: 12, marginBottom: 10, borderColor: 'var(--wood)' }}>
       <div className="row between" style={{ alignItems: 'flex-start' }}>
@@ -196,11 +198,33 @@ function GameCard({ game, onJoin }) {
             ))}
           </div>
           <div className="row gap-sm">
-            <button className="btn small btn-ghost">View Party</button>
+            <button className="btn small btn-ghost" onClick={() => setShowParty((v) => !v)}>
+              {showParty ? 'Hide Party' : 'View Party'}
+            </button>
             <button className="btn small" onClick={onJoin}>{full ? 'Enter' : 'Join Game'}</button>
           </div>
         </div>
       </div>
+
+      {/* Expandable party roster */}
+      {showParty && (
+        <div className="row wrap gap-sm" style={{ marginTop: 10, paddingTop: 10, borderTop: '2px solid var(--panel-line)' }}>
+          {members.length === 0 ? (
+            <span className="dim" style={{ fontSize: 16 }}>Party details unavailable.</span>
+          ) : (
+            members.map((m, i) => {
+              const cls = CLASSES[m.classKey]
+              return (
+                <div key={i} className="row gap-sm" style={{ alignItems: 'center', background: '#0f1120', border: `2px solid ${cls?.hex || 'var(--panel-line)'}`, borderRadius: 6, padding: '3px 8px' }}>
+                  {cls && <Sprite src={`/sprites/characters/${cls.variants[0]}.png`} alt={m.classKey} style={{ height: 22, width: 'auto' }} />}
+                  <span style={{ fontSize: 16, color: cls?.hex || 'var(--text)' }}>{m.name}</span>
+                  <span className="dim" style={{ fontSize: 14 }}>{cls?.name}{m.isHuman ? '' : ' · AI'}</span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
     </div>
   )
 }

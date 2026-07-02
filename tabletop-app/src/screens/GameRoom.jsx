@@ -18,8 +18,10 @@ const INV_ICON = { scroll: '📜', potion: '🧪', key: '🗝', gem: '💎', map
 export default function GameRoom({ gameId, character, onLeave }) {
   const [state, setState] = useState(null)
   const [chat, setChat] = useState([])
-  const [acting, setActing] = useState(false)
+  const [acting, setActing] = useState(false)   // human action in flight
+  const [botBusy, setBotBusy] = useState(false)  // a bot turn is resolving
   const [error, setError] = useState('')
+  const stepping = useRef(false) // guards the bot-turn stepper from overlapping
 
   const refreshState = useCallback(async () => {
     try {
@@ -38,19 +40,6 @@ export default function GameRoom({ gameId, character, onLeave }) {
     api.getChatHistory(gameId).then(setChat).catch(() => {})
   }, [gameId, refreshState])
 
-  // Subscribe to live state updates (bots acting, other players).
-  useEffect(() => {
-    let sub
-    ;(async () => {
-      try {
-        const channel = await api.getStateChannel(gameId)
-        sub = channel.subscribe(() => refreshState())
-        await sub.established
-      } catch { /* realtime unavailable — polling on action still works */ }
-    })()
-    return () => sub?.unsubscribe()
-  }, [gameId, refreshState])
-
   // Subscribe to live chat.
   useEffect(() => {
     let sub
@@ -67,6 +56,34 @@ export default function GameRoom({ gameId, character, onLeave }) {
     })()
     return () => sub?.unsubscribe()
   }, [gameId])
+
+  // Bot-turn stepper: whenever it becomes a bot's turn, resolve exactly one bot
+  // turn (with a beat of pacing) so the player visibly sees each companion act
+  // and whose turn it is. Loops until control returns to a human.
+  useEffect(() => {
+    if (!state || stepping.current) return
+    const actor = state.players[state.turnIndex]
+    if (state.phase !== 'player' || actor?.isHuman) return
+
+    stepping.current = true
+    let cancelled = false
+    ;(async () => {
+      // brief beat so the "X is taking their turn…" banner is readable
+      await new Promise((r) => setTimeout(r, 1100))
+      if (cancelled) { stepping.current = false; return }
+      try {
+        setBotBusy(true)
+        const res = await api.advanceBotTurn(gameId)
+        if (!cancelled && res?.state) setState(res.state)
+      } catch (e) {
+        if (!cancelled) setError(e?.message || 'Companion turn failed.')
+      } finally {
+        setBotBusy(false)
+        stepping.current = false
+      }
+    })()
+    return () => { cancelled = true }
+  }, [state, gameId])
 
   const act = useCallback(async (action) => {
     setActing(true)
@@ -116,19 +133,50 @@ export default function GameRoom({ gameId, character, onLeave }) {
 
   const me = state.players.find((p) => p.userId === character.userId) || state.players[0]
   const current = state.players[state.turnIndex]
-  const isMyTurn = state.phase === 'player' && current?.id === me.id && !acting
+  const currentIsMe = state.phase === 'player' && current?.id === me.id
+  const isMyTurn = currentIsMe && !acting && !botBusy
   const myClass = CLASSES[me.classKey]
   const dmActive = state.phase !== 'player'
 
+  // A single source of truth for "what's happening right now", surfaced both in a
+  // top banner and in the action area so the player always knows the state.
+  const status = (() => {
+    if (acting) return { text: 'Resolving your action…', tone: 'busy' }
+    if (dmActive) return { text: `The Dungeon Master (${state.dmName}) is narrating…`, tone: 'dm' }
+    if (currentIsMe) return { text: `Your turn, ${me.name} — choose an action`, tone: 'you' }
+    if (current) return { text: `${current.name} the ${CLASSES[current.classKey]?.name ?? ''} is taking their turn…`, tone: 'wait' }
+    return { text: '', tone: 'idle' }
+  })()
+  const statusColor = { you: 'var(--rogue)', wait: 'var(--ranger)', dm: 'var(--dm)', busy: 'var(--gold-bright)', idle: 'var(--text-meta)' }[status.tone]
+
   return (
     <Cabinet leftRail={left} rightRail={right}>
-      <div className="row gap" style={{ height: '100%', alignItems: 'stretch' }}>
+      <div className="col" style={{ height: '100%', gap: 8 }}>
+        {/* STATUS BANNER — always tells the player whose turn it is / what's happening */}
+        <div
+          className="row center"
+          style={{
+            flex: '0 0 auto', gap: 10, padding: '7px 14px', borderRadius: 8,
+            background: '#0f1120', border: `2px solid ${statusColor}`,
+            boxShadow: `0 0 14px ${statusColor}55`,
+          }}
+        >
+          <span style={{
+            width: 12, height: 12, borderRadius: '50%', background: statusColor,
+            boxShadow: `0 0 8px ${statusColor}`,
+            animation: status.tone === 'you' ? 'none' : 'pulseGlow 1.1s ease-in-out infinite', color: statusColor,
+          }} />
+          <span className="head" style={{ fontSize: 12, color: statusColor }}>{status.text}</span>
+          {error && <span style={{ color: '#ff6b6b', fontSize: 16 }}>⚠ {error}</span>}
+        </div>
+
+        <div className="row gap grow" style={{ alignItems: 'stretch', minHeight: 0 }}>
         {/* TURN ORDER */}
         <div className="panel col" style={{ flex: '0 0 200px' }}>
           <div className="panel-header">TURN ORDER</div>
           <div className="col grow" style={{ padding: 10, gap: 10, overflowY: 'auto' }}>
             {state.players.map((p, i) => (
-              <TurnChip key={p.id} p={p} n={i + 1} active={state.turnIndex === i && state.phase === 'player'} />
+              <TurnChip key={p.id} p={p} n={i + 1} active={state.turnIndex === i && state.phase === 'player'} me={p.id === me.id} />
             ))}
             <DMTurnChip active={dmActive} />
           </div>
@@ -144,6 +192,8 @@ export default function GameRoom({ gameId, character, onLeave }) {
             narration={lastDm(state)}
             actions={myClass?.actions || []}
             enabled={isMyTurn}
+            statusText={status.text}
+            statusColor={statusColor}
             onAct={act}
             phase={acting ? 'resolving' : state.phase}
             current={current}
@@ -170,6 +220,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
             </div>
           </div>
         </div>
+        </div>
       </div>
     </Cabinet>
   )
@@ -178,12 +229,13 @@ export default function GameRoom({ gameId, character, onLeave }) {
 const lastDm = (state) => [...state.log].reverse().find((l) => l.kind === 'dm')?.text
 
 /* ---------------------------------------------------------------- turn order */
-function TurnChip({ p, n, active }) {
+function TurnChip({ p, n, active, me }) {
   return (
     <div className="row gap-sm" style={{ alignItems: 'center', padding: 6, borderRadius: 8, background: active ? '#0f1120' : 'transparent', border: `2px solid ${active ? p.color : 'transparent'}`, boxShadow: active ? `0 0 14px ${p.color}` : 'none' }}>
       <Ring color={p.color} active={active} size={44}>
         <Sprite src={p.sprite} alt={p.name} style={{ height: 34, width: 'auto' }} />
       </Ring>
+      {active && <span style={{ position: 'absolute', marginLeft: 150, color: p.color, fontSize: 16 }}>◀</span>}
       <div className="col" style={{ gap: 0 }}>
         <span style={{ fontSize: 18, color: p.color }}>{n}: {p.name}</span>
         <span className="dim" style={{ fontSize: 14 }}>{CLASSES[p.classKey].name}{p.isHuman ? ' (you)' : ''}</span>
@@ -210,7 +262,7 @@ function Ring({ color, active, size = 44, children }) {
 }
 
 /* ---------------------------------------------------------------------- board */
-function Board({ players, activeIndex, dmName, dmActive, narration, actions, enabled, onAct, phase, current }) {
+function Board({ players, activeIndex, dmName, dmActive, narration, actions, enabled, onAct, phase, current, statusText, statusColor }) {
   // Four token slots in a 2x2 arrangement (percent of board).
   const SLOTS = [
     { left: '27%', top: '32%' },
@@ -262,7 +314,7 @@ function Board({ players, activeIndex, dmName, dmActive, narration, actions, ena
             <span style={{ color: 'var(--text)' }}>{narration}</span>
           </div>
         </div>
-        <ActionMenu actions={actions} enabled={enabled} onAct={onAct} phase={phase} current={current} />
+        <ActionMenu actions={actions} enabled={enabled} onAct={onAct} statusText={statusText} statusColor={statusColor} />
       </div>
     </div>
   )
@@ -308,32 +360,35 @@ function Token({ p, pos, active }) {
 }
 
 /* ------------------------------------------------------------------- actions */
-function ActionMenu({ actions, enabled, onAct, phase, current }) {
-  if (phase === 'resolving') {
-    return <div className="meta center" style={{ display: 'flex', fontSize: 20, padding: '10px 0' }}>Resolving the roll…</div>
-  }
-  if (!enabled) {
-    return (
-      <div className="meta center" style={{ display: 'flex', fontSize: 20, padding: '10px 0' }}>
-        {current ? `Waiting for ${current.name} to act…` : 'The Dungeon Master is speaking…'}
-      </div>
-    )
-  }
+// Always shows a status line so the player knows what's happening. Action buttons
+// are truly disabled (not just dimmed) whenever it isn't the player's turn, so a
+// stray click can't fire an action out of turn.
+function ActionMenu({ actions, enabled, onAct, statusText, statusColor }) {
   return (
     <div className="col center" style={{ gap: 6, marginTop: 8 }}>
+      <div className="head" style={{ fontSize: 11, color: statusColor, textAlign: 'center', marginBottom: 2 }}>
+        {enabled ? '▶ YOUR TURN — CHOOSE AN ACTION' : statusText}
+      </div>
       {actions.map((a, i) => (
         <button
           key={a}
-          onClick={() => onAct(a)}
+          disabled={!enabled}
+          onClick={() => enabled && onAct(a)}
           style={{
-            width: 'min(420px, 92%)', textAlign: 'center', cursor: 'pointer',
-            fontFamily: 'var(--font-body)', fontSize: 21, color: 'var(--text)',
+            width: 'min(420px, 92%)', textAlign: 'center',
+            cursor: enabled ? 'pointer' : 'not-allowed',
+            fontFamily: 'var(--font-body)', fontSize: 21,
+            color: enabled ? 'var(--text)' : 'var(--text-dim)',
             padding: '8px 12px', borderRadius: 6,
-            background: i === 0 ? 'linear-gradient(180deg,#2b2f52,#1b1e36)' : 'linear-gradient(180deg,#232640,#191b30)',
-            border: `2px solid ${i === 0 ? 'var(--gold)' : 'var(--panel-line)'}`,
+            opacity: enabled ? 1 : 0.45,
+            filter: enabled ? 'none' : 'grayscale(0.7)',
+            background: !enabled
+              ? 'linear-gradient(180deg,#1a1c2e,#141624)'
+              : i === 0 ? 'linear-gradient(180deg,#2b2f52,#1b1e36)' : 'linear-gradient(180deg,#232640,#191b30)',
+            border: `2px solid ${enabled && i === 0 ? 'var(--gold)' : 'var(--panel-line)'}`,
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--gold)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = i === 0 ? 'var(--gold)' : 'var(--panel-line)')}
+          onMouseEnter={(e) => { if (enabled) e.currentTarget.style.borderColor = 'var(--gold)' }}
+          onMouseLeave={(e) => { if (enabled) e.currentTarget.style.borderColor = i === 0 ? 'var(--gold)' : 'var(--panel-line)' }}
         >
           {a}
         </button>

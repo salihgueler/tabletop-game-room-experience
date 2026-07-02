@@ -416,21 +416,6 @@ function currentSituation(state: GameState): string {
   return lastDm?.text ?? state.scenario
 }
 
-// After a human acts, auto-resolve any consecutive bot turns until it's a
-// human's turn again (or we loop back to the human). Each bot seat is driven by
-// its own companion agent, which decides its action and speaks in character.
-async function runBotTurns(state: GameState) {
-  let guard = 0
-  while (state.phase === 'player' && !state.players[state.turnIndex].isHuman && guard < 8) {
-    const bot = state.players[state.turnIndex]
-    const { action, line } = await companionDecide(bot.classKey, bot.name, state.scenario, currentSituation(state))
-    if (line) await postBotChat(state.gameId, bot.name, bot.color, line)
-    await resolveAction(state, action)
-    advanceTurn(state)
-    guard += 1
-  }
-}
-
 // Showcase public games seeded on first lobby load so the hall isn't empty.
 // Each is hosted by a system bot party (no human seat filled yet).
 const SEED_GAMES = [
@@ -509,6 +494,7 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
         status: g.status,
         party: st ? st.players.filter((p) => p.isHuman).length : 1,
         partyClasses: st ? st.players.map((p) => p.classKey) : [],
+        members: st ? st.players.map((p) => ({ name: p.name, classKey: p.classKey, isHuman: p.isHuman })) : [],
       })
     }
     return result
@@ -601,6 +587,9 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   },
 
   // --- Turn engine ---
+  // A human takes their action. This resolves ONLY their turn and advances to the
+  // next actor, so the client can then step bot turns one at a time (visible to
+  // everyone). It does NOT auto-run the bots.
   async takeAction(gameId: string, action: string) {
     const user = await auth.requireAuth(context)
     const state = await loadState(gameId)
@@ -610,8 +599,28 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
 
     await resolveAction(state, action)
     advanceTurn(state)
-    await runBotTurns(state)
     return await saveAndBroadcast(state)
+  },
+
+  // Resolve exactly ONE bot turn (the current actor, if it's a bot). Returns the
+  // updated state plus whether it's still a bot's turn, so the client can loop
+  // with pacing and show each companion acting in sequence. No-op (and safe to
+  // call) when it's a human's turn.
+  async advanceBotTurn(gameId: string) {
+    await auth.requireAuth(context)
+    const state = await loadState(gameId)
+    const actor = state.players[state.turnIndex]
+    if (state.phase !== 'player' || actor.isHuman) {
+      return { state, botActed: false, botTurnPending: false }
+    }
+    const { action, line } = await companionDecide(actor.classKey, actor.name, state.scenario, currentSituation(state))
+    if (line) await postBotChat(state.gameId, actor.name, actor.color, line)
+    await resolveAction(state, action)
+    advanceTurn(state)
+    const next = state.players[state.turnIndex]
+    const botTurnPending = state.phase === 'player' && !next.isHuman
+    const saved = await saveAndBroadcast(state)
+    return { state: saved, botActed: true, botTurnPending }
   },
 
   // --- Realtime channels ---
