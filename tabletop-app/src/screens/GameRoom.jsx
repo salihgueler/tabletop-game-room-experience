@@ -31,7 +31,8 @@ export default function GameRoom({ gameId, character, onLeave }) {
     }
   }, [gameId])
 
-  // Initial load: claim a seat, then fetch state + chat history.
+  // Initial load: try to claim a seat (no-op if full → we spectate), then fetch
+  // state + chat history.
   useEffect(() => {
     ;(async () => {
       try { await api.joinGame(gameId) } catch { /* already seated or full */ }
@@ -39,6 +40,14 @@ export default function GameRoom({ gameId, character, onLeave }) {
     })()
     api.getChatHistory(gameId).then(setChat).catch(() => {})
   }, [gameId, refreshState])
+
+  // While in the lobby (waiting for humans), poll so newly-joined seats and the
+  // live transition appear without a manual refresh.
+  useEffect(() => {
+    if (state?.roomPhase !== 'lobby') return
+    const t = setInterval(refreshState, 3000)
+    return () => clearInterval(t)
+  }, [state?.roomPhase, refreshState])
 
   // Subscribe to live chat.
   useEffect(() => {
@@ -85,8 +94,10 @@ export default function GameRoom({ gameId, character, onLeave }) {
   const inflight = useRef(false)
   useEffect(() => {
     if (!state || inflight.current || acting) return
+    if (state.roomPhase !== 'live') return
     const actor = state.players[state.turnIndex]
-    if (state.phase !== 'player' || actor?.isHuman) return
+    // Only auto-resolve AI-companion seats; human seats wait for their player.
+    if (state.phase !== 'player' || actor?.seat !== 'ai') return
 
     inflight.current = true
     let cancelled = false
@@ -127,6 +138,16 @@ export default function GameRoom({ gameId, character, onLeave }) {
     try { await api.sendChat(gameId, text) } catch { /* ignore */ }
   }, [gameId])
 
+  const startWithAi = useCallback(async () => {
+    setError('')
+    try {
+      await api.startWithAi(gameId)
+      await refreshState()
+    } catch (e) {
+      setError(e?.message || 'Could not start the game.')
+    }
+  }, [gameId, refreshState])
+
   const left = (
     <>
       <RailBtn title="Leave Table" onClick={onLeave}>⎋</RailBtn>
@@ -156,16 +177,23 @@ export default function GameRoom({ gameId, character, onLeave }) {
     )
   }
 
-  const me = state.players.find((p) => p.userId === character.userId) || state.players[0]
+  // My seat is whatever the backend says I own — NEVER a fallback to players[0].
+  // No seat ⇒ spectator (watch-only). This is what makes "it's my turn" honest.
+  const me = state.players.find((p) => p.userId === (state.viewer?.userId ?? character.userId) && p.seat === 'human')
+  const spectator = state.viewer?.spectator ?? !me
+  const inLobby = state.roomPhase === 'lobby'
+  const isHost = state.players[0]?.userId === (state.viewer?.userId ?? character.userId)
   const current = state.players[state.turnIndex]
-  const currentIsMe = state.phase === 'player' && current?.id === me.id
+  const currentIsMe = !inLobby && state.phase === 'player' && !!me && current?.id === me.id
   const isMyTurn = currentIsMe && !acting && !botBusy
-  const myClass = CLASSES[me.classKey]
+  const myClass = me ? CLASSES[me.classKey] : null
   const dmActive = state.phase !== 'player'
 
   // A single source of truth for "what's happening right now", surfaced both in a
   // top banner and in the action area so the player always knows the state.
   const status = (() => {
+    if (inLobby) return { text: 'Gathering the party — waiting for seats to fill…', tone: 'wait' }
+    if (spectator) return { text: `👁 Watching — ${current ? `${current.name}'s turn` : 'in progress'}`, tone: 'idle' }
     if (acting) return { text: 'Resolving your action…', tone: 'busy' }
     if (dmActive) return { text: `The Dungeon Master (${state.dmName}) is narrating…`, tone: 'dm' }
     if (currentIsMe) return { text: `Your turn, ${me.name} — choose an action`, tone: 'you' }
@@ -195,6 +223,21 @@ export default function GameRoom({ gameId, character, onLeave }) {
           {error && <span style={{ color: '#ff6b6b', fontSize: 16 }}>⚠ {error}</span>}
         </div>
 
+        {/* LOBBY BAR — seat status + host controls while gathering the party */}
+        {inLobby && (
+          <div className="row between" style={{ flex: '0 0 auto', alignItems: 'center', padding: '8px 14px', borderRadius: 8, background: '#12142e', border: '2px solid var(--ranger)' }}>
+            <span style={{ fontSize: 19, color: 'var(--text)' }}>
+              {state.players.filter((p) => p.seat !== 'open').length}/{state.players.length} seats filled
+              {spectator ? ' · you are watching' : isHost ? ' · you are the host' : ' · you are seated'}
+            </span>
+            {isHost && (
+              <button className="btn small" onClick={startWithAi} disabled={acting}>
+                ⚔ START NOW (fill with AI)
+              </button>
+            )}
+          </div>
+        )}
+
         {/* LIVE THINKING — streams the acting companion's reasoning as it arrives */}
         {thinking && (
           <div
@@ -219,7 +262,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
           <div className="panel-header">TURN ORDER</div>
           <div className="col grow" style={{ padding: 10, gap: 10, overflowY: 'auto' }}>
             {state.players.map((p, i) => (
-              <TurnChip key={p.id} p={p} n={i + 1} active={state.turnIndex === i && state.phase === 'player'} me={p.id === me.id} />
+              <TurnChip key={p.id} p={p} n={i + 1} active={!inLobby && state.turnIndex === i && state.phase === 'player'} me={p.id === me?.id} />
             ))}
             <DMTurnChip active={dmActive} />
           </div>
@@ -280,8 +323,11 @@ function TurnChip({ p, n, active, me }) {
       </Ring>
       {active && <span style={{ position: 'absolute', marginLeft: 150, color: p.color, fontSize: 16 }}>◀</span>}
       <div className="col" style={{ gap: 0 }}>
-        <span style={{ fontSize: 18, color: p.color }}>{n}: {p.name}</span>
-        <span className="dim" style={{ fontSize: 14 }}>{CLASSES[p.classKey].name}{p.isHuman ? ' (you)' : ''}</span>
+        <span style={{ fontSize: 18, color: p.color }}>{n}: {p.seat === 'open' ? 'Open Seat' : p.name}</span>
+        <span className="dim" style={{ fontSize: 14 }}>
+          {CLASSES[p.classKey]?.name}
+          {me ? ' (you)' : p.seat === 'ai' ? ' · AI' : p.seat === 'open' ? ' · waiting' : ''}
+        </span>
       </div>
     </div>
   )

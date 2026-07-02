@@ -65,8 +65,11 @@ const playerSchema = z.object({
   classKey: z.string(),
   sprite: z.string(),
   color: z.string(),
-  isHuman: z.boolean(),
-  userId: z.string().nullable(), // owning account for human players
+  // Seat kind: 'human' = a real player (has userId), 'ai' = AI companion,
+  // 'open' = an unclaimed seat waiting for a human to join.
+  seat: z.enum(['human', 'ai', 'open']),
+  isHuman: z.boolean(), // true for human & open seats (i.e. NOT AI-controlled)
+  userId: z.string().nullable(), // owning account for a claimed human seat
   hp: z.number(),
   slot: z.number(),
 })
@@ -119,6 +122,9 @@ const gameStateSchema = z.object({
   scenario: z.string(),
   dmName: z.string(),
   players: z.array(playerSchema),
+  // 'lobby' = still gathering the party (open seats remain, turns don't run);
+  // 'live' = all seats filled, the adventure is in progress.
+  roomPhase: z.enum(['lobby', 'live']),
   turnIndex: z.number(),
   round: z.number(),
   phase: z.enum(['player', 'resolving', 'dm']),
@@ -434,27 +440,86 @@ const BOT_NAMES = ['Zara', 'Thorn', 'Lyra', 'Fen', 'Mira', 'Bram']
 type Player = z.infer<typeof playerSchema>
 type GameState = z.infer<typeof gameStateSchema>
 
-// Build the 4-seat party: the human first, then bots for each remaining class.
-function buildParty(human: { name: string; classKey: string; sprite: string; userId: string }): Player[] {
+// Seat predicates — the single source of truth for occupancy across the app.
+const isRealHuman = (p: Player) => p.seat === 'human' && !!p.userId
+const isOpenSeat = (p: Player) => p.seat === 'open'
+const isAiSeat = (p: Player) => p.seat === 'ai'
+// An actor takes a turn only when the room is 'live'. Humans act via the API;
+// AI seats are auto-resolved by the bot stepper. Open seats never get here
+// because turns don't run until the room is full.
+
+// Build the 4-seat party. Seat 0 is the creating human. The other 3 seats are
+// either AI companions (fillMode='ai') or left open for other humans
+// (fillMode='humans').
+function buildParty(
+  human: { name: string; classKey: string; sprite: string; userId: string },
+  fillMode: 'ai' | 'humans',
+): Player[] {
   const players: Player[] = [{
     id: 'you', name: human.name, classKey: human.classKey, sprite: human.sprite,
-    color: CLASS_META[human.classKey]?.color ?? 'var(--paladin)', isHuman: true,
-    userId: human.userId, hp: 20, slot: 0,
+    color: CLASS_META[human.classKey]?.color ?? 'var(--paladin)',
+    seat: 'human', isHuman: true, userId: human.userId, hp: 20, slot: 0,
   }]
   const botClasses = CORE_CLASSES.filter((c) => c !== human.classKey)
   const usedNames: string[] = []
   for (let i = 0; i < 3; i++) {
     const ck = botClasses[i % botClasses.length]
-    const variant = `${ck}_${'abcd'[Math.floor(Math.random() * 4)]}`
+    if (fillMode === 'ai') {
+      const variant = `${ck}_${'abcd'[Math.floor(Math.random() * 4)]}`
+      let name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+      while (usedNames.includes(name)) name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
+      usedNames.push(name)
+      players.push({
+        id: `bot${i}`, name, classKey: ck, sprite: `/sprites/characters/${variant}.png`,
+        color: CLASS_META[ck]?.color ?? 'var(--rogue)', seat: 'ai', isHuman: false, userId: null, hp: 20, slot: i + 1,
+      })
+    } else {
+      // Open seat awaiting a human — shown as an empty chair until claimed.
+      players.push({
+        id: `seat${i}`, name: 'Open Seat', classKey: ck, sprite: `/sprites/characters/${ck}_a.png`,
+        color: 'var(--text-dim)', seat: 'open', isHuman: true, userId: null, hp: 20, slot: i + 1,
+      })
+    }
+  }
+  return players
+}
+
+// Fill every remaining open seat with an AI companion (host chose to start now,
+// or enough humans never showed). Flips the room to 'live'.
+function fillOpenSeatsWithAi(state: GameState) {
+  const usedNames = state.players.filter((p) => isRealHuman(p) || isAiSeat(p)).map((p) => p.name)
+  for (const p of state.players) {
+    if (!isOpenSeat(p)) continue
     let name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
     while (usedNames.includes(name)) name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)]
     usedNames.push(name)
-    players.push({
-      id: `bot${i}`, name, classKey: ck, sprite: `/sprites/characters/${variant}.png`,
-      color: CLASS_META[ck]?.color ?? 'var(--rogue)', isHuman: false, userId: null, hp: 20, slot: i + 1,
-    })
+    p.seat = 'ai'
+    p.isHuman = false
+    p.name = name
+    p.sprite = `/sprites/characters/${p.classKey}_${'abcd'[Math.floor(Math.random() * 4)]}.png`
+    p.color = CLASS_META[p.classKey]?.color ?? 'var(--rogue)'
   }
-  return players
+}
+
+const hasOpenSeat = (state: GameState) => state.players.some(isOpenSeat)
+
+// Flip a full room to 'live' and generate the opening scene for seat 0.
+async function beginAdventure(state: GameState) {
+  if (state.roomPhase === 'live') return
+  state.roomPhase = 'live'
+  state.turnIndex = 0
+  state.phase = 'player'
+  const first = state.players[0]
+  const opener = OPENERS[state.scenario] ?? OPENERS['Cave Crypt']
+  const { prompt, options } = await nextScene(state.scenario, opener, first.name, first.classKey)
+  state.options = options
+  state.log = [...state.log, { kind: 'dm', who: `AI DM: ${state.dmName}`, text: prompt }]
+}
+
+// Keep the lobby row's status/joinability in sync with the live seat state.
+async function syncLobbyStatus(state: GameState) {
+  const g = await games.get({ listKey: 'all', gameId: state.gameId })
+  if (g) await games.put({ ...g, status: hasOpenSeat(state) ? 'Awaiting Players' : 'In Session' })
 }
 
 async function loadState(gameId: string): Promise<GameState> {
@@ -547,20 +612,22 @@ async function seedIfEmpty() {
       dmType: g.dmType, dmLevel: g.dmLevel, maxParty: MAX_PARTY, status: 'Awaiting Players',
       isPublic: true, accessCode: null, hostUserId: 'system', createdAt: i,
     })
-    // Build a party led by a system-owned host character so it's playable/joinable.
-    const hostName = ['Kael', 'Zara', 'Lyra'][i] ?? 'Host'
-    const players = buildParty({ name: hostName, classKey: g.host, sprite: `/sprites/characters/${g.host}_a.png`, userId: 'system' })
+    // Seeded games are OPEN lobbies: all four seats await players. The first
+    // person to join claims seat 0 and becomes the host, then decides whether to
+    // fill the rest with AI or wait for more humans.
+    const players: Player[] = CORE_CLASSES.map((ck, slot) => ({
+      id: `seat${slot}`, name: 'Open Seat', classKey: ck, sprite: `/sprites/characters/${ck}_a.png`,
+      color: 'var(--text-dim)', seat: 'open' as const, isHuman: true, userId: null, hp: 20, slot,
+    }))
     await gameStates.put({
-      gameId, scenario: g.theme, dmName: g.dmType, players, turnIndex: 0, round: 1,
-      phase: 'player', dc: 12, lastRoll: null,
+      gameId, scenario: g.theme, dmName: g.dmType, players, roomPhase: 'lobby',
+      turnIndex: 0, round: 1, phase: 'player', dc: 12, lastRoll: null,
       log: [
         { kind: 'dm', who: `AI DM: ${g.dmType}`, text: OPENERS[g.theme] ?? OPENERS['Cave Crypt'] },
-        { kind: 'dm', who: `AI DM: ${g.dmType}`, text: promptFor(players[0].name) },
+        { kind: 'dm', who: `AI DM: ${g.dmType}`, text: 'Waiting for adventurers to take their seats…' },
       ],
-      // Seeded games start with class-default options (fast lobby seed, no N LLM
-      // calls); the first turn's advanceTurn regenerates contextual choices.
       inventory: ['scroll', 'potion', 'key', 'gem', 'map'],
-      options: CLASS_META[g.host]?.actions ?? ['Investigate'],
+      options: [],
       version: 0,
     })
     i += 1
@@ -594,11 +661,14 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
     const all = await Array.fromAsync(
       games.query({ index: 'byCreated', where: { listKey: { equals: 'all' } } }),
     )
-    // Only public games in the lobby; newest first. Attach live party size.
+    // Only public games in the lobby; newest first. Occupancy is computed from
+    // the live state: seats held by real humans vs AI-filled/open seats.
     const publicGames = all.filter((g) => g.isPublic).reverse()
     const result = []
     for (const g of publicGames) {
       const st = await gameStates.get({ gameId: g.gameId })
+      const filled = st ? st.players.filter((p) => !isOpenSeat(p)).length : 0
+      const open = st ? hasOpenSeat(st) : false
       result.push({
         id: g.gameId,
         name: g.name,
@@ -607,16 +677,19 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
         maxParty: g.maxParty,
         dmLevel: g.dmLevel,
         dm: g.dmType,
-        status: g.status,
-        party: st ? st.players.filter((p) => p.isHuman).length : 1,
+        // Open seats remaining → still gathering the party (joinable, not in
+        // progress). No open seats → full, in progress, watch-only.
+        full: !open,
+        status: open ? 'Awaiting Players' : 'In Session',
+        party: filled,
         partyClasses: st ? st.players.map((p) => p.classKey) : [],
-        members: st ? st.players.map((p) => ({ name: p.name, classKey: p.classKey, isHuman: p.isHuman })) : [],
+        members: st ? st.players.map((p) => ({ name: p.name, classKey: p.classKey, seat: p.seat })) : [],
       })
     }
     return result
   },
 
-  async createGame(input: { scenario: string; dmType: string; isPublic: boolean; accessCode?: string }) {
+  async createGame(input: { scenario: string; dmType: string; isPublic: boolean; accessCode?: string; fillMode?: 'ai' | 'humans' }) {
     const user = await auth.requireAuth(context)
     const character = await characters.get({ userId: user.username })
     if (!character) throw new Error('Choose a character first')
@@ -624,6 +697,7 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
     const gameId = uid()
     const scenario = (SCENARIOS as readonly string[]).includes(input.scenario) ? input.scenario : 'Cave Crypt'
     const dmName = (DM_TYPES as readonly string[]).includes(input.dmType) ? input.dmType : 'Grimjaw'
+    const fillMode = input.fillMode === 'humans' ? 'humans' : 'ai'
     const name = `${character.name}'s ${scenario} Run`
 
     await games.put({
@@ -635,22 +709,28 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
       dmType: dmName,
       dmLevel: 'Intermediate',
       maxParty: MAX_PARTY,
-      status: 'In Session',
+      // AI-filled starts live; waiting-for-humans starts in the lobby.
+      status: fillMode === 'ai' ? 'In Session' : 'Awaiting Players',
       isPublic: input.isPublic,
       accessCode: input.accessCode ?? null,
       hostUserId: user.username,
       createdAt: Date.now(),
     })
 
-    const players = buildParty({ name: character.name, classKey: character.classKey, sprite: character.sprite, userId: user.username })
+    const players = buildParty({ name: character.name, classKey: character.classKey, sprite: character.sprite, userId: user.username }, fillMode)
+    const roomPhase = fillMode === 'ai' ? 'live' : 'lobby'
     const opener = OPENERS[scenario] ?? OPENERS['Cave Crypt']
-    // Generate the opening scene's contextual choices for the first player.
-    const { prompt, options } = await nextScene(scenario, opener, players[0].name, players[0].classKey)
+    // If starting live (AI-filled), generate the opening scene's choices now.
+    // If waiting for humans, hold in the lobby until the party is full.
+    const opening = roomPhase === 'live'
+      ? await nextScene(scenario, opener, players[0].name, players[0].classKey)
+      : { prompt: 'Waiting for adventurers to take their seats…', options: [] as string[] }
     const state: GameState = {
       gameId,
       scenario,
       dmName,
       players,
+      roomPhase,
       turnIndex: 0,
       round: 1,
       phase: 'player',
@@ -658,10 +738,10 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
       lastRoll: null,
       log: [
         { kind: 'dm', who: `AI DM: ${dmName}`, text: opener },
-        { kind: 'dm', who: `AI DM: ${dmName}`, text: prompt },
+        { kind: 'dm', who: `AI DM: ${dmName}`, text: opening.prompt },
       ],
       inventory: ['scroll', 'potion', 'key', 'gem', 'map'],
-      options,
+      options: opening.options,
       version: 0,
     }
     await gameStates.put(state)
@@ -677,12 +757,19 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   },
 
   async getState(gameId: string) {
-    await auth.requireAuth(context)
-    return await loadState(gameId)
+    const user = await auth.requireAuth(context)
+    const state = await loadState(gameId)
+    // Tell the client which seat (if any) belongs to the viewer. No owned seat
+    // means they are a spectator (watch-only) — the client uses this to decide
+    // whether to enable actions, instead of guessing.
+    const mySeatId = state.players.find((p) => p.userId === user.username)?.id ?? null
+    return { ...state, viewer: { userId: user.username, mySeatId, spectator: mySeatId === null } }
   },
 
-  // Claim a seat in a game. If the player already holds a seat, no-op. Otherwise
-  // take over the first system-owned (unclaimed) human seat so they can act.
+  // Claim an open seat so the caller can play. If they already hold one, no-op.
+  // If no seat is open (all filled by humans/AI), they remain a spectator
+  // (watch-only) — returns { seated:false }. When the last open seat is filled,
+  // the room goes live and the opening scene is generated.
   async joinGame(gameId: string) {
     const user = await auth.requireAuth(context)
     const character = await characters.get({ userId: user.username })
@@ -690,19 +777,37 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
     const state = await loadState(gameId)
 
     if (state.players.some((p) => p.userId === user.username)) {
-      return { gameId } // already seated
+      return { gameId, seated: true } // already seated
     }
-    const openSeat = state.players.find((p) => p.isHuman && (p.userId === 'system' || p.userId === null))
-    if (openSeat) {
-      openSeat.userId = user.username
-      openSeat.name = character.name
-      openSeat.classKey = character.classKey
-      openSeat.sprite = character.sprite
-      openSeat.color = CLASS_META[character.classKey]?.color ?? openSeat.color
-      const g = await games.get({ listKey: 'all', gameId })
-      if (g) await games.put({ ...g, status: 'In Session' })
-      await saveAndBroadcast(state)
+    const openSeat = state.players.find(isOpenSeat)
+    if (!openSeat) {
+      return { gameId, seated: false } // full → spectator
     }
+    openSeat.seat = 'human'
+    openSeat.isHuman = true
+    openSeat.userId = user.username
+    openSeat.name = character.name
+    openSeat.classKey = character.classKey
+    openSeat.sprite = character.sprite
+    openSeat.color = CLASS_META[character.classKey]?.color ?? openSeat.color
+
+    if (!hasOpenSeat(state)) await beginAdventure(state) // party complete → go live
+    await syncLobbyStatus(state)
+    await saveAndBroadcast(state)
+    return { gameId, seated: true }
+  },
+
+  // Host fills the remaining open seats with AI companions and starts now.
+  async startWithAi(gameId: string) {
+    const user = await auth.requireAuth(context)
+    const state = await loadState(gameId)
+    const host = state.players.find((p) => p.slot === 0)
+    if (host?.userId !== user.username) throw new Error('Only the host can start the game')
+    if (state.roomPhase === 'live') return { gameId }
+    fillOpenSeatsWithAi(state)
+    await beginAdventure(state)
+    await syncLobbyStatus(state)
+    await saveAndBroadcast(state)
     return { gameId }
   },
 
@@ -713,24 +818,26 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   async takeAction(gameId: string, action: string) {
     const user = await auth.requireAuth(context)
     const state = await loadState(gameId)
+    if (state.roomPhase !== 'live') throw new Error('The game has not started yet')
     const actor = state.players[state.turnIndex]
     if (state.phase !== 'player') throw new Error('Not ready for an action')
-    if (!actor.isHuman || actor.userId !== user.username) throw new Error('Not your turn')
+    // Only the human who owns the CURRENT seat may act.
+    if (actor.seat !== 'human' || actor.userId !== user.username) throw new Error('Not your turn')
 
     await resolveAction(state, action)
     await advanceTurn(state)
     return await saveAndBroadcast(state)
   },
 
-  // Resolve exactly ONE bot turn (the current actor, if it's a bot). Returns the
-  // updated state plus whether it's still a bot's turn, so the client can loop
-  // with pacing and show each companion acting in sequence. No-op (and safe to
-  // call) when it's a human's turn.
+  // Resolve exactly ONE AI-companion turn (the current actor, if it's an AI
+  // seat). Returns the updated state plus whether it's still an AI turn, so the
+  // client can loop with pacing and show each companion acting in sequence.
+  // No-op when it's a human's turn or the room isn't live.
   async advanceBotTurn(gameId: string) {
     await auth.requireAuth(context)
     const state = await loadState(gameId)
     const actor = state.players[state.turnIndex]
-    if (state.phase !== 'player' || actor.isHuman) {
+    if (state.roomPhase !== 'live' || state.phase !== 'player' || !isAiSeat(actor)) {
       return { state, botActed: false, botTurnPending: false }
     }
     const { action, line } = await companionDecide(
@@ -740,7 +847,7 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
     await resolveAction(state, action)
     await advanceTurn(state)
     const next = state.players[state.turnIndex]
-    const botTurnPending = state.phase === 'player' && !next.isHuman
+    const botTurnPending = state.phase === 'player' && isAiSeat(next)
     const saved = await saveAndBroadcast(state)
     return { state: saved, botActed: true, botTurnPending }
   },

@@ -15,6 +15,7 @@ export default function GuildHall({ character, onOpenGame }) {
   const [scenario, setScenario] = useState('')
   const [dm, setDm] = useState('')
   const [isPublic, setIsPublic] = useState(true)
+  const [fillMode, setFillMode] = useState('ai') // 'ai' | 'humans'
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -44,7 +45,7 @@ export default function GuildHall({ character, onOpenGame }) {
     setBusy(true)
     setError('')
     try {
-      const { gameId } = await api.createGame({ scenario, dmType: dm, isPublic, accessCode: code.trim() || undefined })
+      const { gameId } = await api.createGame({ scenario, dmType: dm, isPublic, fillMode, accessCode: code.trim() || undefined })
       onOpenGame(gameId)
     } catch (e) {
       setError(e?.message || 'Could not create game.')
@@ -135,6 +136,19 @@ export default function GuildHall({ character, onOpenGame }) {
                   {dmTypes.map((d) => <option key={d}>{d}</option>)}
                 </select>
               </div>
+              <div className="field">
+                <label>Party Seats</label>
+                <div className="col gap-sm">
+                  <label className="row gap-sm" style={{ alignItems: 'center', fontSize: 19, cursor: 'pointer' }}>
+                    <input type="radio" name="fill" checked={fillMode === 'ai'} onChange={() => setFillMode('ai')} style={{ width: 16, height: 16 }} />
+                    <span className="meta">Fill with AI companions — start now</span>
+                  </label>
+                  <label className="row gap-sm" style={{ alignItems: 'center', fontSize: 19, cursor: 'pointer' }}>
+                    <input type="radio" name="fill" checked={fillMode === 'humans'} onChange={() => setFillMode('humans')} style={{ width: 16, height: 16 }} />
+                    <span className="meta">Wait for other players to join</span>
+                  </label>
+                </div>
+              </div>
               <label className="row gap-sm" style={{ alignItems: 'center', margin: '2px 0 14px', fontSize: 20, cursor: 'pointer' }}>
                 <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} style={{ width: 18, height: 18 }} />
                 <span className="meta">Open to Public?</span>
@@ -177,7 +191,7 @@ export default function GuildHall({ character, onOpenGame }) {
 
 function GameCard({ game, onJoin }) {
   const [showParty, setShowParty] = useState(false)
-  const full = game.party >= game.maxParty
+  const full = game.full
   const members = game.members || []
   return (
     <div className="panel" style={{ padding: 12, marginBottom: 10, borderColor: 'var(--wood)' }}>
@@ -185,23 +199,24 @@ function GameCard({ game, onJoin }) {
         <div className="grow">
           <div className="head" style={{ fontSize: 12, color: 'var(--gold-bright)', marginBottom: 6 }}>{game.name}</div>
           <div className="dim" style={{ fontSize: 16 }}>{game.note}</div>
-          <div className="meta" style={{ fontSize: 18, marginTop: 4 }}>Current Party Size: {game.party}/{game.maxParty} Players</div>
+          <div className="meta" style={{ fontSize: 18, marginTop: 4 }}>Party: {game.party}/{game.maxParty} seats filled</div>
           <div className="meta" style={{ fontSize: 18 }}>AI DM Level: {game.dmLevel}</div>
           <div style={{ fontSize: 18, marginTop: 2 }}>
-            Status: <span style={{ color: game.status === 'In Session' ? 'var(--rogue)' : 'var(--ranger)' }}>{game.status}</span>
+            Status: <span style={{ color: full ? 'var(--rogue)' : 'var(--ranger)' }}>{full ? 'In Session' : 'Awaiting Players'}</span>
           </div>
         </div>
         <div className="col gap-sm" style={{ alignItems: 'flex-end' }}>
           <div className="row" style={{ gap: 2 }}>
             {(game.partyClasses || []).map((c, i) => (
-              CLASSES[c] ? <Sprite key={i} src={`/sprites/characters/${CLASSES[c].variants[0]}.png`} alt={c} style={{ height: 30, width: 'auto' }} /> : null
+              CLASSES[c] ? <Sprite key={i} src={`/sprites/characters/${CLASSES[c].variants[0]}.png`} alt={c} style={{ height: 30, width: 'auto', opacity: members[i]?.seat === 'open' ? 0.35 : 1 }} /> : null
             ))}
           </div>
           <div className="row gap-sm">
             <button className="btn small btn-ghost" onClick={() => setShowParty((v) => !v)}>
               {showParty ? 'Hide Party' : 'View Party'}
             </button>
-            <button className="btn small" onClick={onJoin}>{full ? 'Enter' : 'Join Game'}</button>
+            {/* Open seats → Join and play; full → Watch as a spectator. */}
+            <button className="btn small" onClick={onJoin}>{full ? '👁 Watch' : 'Join Game'}</button>
           </div>
         </div>
       </div>
@@ -214,11 +229,13 @@ function GameCard({ game, onJoin }) {
           ) : (
             members.map((m, i) => {
               const cls = CLASSES[m.classKey]
+              const isOpen = m.seat === 'open'
+              const label = isOpen ? 'Open seat' : (m.seat === 'ai' ? 'AI' : 'Player')
               return (
-                <div key={i} className="row gap-sm" style={{ alignItems: 'center', background: '#0f1120', border: `2px solid ${cls?.hex || 'var(--panel-line)'}`, borderRadius: 6, padding: '3px 8px' }}>
-                  {cls && <Sprite src={`/sprites/characters/${cls.variants[0]}.png`} alt={m.classKey} style={{ height: 22, width: 'auto' }} />}
-                  <span style={{ fontSize: 16, color: cls?.hex || 'var(--text)' }}>{m.name}</span>
-                  <span className="dim" style={{ fontSize: 14 }}>{cls?.name}{m.isHuman ? '' : ' · AI'}</span>
+                <div key={i} className="row gap-sm" style={{ alignItems: 'center', background: '#0f1120', border: `2px solid ${isOpen ? 'var(--panel-line)' : (cls?.hex || 'var(--panel-line)')}`, borderRadius: 6, padding: '3px 8px', opacity: isOpen ? 0.6 : 1 }}>
+                  {cls && <Sprite src={`/sprites/characters/${cls.variants[0]}.png`} alt={m.classKey} style={{ height: 22, width: 'auto', filter: isOpen ? 'grayscale(1)' : 'none' }} />}
+                  <span style={{ fontSize: 16, color: isOpen ? 'var(--text-dim)' : (cls?.hex || 'var(--text)') }}>{isOpen ? cls?.name : m.name}</span>
+                  <span className="dim" style={{ fontSize: 14 }}>· {label}</span>
                 </div>
               )
             })
