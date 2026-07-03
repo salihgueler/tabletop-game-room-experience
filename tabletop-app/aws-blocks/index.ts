@@ -34,6 +34,9 @@ const SCENARIOS = ['Cave Crypt', 'Dungeon Crawl', 'Magic Tower', 'Frozen Keep', 
 const DM_TYPES = ['Grimjaw', 'Xandros', 'Mistweaver', 'Hollowvoice'] as const
 const CORE_CLASSES = ['paladin', 'sorcerer', 'rogue', 'ranger'] as const
 const MAX_PARTY = 4
+// A live session lasts at most 15 minutes; when the clock runs out the game ends.
+// Overridable via SESSION_MINUTES (handy for testing the expiry flow quickly).
+const SESSION_MS = Math.round((Number(process.env.SESSION_MINUTES) || 15) * 60 * 1000)
 
 const CLASS_META: Record<string, { name: string; color: string; actions: string[] }> = {
   paladin: { name: 'Paladin', color: 'var(--paladin)', actions: ['Attack', 'Defend Ally', 'Cast Bless', 'Investigate'] },
@@ -123,8 +126,13 @@ const gameStateSchema = z.object({
   dmName: z.string(),
   players: z.array(playerSchema),
   // 'lobby' = still gathering the party (open seats remain, turns don't run);
-  // 'live' = all seats filled, the adventure is in progress.
-  roomPhase: z.enum(['lobby', 'live']),
+  // 'live'  = all seats filled, the adventure is in progress;
+  // 'ended' = the session's time ran out (or it was otherwise finished).
+  roomPhase: z.enum(['lobby', 'live', 'ended']),
+  // Absolute epoch-ms deadline once the game goes live. Server-authoritative so
+  // the countdown survives leaving/returning — it never resets on the client.
+  // null while still in the lobby. TTL = SESSION_MS from beginAdventure.
+  endsAt: z.number().nullable(),
   turnIndex: z.number(),
   round: z.number(),
   phase: z.enum(['player', 'resolving', 'dm']),
@@ -531,6 +539,9 @@ const hasOpenSeat = (state: GameState) => state.players.some(isOpenSeat)
 async function beginAdventure(state: GameState) {
   if (state.roomPhase === 'live') return
   state.roomPhase = 'live'
+  // Start the 15-minute session clock. Absolute deadline so it survives reloads
+  // and players leaving/returning.
+  state.endsAt = Date.now() + SESSION_MS
   state.turnIndex = 0
   state.phase = 'dm'
   const first = state.players[0]
@@ -540,6 +551,27 @@ async function beginAdventure(state: GameState) {
   state.options = options
   await transcribe(state, [{ kind: 'dm', who: `AI DM: ${state.dmName}`, text: prompt }])
   state.phase = 'player'
+}
+
+// If a live game's clock has run out, finalize it: flip to 'ended', write a
+// closing DM line, and mark the lobby row Finished. Idempotent — safe to call on
+// every read/mutation. Returns true if it just ended the game on this call.
+async function finalizeIfExpired(state: GameState): Promise<boolean> {
+  if (state.roomPhase !== 'live') return false
+  if (state.endsAt == null || Date.now() < state.endsAt) return false
+  state.roomPhase = 'ended'
+  state.phase = 'dm'
+  state.options = []
+  state.lastRoll = null
+  await transcribe(state, [{
+    kind: 'system',
+    who: 'System',
+    color: 'var(--gold-bright)',
+    text: '⏳ Time’s up — the adventure has ended. The tale is complete.',
+  }])
+  const g = await games.get({ listKey: 'all', gameId: state.gameId })
+  if (g) await games.put({ ...g, status: 'Finished' })
+  return true
 }
 
 // Keep the lobby row's status/joinability in sync with the live seat state.
@@ -667,7 +699,7 @@ async function seedIfEmpty() {
       color: 'var(--text-dim)', seat: 'open' as const, isHuman: true, userId: null, hp: 20, slot,
     }))
     await gameStates.put({
-      gameId, scenario: g.theme, dmName: g.dmType, players, roomPhase: 'lobby',
+      gameId, scenario: g.theme, dmName: g.dmType, players, roomPhase: 'lobby', endsAt: null,
       turnIndex: 0, round: 1, phase: 'player', dc: 12, lastRoll: null,
       log: [
         { kind: 'dm', who: `AI DM: ${g.dmType}`, text: OPENERS[g.theme] ?? OPENERS['Cave Crypt'] },
@@ -716,6 +748,9 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
       const st = await gameStates.get({ gameId: g.gameId })
       const filled = st ? st.players.filter((p) => !isOpenSeat(p)).length : 0
       const open = st ? hasOpenSeat(st) : false
+      // Finished = explicitly ended, or live and past its 15-minute deadline.
+      // (Display-only here; the game is actually finalized on getState/actions.)
+      const finished = !!st && (st.roomPhase === 'ended' || (st.roomPhase === 'live' && st.endsAt != null && Date.now() >= st.endsAt))
       result.push({
         id: g.gameId,
         name: g.name,
@@ -724,10 +759,11 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
         maxParty: g.maxParty,
         dmLevel: g.dmLevel,
         dm: g.dmType,
-        // Open seats remaining → still gathering the party (joinable, not in
-        // progress). No open seats → full, in progress, watch-only.
-        full: !open,
-        status: open ? 'Awaiting Players' : 'In Session',
+        // Finished → not joinable. Otherwise: open seats → still gathering the
+        // party (joinable); no open seats → full, in progress, watch-only.
+        finished,
+        full: finished || !open,
+        status: finished ? 'Finished' : open ? 'Awaiting Players' : 'In Session',
         party: filled,
         partyClasses: st ? st.players.map((p) => p.classKey) : [],
         members: st ? st.players.map((p) => ({ name: p.name, classKey: p.classKey, seat: p.seat })) : [],
@@ -773,6 +809,7 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
       dmName,
       players,
       roomPhase: 'lobby',
+      endsAt: null,
       turnIndex: 0,
       round: 1,
       phase: 'player',
@@ -799,6 +836,9 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   async getState(gameId: string) {
     const user = await auth.requireAuth(context)
     const state = await loadState(gameId)
+    // Lazily finalize an expired game so a returning player sees it ended (and
+    // the closing line + lobby status are persisted/broadcast).
+    if (await finalizeIfExpired(state)) await saveAndBroadcast(state)
     // Tell the client which seat (if any) belongs to the viewer. No owned seat
     // means they are a spectator (watch-only) — the client uses this to decide
     // whether to enable actions, instead of guessing.
@@ -858,6 +898,9 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   async takeAction(gameId: string, action: string) {
     const user = await auth.requireAuth(context)
     const state = await loadState(gameId)
+    // Clock ran out mid-session → finalize and return the ended state instead of
+    // resolving the action.
+    if (await finalizeIfExpired(state)) return await saveAndBroadcast(state)
     if (state.roomPhase !== 'live') throw new Error('The game has not started yet')
     const actor = state.players[state.turnIndex]
     if (state.phase !== 'player') throw new Error('Not ready for an action')
@@ -876,6 +919,11 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
   async advanceBotTurn(gameId: string) {
     await auth.requireAuth(context)
     const state = await loadState(gameId)
+    // Clock ran out → finalize and stop the bot loop.
+    if (await finalizeIfExpired(state)) {
+      const saved = await saveAndBroadcast(state)
+      return { state: saved, botActed: false, botTurnPending: false }
+    }
     const actor = state.players[state.turnIndex]
     if (state.roomPhase !== 'live' || state.phase !== 'player' || !isAiSeat(actor)) {
       return { state, botActed: false, botTurnPending: false }

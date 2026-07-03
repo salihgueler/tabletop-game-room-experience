@@ -22,6 +22,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
   const [botBusy, setBotBusy] = useState(false)  // a bot turn is resolving
   const [thinking, setThinking] = useState(null) // { who, color, text } live agent reasoning
   const [error, setError] = useState('')
+  const [now, setNow] = useState(() => Date.now()) // ticks the countdown display
 
   const refreshState = useCallback(async () => {
     try {
@@ -148,6 +149,25 @@ export default function GameRoom({ gameId, character, onLeave }) {
     }
   }, [gameId, refreshState])
 
+  // Tick the countdown once a second while a live game has a deadline.
+  useEffect(() => {
+    if (state?.roomPhase !== 'live' || state?.endsAt == null) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [state?.roomPhase, state?.endsAt])
+
+  // When the clock reaches the server deadline, ask the server once to finalize
+  // (it flips the game to 'ended'), so the game-over dialog appears even if the
+  // player is idle and never clicks anything.
+  const finalized = useRef(false)
+  useEffect(() => {
+    if (state?.roomPhase !== 'live' || state?.endsAt == null) { finalized.current = false; return }
+    if (now >= state.endsAt && !finalized.current) {
+      finalized.current = true
+      refreshState() // getState finalizes an expired game server-side
+    }
+  }, [now, state?.roomPhase, state?.endsAt, refreshState])
+
   const left = (
     <>
       <RailBtn title="Leave Table" onClick={onLeave}>⎋</RailBtn>
@@ -181,17 +201,29 @@ export default function GameRoom({ gameId, character, onLeave }) {
   // No seat ⇒ spectator (watch-only). This is what makes "it's my turn" honest.
   const me = state.players.find((p) => p.userId === (state.viewer?.userId ?? character.userId) && p.seat === 'human')
   const spectator = state.viewer?.spectator ?? !me
+  const ended = state.roomPhase === 'ended'
   const inLobby = state.roomPhase === 'lobby'
   const isHost = state.players[0]?.userId === (state.viewer?.userId ?? character.userId)
   const current = state.players[state.turnIndex]
-  const currentIsMe = !inLobby && state.phase === 'player' && !!me && current?.id === me.id
+  const currentIsMe = !inLobby && !ended && state.phase === 'player' && !!me && current?.id === me.id
   const isMyTurn = currentIsMe && !acting && !botBusy
   const myClass = me ? CLASSES[me.classKey] : null
   const dmActive = state.phase !== 'player'
 
+  // Countdown from the server-authoritative deadline. remainingMs is clamped so
+  // it reads 0:00 (not negative) in the moment before the server finalizes.
+  const hasTimer = state.roomPhase === 'live' && state.endsAt != null
+  const remainingMs = state.endsAt != null ? Math.max(0, state.endsAt - now) : null
+  const timerLow = remainingMs != null && remainingMs <= 60_000 // last minute → red
+  const fmtClock = (ms) => {
+    const s = Math.floor(ms / 1000)
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  }
+
   // A single source of truth for "what's happening right now", surfaced both in a
   // top banner and in the action area so the player always knows the state.
   const status = (() => {
+    if (ended) return { text: '⏳ The adventure has ended', tone: 'idle' }
     if (inLobby) return { text: 'Gathering the party — waiting for seats to fill…', tone: 'wait' }
     if (spectator) return { text: `👁 Watching — ${current ? `${current.name}'s turn` : 'in progress'}`, tone: 'idle' }
     if (acting) return { text: 'Resolving your action…', tone: 'busy' }
@@ -208,9 +240,9 @@ export default function GameRoom({ gameId, character, onLeave }) {
       <div className="col" style={{ height: '100%', gap: 8 }}>
         {/* STATUS BANNER — always tells the player whose turn it is / what's happening */}
         <div
-          className="row center"
+          className="row"
           style={{
-            flex: '0 0 auto', gap: 10, padding: '7px 14px', borderRadius: 8,
+            flex: '0 0 auto', gap: 10, padding: '7px 14px', borderRadius: 8, alignItems: 'center',
             background: '#0f1120', border: `2px solid ${statusColor}`,
             boxShadow: `0 0 14px ${statusColor}55`,
           }}
@@ -220,8 +252,24 @@ export default function GameRoom({ gameId, character, onLeave }) {
             boxShadow: `0 0 8px ${statusColor}`,
             animation: status.tone === 'you' ? 'none' : 'pulseGlow 1.1s ease-in-out infinite', color: statusColor,
           }} />
-          <span className="head" style={{ fontSize: 12, color: statusColor }}>{status.text}</span>
+          <span className="head grow" style={{ fontSize: 12, color: statusColor }}>{status.text}</span>
           {error && <span style={{ color: '#ff6b6b', fontSize: 16 }}>⚠ {error}</span>}
+          {/* Session countdown (server-authoritative — survives leaving/returning) */}
+          {hasTimer && (
+            <span
+              className="head"
+              title="Time left in this session"
+              style={{
+                fontSize: 13, padding: '3px 10px', borderRadius: 6,
+                color: timerLow ? '#ff6b6b' : 'var(--gold-bright)',
+                border: `2px solid ${timerLow ? '#ff6b6b' : 'var(--gold)'}`,
+                background: '#00000055',
+                animation: timerLow ? 'pulseGlow 1s ease-in-out infinite' : 'none',
+              }}
+            >
+              ⏳ {fmtClock(remainingMs)}
+            </span>
+          )}
         </div>
 
         {/* LOBBY BAR — seat status + host controls while gathering the party */}
@@ -309,7 +357,43 @@ export default function GameRoom({ gameId, character, onLeave }) {
         </div>
         </div>
       </div>
+
+      {/* GAME-OVER DIALOG — shown when the session's 15 minutes are up. */}
+      {ended && <GameOverDialog dmName={state.dmName} onLeave={onLeave} />}
     </Cabinet>
+  )
+}
+
+// Themed modal shown when the session timer expires.
+function GameOverDialog({ dmName, onLeave }) {
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50, display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        background: '#0a061699', backdropFilter: 'blur(2px)',
+      }}
+    >
+      <div
+        className="panel col center"
+        style={{
+          width: 'min(460px, 92vw)', padding: '28px 26px', gap: 14, textAlign: 'center',
+          border: '3px solid var(--gold)', boxShadow: '0 0 40px #000, 0 0 24px var(--dm)',
+        }}
+      >
+        <Sprite src="/ui/crest.png" alt="crest" style={{ height: 84, width: 'auto', filter: 'drop-shadow(0 0 12px #00ffff55)' }} />
+        <h1 className="head" style={{ fontSize: 22, color: 'var(--gold-bright)' }}>TIME’S UP</h1>
+        <p className="meta" style={{ fontSize: 21, lineHeight: 1.3, margin: 0 }}>
+          Your 15-minute session has ended. {dmName} closes the tome — this adventure is complete.
+        </p>
+        <p className="dim" style={{ fontSize: 17, margin: 0 }}>
+          The full transcript remains in the chat log.
+        </p>
+        <button className="btn" onClick={onLeave} style={{ marginTop: 6 }}>
+          ⌂ RETURN TO GUILD HALL
+        </button>
+      </div>
+    </div>
   )
 }
 

@@ -191,10 +191,13 @@ export default function GuildHall({ character, onOpenGame }) {
 
 function GameCard({ game, onJoin }) {
   const [showParty, setShowParty] = useState(false)
+  const finished = game.finished
   const full = game.full
   const members = game.members || []
+  const statusText = finished ? 'Finished' : full ? 'In Session' : 'Awaiting Players'
+  const statusColor = finished ? 'var(--text-dim)' : full ? 'var(--rogue)' : 'var(--ranger)'
   return (
-    <div className="panel" style={{ padding: 12, marginBottom: 10, borderColor: 'var(--wood)' }}>
+    <div className="panel" style={{ padding: 12, marginBottom: 10, borderColor: 'var(--wood)', opacity: finished ? 0.7 : 1 }}>
       <div className="row between" style={{ alignItems: 'flex-start' }}>
         <div className="grow">
           <div className="head" style={{ fontSize: 12, color: 'var(--gold-bright)', marginBottom: 6 }}>{game.name}</div>
@@ -202,7 +205,7 @@ function GameCard({ game, onJoin }) {
           <div className="meta" style={{ fontSize: 18, marginTop: 4 }}>Party: {game.party}/{game.maxParty} seats filled</div>
           <div className="meta" style={{ fontSize: 18 }}>AI DM Level: {game.dmLevel}</div>
           <div style={{ fontSize: 18, marginTop: 2 }}>
-            Status: <span style={{ color: full ? 'var(--rogue)' : 'var(--ranger)' }}>{full ? 'In Session' : 'Awaiting Players'}</span>
+            Status: <span style={{ color: statusColor }}>{statusText}</span>
           </div>
         </div>
         <div className="col gap-sm" style={{ alignItems: 'flex-end' }}>
@@ -215,8 +218,12 @@ function GameCard({ game, onJoin }) {
             <button className="btn small btn-ghost" onClick={() => setShowParty((v) => !v)}>
               {showParty ? 'Hide Party' : 'View Party'}
             </button>
-            {/* Open seats → Join and play; full → Watch as a spectator. */}
-            <button className="btn small" onClick={onJoin}>{full ? '👁 Watch' : 'Join Game'}</button>
+            {/* Finished → not joinable; open seats → Join and play; full → Watch. */}
+            {finished ? (
+              <button className="btn small" disabled style={{ opacity: 0.5 }}>Finished</button>
+            ) : (
+              <button className="btn small" onClick={onJoin}>{full ? '👁 Watch' : 'Join Game'}</button>
+            )}
           </div>
         </div>
       </div>
