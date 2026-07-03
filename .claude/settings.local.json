@@ -15,7 +15,13 @@
       "Bash(pip3 install *)",
       "Bash(python3 -c \"import numpy, scipy; print\\('numpy', numpy.__version__, 'scipy', scipy.__version__\\)\")",
       "Bash(cd *)",
-      "Bash(python3 /tmp/slice_sprites.py)"
+      "Bash(python3 /tmp/slice_sprites.py)",
+      "Bash(cat vite.config.*)",
+      "Bash(cat .blocks/config.json)",
+      "Bash(timeout 30 npx tsx aws-blocks/scripts/server.ts)",
+      "Bash(echo \"EXIT: $?\")",
+      "Read(//tmp/**)",
+      "Bash(npm install *)"
     ]
   }
 }

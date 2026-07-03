@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev:server": "tsx watch aws-blocks/scripts/server.ts",
-    "dev:client": "vite",
+    "dev:client": "wait-on tcp:3001 && vite",
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "sandbox": "tsx aws-blocks/scripts/sandbox.ts",
     "sandbox:destroy": "tsx -C cdk aws-blocks/scripts/sandbox-destroy.ts",
@@ -38,6 +38,7 @@
     "esbuild": "^0.27.1",
     "tsx": "^4.7.0",
     "typescript": "^5.3.0",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "wait-on": "^9.0.10"
   }
 }
