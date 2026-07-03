@@ -66,15 +66,14 @@ export default function GuildHall({ character, onOpenGame }) {
 
   const cls = CLASSES[character.classKey]
 
-  const left = (<><RailBtn title="Sign Out" onClick={signOut}>⎋</RailBtn><RailBtn title="Help">?</RailBtn></>)
+  const left = (<><RailBtn title="Sign Out" onClick={signOut}>⎋</RailBtn></>)
   const right = (
     <>
       <div>
         <RailBtn title={character.name}>
           <Sprite src={character.sprite} alt="you" style={{ height: 30, width: 'auto' }} />
         </RailBtn>
-        <RailBtn title="Refresh" onClick={refresh}>⟳</RailBtn>
-        <RailBtn title="Party">☰</RailBtn>
+        <RailBtn title="Refresh games" onClick={refresh}>⟳</RailBtn>
       </div>
       <span />
     </>
@@ -168,13 +167,8 @@ export default function GuildHall({ character, onOpenGame }) {
           </div>
         </div>
 
-        {/* Footer nav + dice collection */}
-        <div className="row between" style={{ alignItems: 'flex-end', flex: '0 0 auto' }}>
-          <div className="row gap-sm wrap">
-            {['Guild Directory', 'Profile Settings', 'Help & Lore', 'Community'].map((t) => (
-              <button key={t} className="btn small btn-ghost">{t}</button>
-            ))}
-          </div>
+        {/* Guild Dice Collection */}
+        <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'flex-end', flex: '0 0 auto' }}>
           <div className="col center" style={{ gap: 2 }}>
             <div className="row gap-sm" style={{ alignItems: 'flex-end' }}>
               {COLLECTION.map((d, i) => (

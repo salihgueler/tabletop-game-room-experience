@@ -171,7 +171,6 @@ export default function GameRoom({ gameId, character, onLeave }) {
   const left = (
     <>
       <RailBtn title="Leave Table" onClick={onLeave}>⎋</RailBtn>
-      <RailBtn title="Help">?</RailBtn>
     </>
   )
   const right = (
@@ -180,7 +179,6 @@ export default function GameRoom({ gameId, character, onLeave }) {
         <RailBtn title={character.name}>
           <Sprite src={character.sprite} alt="you" style={{ height: 30, width: 'auto' }} />
         </RailBtn>
-        <RailBtn title="Party">☰</RailBtn>
         <RailBtn title="Refresh" onClick={refreshState}>⟳</RailBtn>
       </div>
       <span />

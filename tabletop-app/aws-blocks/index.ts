@@ -769,7 +769,9 @@ export const api = new ApiNamespace(scope, 'api', (context) => ({
         members: st ? st.players.map((p) => ({ name: p.name, classKey: p.classKey, seat: p.seat })) : [],
       })
     }
-    return result
+    // Keep finished games out of the way — sort them to the bottom of the list
+    // (active/joinable games stay on top, newest-first within each group).
+    return result.sort((a, b) => Number(a.finished) - Number(b.finished))
   },
 
   async createGame(input: { scenario: string; dmType: string; isPublic: boolean; accessCode?: string; fillMode?: 'ai' | 'humans' }) {
