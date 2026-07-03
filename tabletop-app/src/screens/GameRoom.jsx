@@ -26,7 +26,10 @@ export default function GameRoom({ gameId, character, onLeave }) {
 
   const refreshState = useCallback(async () => {
     try {
-      setState(await api.getState(gameId))
+      const fresh = await api.getState(gameId)
+      // Version guard: never let a slower fetch overwrite a newer state we
+      // already hold (e.g. our own optimistic result racing a channel refetch).
+      setState((prev) => (prev && fresh.version < prev.version ? prev : fresh))
     } catch (e) {
       setError(e?.message || 'Could not load game.')
     }
@@ -67,6 +70,22 @@ export default function GameRoom({ gameId, character, onLeave }) {
     return () => sub?.unsubscribe()
   }, [gameId])
 
+  // Live game-state feed — the backend publishes on every change (any human's
+  // action, each AI companion turn, the DM setting the scene, the game ending).
+  // Every client refetches so all players stay in sync. Without this, a client
+  // only learns of changes it caused itself and freezes on a stale turn.
+  useEffect(() => {
+    let sub
+    ;(async () => {
+      try {
+        const channel = await api.getStateChannel(gameId)
+        sub = channel.subscribe(() => { refreshState() })
+        await sub.established
+      } catch { /* realtime unavailable — fall back to per-action refetch */ }
+    })()
+    return () => sub?.unsubscribe()
+  }, [gameId, refreshState])
+
   // Live "thinking" feed — stream each acting companion's reasoning tokens.
   useEffect(() => {
     let sub
@@ -96,6 +115,12 @@ export default function GameRoom({ gameId, character, onLeave }) {
   useEffect(() => {
     if (!state || inflight.current || acting) return
     if (state.roomPhase !== 'live') return
+    // Exactly ONE client drives AI turns, or multiple humans would each fire
+    // advanceBotTurn and double-resolve. The host (seat 0 owner) is that driver;
+    // everyone else just watches the AI turns arrive via the state channel.
+    const myId = state.viewer?.userId ?? character.userId
+    const isHost = state.players[0]?.userId === myId
+    if (!isHost) return
     const actor = state.players[state.turnIndex]
     // Only auto-resolve AI-companion seats; human seats wait for their player.
     if (state.phase !== 'player' || actor?.seat !== 'ai') return
