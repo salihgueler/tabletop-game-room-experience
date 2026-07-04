@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(aws cloudformation *)",
+      "Bash(aws logs *)",
+      "Bash(aws lambda *)",
+      "Bash(aws bedrock *)",
+      "Bash(python3 -c ' *)",
+      "Bash(npm run *)",
+      "Read(//Users/msalihg/Desktop/2026projects/tabletop-game-room-experience/**)",
+      "Bash(find . -name \"*.excalidraw\" -not -path \"*/node_modules/*\")",
+      "Bash(python3)",
+      "Bash(grep -c '```' README.md)",
+      "Bash(rm \"/Users/msalihg/.claude/projects/-Users-msalihg-Desktop-2026projects-tabletop-game-room-experience/memory/bedrock-model-preset-legacy-gotcha.md\")"
+    ]
+  }
+}

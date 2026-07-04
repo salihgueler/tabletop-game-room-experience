@@ -21,7 +21,8 @@
       "Bash(timeout 30 npx tsx aws-blocks/scripts/server.ts)",
       "Bash(echo \"EXIT: $?\")",
       "Read(//tmp/**)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\(require\\('./package.json'\\).name\\)\")"
     ]
   }
 }
