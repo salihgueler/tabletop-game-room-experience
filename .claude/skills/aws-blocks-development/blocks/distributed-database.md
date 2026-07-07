@@ -36,3 +36,5 @@ await db.transaction(async (tx) => {
 ⚠️ Transaction callbacks may execute multiple times on retry. Do NOT include external side effects.
 
 Local mock: PGlite (WASM Postgres) in `.bb-data/`. AWS: Aurora Serverless v2 (multi-region).
+
+⚠️ **DSQL limitation:** Index key sort order (`ASC`/`DESC`) is not supported by Aurora DSQL. Index definitions that specify sort order will be rejected at deploy time. Omit sort order from index column definitions.

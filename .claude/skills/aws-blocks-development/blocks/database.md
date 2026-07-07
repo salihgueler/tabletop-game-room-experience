@@ -39,8 +39,12 @@ const posts = await (await getKysely())
 
 // Connect to existing database
 import { fromExisting } from "@aws-blocks/blocks";
-const db = new Database(scope, "ext", {
-  ...fromExisting({ clusterArn: "...", secretArn: "...", databaseName: "..." }),
+const extDb = new Database(scope, "ext", {
+  ...fromExisting({
+    connectionString: "postgresql://user:pass@host:5432/db",
+    ssl: { ca: process.env.DATABASE_CA_CERT }, // TLS verified by default (v0.2.0+)
+    // ssl: { rejectUnauthorized: false } // opt out of verification explicitly
+  }),
 });
 ```
 
@@ -51,3 +55,10 @@ const db = new Database(scope, "ext", {
 Migration files: `migrations/001_create_users.sql`, `migrations/002_create_posts.sql`, etc. Migrations run automatically on first DB access.
 
 Local mock: PGlite (WASM Postgres) in `.bb-data/`. AWS: Aurora Serverless v2.
+
+**External database TLS (v0.2.0+):**
+- `fromExisting()` now verifies server TLS certificate by default
+- Pass `ssl: { ca: '...' }` to pin your provider's CA cert
+- `bb-data pull` prompts for the CA and commits it to `aws-blocks/database.ca.ts`
+- `DATABASE_CA_CERT` env var overrides the committed cert at runtime
+- Deployed Lambda and CI **fail closed** (no unverified connections) — local dev warns but allows unverified for self-signed DBs

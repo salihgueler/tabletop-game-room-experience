@@ -61,3 +61,28 @@ Local mock: TF-IDF search over local files with Unicode-aware tokenization. AWS:
 - Non-filter validation (query length, malformed request, content-safety) → `RetrievalException`
 - `ThrottlingException` → `ThrottlingException`
 - Unknown SDK errors → `RetrievalException` (original SDK message preserved; SDK error attached as non-enumerable `cause`)
+
+**Ingestion sync (v0.2.0+):**
+
+After deploy, Bedrock ingestion runs asynchronously — `retrieve()` returns empty during the sync window. Use these methods to check freshness:
+
+```typescript
+// Check if data is synced
+const synced = await kb.isSynced(); // true once latest ingestion is COMPLETE
+
+// Wait until synced (with timeout)
+await kb.waitUntilSynced({
+  timeoutMs: 300_000,       // 5 min default
+  pollIntervalMs: 5_000,    // 5s default (±20% jitter)
+  signal: abortController.signal, // optional AbortSignal
+});
+
+// Now retrieve() reflects the latest data
+const results = await kb.retrieve("query");
+```
+
+- `isSynced()` — `true` once latest ingestion job is `COMPLETE`. Throws `IngestionFailedException` if job failed.
+- `waitUntilSynced(options?)` — polls until synced. Throws `KnowledgeBaseTimeoutException` on timeout.
+- Tolerates transient errors (throttling, not-yet-visible KB) up to `maxConsecutiveTransientErrors` (default: 3).
+- Local mock: always reports synced immediately (no async ingestion in local dev).
+- `retrieve()` is always callable — serves prior synced snapshot during re-ingestion.

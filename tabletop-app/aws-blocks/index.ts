@@ -19,7 +19,6 @@ import {
   DistributedTable,
   Realtime,
   Agent,
-  BedrockModels,
   OllamaModels,
 } from "@aws-blocks/blocks";
 import { z } from "zod";
@@ -242,6 +241,18 @@ const rt = new Realtime(scope, "rt", {
   },
 });
 
+// ─── Deployed model (pinned) ─────────────────────────────────────────────────
+// All deployed agents point at an EXPLICIT Bedrock inference-profile id rather
+// than a BedrockModels.* preset. Presets track "current best" and can shift under
+// you across @aws-blocks/blocks upgrades; pinning keeps deployed behavior stable
+// and makes the exact model auditable. This value is Claude Sonnet 4.6 via the
+// region-agnostic `global.` inference profile (the same id BedrockModels.BALANCED
+// currently resolves to). If Bedrock retires it, update this one line.
+const DEPLOYED_MODEL = {
+  provider: "bedrock",
+  modelId: "global.anthropic.claude-sonnet-4-6",
+} as const;
+
 // ─── AI Dungeon Master (Agent) ───────────────────────────────────────────────
 // Inference-only: we just want a narrated line per action, no conversation
 // persistence. Bedrock when deployed, Ollama (llama3.1:8b) locally, canned
@@ -249,7 +260,7 @@ const rt = new Realtime(scope, "rt", {
 const dm = new Agent(scope, "dm", {
   inferenceOnly: true,
   model: {
-    deployed: BedrockModels.BALANCED,
+    deployed: DEPLOYED_MODEL,
     local: OllamaModels.SMALL,
   },
   systemPrompt: [
@@ -280,7 +291,7 @@ for (const cls of CORE_CLASSES) {
   companions[cls] = new Agent(scope, `c-${cls}`, {
     inferenceOnly: true,
     model: {
-      deployed: BedrockModels.FAST,
+      deployed: DEPLOYED_MODEL,
       local: OllamaModels.SMALL,
     },
     systemPrompt: [

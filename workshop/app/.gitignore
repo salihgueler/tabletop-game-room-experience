@@ -1,0 +1,9 @@
+node_modules
+dist
+.hosting
+.bb-data
+aws-blocks/client.js
+build-temp
+package-lock.json
+.blocks
+.blocks-sandbox

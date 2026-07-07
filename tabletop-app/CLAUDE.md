@@ -48,8 +48,9 @@ work until the backend typechecks clean.
   stray exports.
 - **Auth:** use `auth.createApi()` and `auth.requireAuth(context)`. Don't hand-roll
   auth wrappers.
-- **DistributedTable has no scan.** List via a constant partition key + a GSI (see the
-  `byCreated` index on `games`, queried with `listKey: { equals: 'all' }`).
+- **Don't scan to list.** DistributedTable has a `scan()`, but it's a full-table walk —
+  the wrong tool for a listing you run constantly. List via a constant partition key + a
+  GSI instead (see the `byCreated` index on `games`, queried with `listKey: { equals: 'all' }`).
 - **Short Scope/Realtime IDs.** The scope is `'tt'` and namespaces are short (`state`,
   `chat`, `thinking`) because AppSync caps channel namespace names at 50 chars.
 - The frontend imports the typed `api` / `authApi` from the `aws-blocks` workspace
@@ -87,14 +88,20 @@ so many games run concurrently and isolated. Agents stream their reasoning to th
 ### ⚠️ Model config gotcha (bit us in production)
 
 Deployed agents point at an **explicit Bedrock inference-profile ID**
-(`DEPLOYED_MODEL` = `us.anthropic.claude-sonnet-4-6`), NOT a `BedrockModels.*` preset.
-The presets in the installed `@aws-blocks/blocks` still resolve to Claude Sonnet 4 /
-Haiku 4.5, which Bedrock now rejects as **"Legacy" (access denied)** — that failure is
-swallowed by the fallbacks above, so the only visible symptom is degraded/static
-actions in prod while local (Ollama) looks fine. If agents "stop working when
-deployed," check the deployed Lambda logs for `runAgent error` first, then confirm the
-model ID is a current, invokable profile. Model fallback chain: **deployed → Bedrock**,
-**local → Ollama `llama3.1:8b`**, **offline → canned** (deterministic).
+(`DEPLOYED_MODEL` = `global.anthropic.claude-sonnet-4-6`, Claude Sonnet 4.6), NOT a
+`BedrockModels.*` preset. We pin it because presets track "current best" and can shift
+under you across `@aws-blocks/blocks` upgrades — pinning keeps deployed behavior stable
+and auditable. (The pinned id is the same one `BedrockModels.BALANCED` resolves to today;
+the `global.` prefix is a region-agnostic inference profile.)
+
+The failure mode to know: if Bedrock ever retires the pinned model, the agent's health
+check fails and the call falls back — and because agent errors are swallowed into the
+canned/static fallbacks above, the only visible symptom is degraded/static actions in prod
+while local (Ollama) looks fine. If agents "stop working when deployed," check the deployed
+Lambda logs for `runAgent error` first, then confirm `DEPLOYED_MODEL` is a current,
+invokable inference profile and update that one line. Model fallback chain:
+**deployed → Bedrock**, **local → Ollama `llama3.1:8b`**, **offline → canned**
+(deterministic).
 
 ## Local vs deployed (why "works locally, breaks deployed" happens)
 

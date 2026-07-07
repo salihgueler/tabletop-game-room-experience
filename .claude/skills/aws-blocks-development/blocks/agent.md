@@ -10,7 +10,7 @@ import { Scope, ApiNamespace, Agent } from '@aws-blocks/blocks';
 const scope = new Scope('my-app');
 
 const agent = new Agent(scope, 'chat', {
-  model: { deployed: { provider: 'bedrock', modelId: 'us.anthropic.claude-sonnet-4-20250514-v1:0' } },
+  // model is optional — defaults to Agent.BALANCED (Claude Sonnet 4.6)
   systemPrompt: 'You are a helpful assistant.',
   tools: (tool) => ({
     getOrderStatus: tool({
@@ -24,7 +24,7 @@ const agent = new Agent(scope, 'chat', {
   }),
 });
 
-export const api = ApiNamespace("api", (context) => ({
+export const api = new ApiNamespace(scope, "api", (context) => ({
   async chat(message: string, conversationId: string, userId: string) {
     return await agent.stream(message, { conversationId, userId });
   },
@@ -35,7 +35,7 @@ export const api = ApiNamespace("api", (context) => ({
 ```
 
 **AgentConfig:**
-- `model` — `{ deployed, local? }` — model configuration (see Running Locally below)
+- `model` — **optional** (defaults to `Agent.BALANCED`). Full form: `{ deployed, local? }` — see Running Locally below
 
 **⚠️ Zod version:** Agent requires **Zod 4.x** specifically for tool parameter schemas. Other blocks (KVStore, Realtime, DistributedTable) accept any `@standard-schema/spec` compatible validator (Zod, Valibot, ArkType).
 - `systemPrompt` — system instructions for the agent

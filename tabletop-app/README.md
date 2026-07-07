@@ -272,8 +272,9 @@ backend internals.
   attributes (frontend on localhost, API on API Gateway). Set automatically by the
   sandbox flow.
 - **Deployed AI model** — pinned in `aws-blocks/index.ts` as `DEPLOYED_MODEL`
-  (`us.anthropic.claude-sonnet-4-6`). See the ⚠️ note in [`CLAUDE.md`](CLAUDE.md) for
-  why we pin an explicit inference-profile ID instead of a `BedrockModels.*` preset.
+  (`global.anthropic.claude-sonnet-4-6` — Claude Sonnet 4.6 via a region-agnostic
+  inference profile). See the ⚠️ note in [`CLAUDE.md`](CLAUDE.md) for why we pin an
+  explicit inference-profile ID instead of a `BedrockModels.*` preset.
 
 ## Troubleshooting
 
