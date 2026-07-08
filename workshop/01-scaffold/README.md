@@ -142,6 +142,15 @@ curl -s -X POST http://localhost:3001/aws-blocks/api \
   -d '{"jsonrpc":"2.0","method":"api.getConstants","params":[],"id":1}'
 ```
 
+On Windows (cmd.exe), put it on one line and escape the inner quotes:
+
+```cmd
+curl -s -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getConstants\",\"params\":[],\"id\":1}"
+```
+
+> In PowerShell, `curl` is an alias for `Invoke-WebRequest` — call `curl.exe` explicitly to
+> use the real curl with the syntax above.
+
 You get back the scenarios, DM types, and class metadata. **All RPC — both `api.*` and
 `authApi.*` — POSTs to the single `/aws-blocks/api` endpoint;** the namespace is the part
 of the method name before the dot.

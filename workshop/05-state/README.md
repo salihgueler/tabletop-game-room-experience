@@ -107,6 +107,32 @@ d20 roll, the DC check, narration, and turn order end to end.
    ls app/.bb-data/    # tt-gameStates and tt-chat now exist alongside the rest
    ```
 
+   Or read the authoritative state through the API. `getState` takes a `gameId` and needs a
+   session, so sign in (saving the cookie), grab a `gameId` from `listGames`, then fetch it:
+
+   ```bash
+   # 1) sign in, saving the session cookie
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+
+   # 2) find a gameId (from api.listGames), then fetch its state
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"api.getState","params":["REPLACE_WITH_GAME_ID"],"id":1}'
+   ```
+
+   On Windows (cmd.exe), one line each with escaped quotes:
+
+   ```cmd
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getState\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
+   ```
+
+   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` from `api.listGames`, and use your own
+   > credentials. In PowerShell use `curl.exe`.
+
 Catch up: `cp ../05-state/solution/index.ts app/aws-blocks/index.ts`
 
 ---

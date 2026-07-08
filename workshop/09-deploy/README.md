@@ -44,12 +44,12 @@ users table + JWT sessions, each `DistributedTable` → a DynamoDB table (+ GSIs
 
 Your code is identical; the runtime underneath swaps:
 
-| Block | Local (dev) | Deployed (AWS) |
-|-------|-------------|----------------|
-| AuthBasic | file-backed JWT | DynamoDB + JWT |
-| DistributedTable | JSON in `.bb-data/` | DynamoDB (+ GSIs) |
-| Realtime | local WebSocket on :3001 | AppSync Events (WSS) |
-| Agent | Ollama / canned, in-process | **SQS → Lambda → Bedrock**, async |
+| Block            | Local (dev)                 | Deployed (AWS)                    |
+| ---------------- | --------------------------- | --------------------------------- |
+| AuthBasic        | file-backed JWT             | DynamoDB + JWT                    |
+| DistributedTable | JSON in `.bb-data/`         | DynamoDB (+ GSIs)                 |
+| Realtime         | local WebSocket on :3001    | AppSync Events (WSS)              |
+| Agent            | Ollama / canned, in-process | **SQS → Lambda → Bedrock**, async |
 
 The Agent row is the one that bites people: locally `stream()` round-trips in one process;
 deployed it crosses Lambda invocations and calls Bedrock. **"Works locally, breaks
@@ -69,6 +69,7 @@ npm run sandbox          # provisions an ephemeral stack, watches for changes
 ```
 
 The sandbox sets `BLOCKS_SANDBOX=true`, which flips two things you already coded for:
+
 - **`auth`'s `crossDomain`** turns on (frontend on localhost, API on API Gateway are
   different registrable domains, so the session cookie needs cross-domain attributes).
 - Removal policies are relaxed so `sandbox:destroy` can tear everything down cleanly.
@@ -100,6 +101,26 @@ After deploy, play a turn: contextual (scene-specific) action options mean Bedro
 answering. Generic options + a fixed class menu mean the agent fell back to canned —
 check the Handler Lambda's CloudWatch log group for agent errors.
 
+You can smoke-test the deployed API the same way you did locally — the endpoint is now your
+CloudFront domain, and `getConstants` is public (no session needed):
+
+```bash
+curl -s -X POST https://YOUR_CLOUDFRONT_DOMAIN/aws-blocks/api \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"api.getConstants","params":[],"id":1}'
+```
+
+On Windows (cmd.exe), one line with escaped quotes:
+
+```cmd
+curl -s -X POST https://YOUR_CLOUDFRONT_DOMAIN/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getConstants\",\"params\":[],\"id\":1}"
+```
+
+> Replace `YOUR_CLOUDFRONT_DOMAIN` with the URL printed by `npm run deploy`. In PowerShell
+> use `curl.exe`. Protected methods (`getCharacter`, `listGames`, `getState`, …) still need
+> a session — sign in first with `authApi.setAuthState` and reuse the cookie (`-c`/`-b`),
+> exactly as in modules 03–08.
+
 ### ⚠️ The model-pinning gotcha (revisited)
 
 This is the one that cost the reference app real debugging time. Agent errors are swallowed
@@ -126,7 +147,7 @@ retired ("Legacy model", access-denied). Fixes:
 
 - Blocks generates all infrastructure from your `index.ts` — no hand-written CFN/IAM.
 - `Hosting` fronts the SPA with CloudFront + S3; the backend is Lambda + API Gateway.
-- The local↔deployed swap is transparent *except* for the Agent's async Bedrock path —
+- The local↔deployed swap is transparent _except_ for the Agent's async Bedrock path —
   the first place to look when deployed behavior differs.
 - LLM fallbacks that hide errors make model problems invisible; pin current model ids and
   watch CloudWatch.

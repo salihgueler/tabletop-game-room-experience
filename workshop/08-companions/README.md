@@ -70,6 +70,32 @@ spoken line is posted to chat via `postBotChat`.
    Paladin steadfast). Without Ollama, companions still act via the random fallback — the
    game stays playable.
 
+   You can read those in-character companion lines straight from the chat transcript. Sign
+   in (saving the cookie), then call `getChatHistory` for the game:
+
+   ```bash
+   # 1) sign in, saving the session cookie
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+
+   # 2) read the chat transcript for a gameId (from api.listGames)
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"api.getChatHistory","params":["REPLACE_WITH_GAME_ID"],"id":1}'
+   ```
+
+   On Windows (cmd.exe), one line each with escaped quotes:
+
+   ```cmd
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getChatHistory\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
+   ```
+
+   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
+   > PowerShell use `curl.exe`.
+
 **You've now rebuilt the entire backend.** Module 08's `index.ts` uses the same set of
 Blocks and exports as the reference app in [`../../tabletop-app/`](../../tabletop-app/):
 `AuthBasic`, four `DistributedTable`s, `Realtime`, a DM `Agent`, per-class companion

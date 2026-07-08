@@ -59,7 +59,7 @@ const games = new DistributedTable(scope, "games", {
 });
 
 // list everything (query returns an async iterator):
-const all = await Array.fromAsync(
+const existing = await Array.fromAsync(
   games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
 );
 ```
@@ -97,6 +97,31 @@ const all = await Array.fromAsync(
    ```bash
    cat app/.bb-data/tt-games/data.json    # your lobby rows, all with listKey:"all"
    ```
+
+   Or list them through the API. `listGames` requires a session, so sign in (saving the
+   cookie) and reuse it:
+
+   ```bash
+   # 1) sign in, saving the session cookie
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+
+   # 2) list the lobby (newest first)
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"api.listGames","params":[],"id":1}'
+   ```
+
+   On Windows (cmd.exe), one line each with escaped quotes:
+
+   ```cmd
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.listGames\",\"params\":[],\"id\":1}"
+   ```
+
+   > Replace `aldric` / `password123` with your account. In PowerShell use `curl.exe`.
 
 Catch up: `cp ../04-lobby/solution/index.ts app/aws-blocks/index.ts`
 

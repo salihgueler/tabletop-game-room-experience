@@ -120,6 +120,33 @@ inference-profile id instead of the preset.
    Restart `npm run dev` and play a turn. Now the DM narrates in-character, the action
    choices fit the moment, and the "🤔 thinking" bar streams the DM's reasoning live.
 
+   You can see the DM's contextual options in the raw state too. Sign in (saving the
+   cookie), then fetch a game's state — the `options` reflect the current scene when a model
+   is answering, or the fixed class menu on the canned fallback:
+
+   ```bash
+   # 1) sign in, saving the session cookie
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+
+   # 2) fetch a game's state (gameId from api.listGames) and inspect its options
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"api.getState","params":["REPLACE_WITH_GAME_ID"],"id":1}'
+   ```
+
+   On Windows (cmd.exe), one line each with escaped quotes:
+
+   ```cmd
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getState\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
+   ```
+
+   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
+   > PowerShell use `curl.exe`.
+
 Catch up: `cp ../07-ai-dm/solution/index.ts app/aws-blocks/index.ts`
 
 ---

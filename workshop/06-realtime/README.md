@@ -89,6 +89,33 @@ turns those subscriptions live — the "refresh to see the bot's turn" friction 
    live. In an AI game, companion turns now stream in on their own instead of needing a
    refresh.
 
+   The live channels are WebSocket (not something `curl` subscribes to), but you can confirm
+   the transcript being broadcast is persisted with an HTTP call. Sign in (saving the
+   cookie), then read a game's chat with `getChatHistory`:
+
+   ```bash
+   # 1) sign in, saving the session cookie
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+
+   # 2) read the chat transcript for a gameId (from api.listGames)
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"api.getChatHistory","params":["REPLACE_WITH_GAME_ID"],"id":1}'
+   ```
+
+   On Windows (cmd.exe), one line each with escaped quotes:
+
+   ```cmd
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getChatHistory\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
+   ```
+
+   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
+   > PowerShell use `curl.exe`.
+
 Catch up: `cp ../06-realtime/solution/index.ts app/aws-blocks/index.ts`
 
 ---

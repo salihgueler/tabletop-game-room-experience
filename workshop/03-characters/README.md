@@ -87,6 +87,32 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
    ls app/.bb-data/tt-characters/    # your hero is now a file on disk
    ```
 
+   Or read the hero back through the API. `getCharacter` now requires a session, so sign in
+   first (saving the cookie), then call it with that cookie:
+
+   ```bash
+   # 1) sign in, saving the session cookie to cookies.txt
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+
+   # 2) fetch the saved hero using the cookie
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+     -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","method":"api.getCharacter","params":[],"id":1}'
+   ```
+
+   On Windows (cmd.exe), one line each with escaped quotes:
+
+   ```cmd
+   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getCharacter\",\"params\":[],\"id\":1}"
+   ```
+
+   > Replace `aldric` / `password123` with the account you registered. In PowerShell use
+   > `curl.exe`. The `-c` flag writes the cookie jar, `-b` reuses it on the next call.
+
    Now the real test: stop `npm run dev`, start it again, sign in as the **same** user —
    your character loads without re-picking. (In the starter it would have been wiped.)
 

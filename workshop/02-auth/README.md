@@ -107,6 +107,14 @@ curl -s -X POST http://localhost:3001/aws-blocks/api \
 # → {"error":{"code":401,...}}
 ```
 
+On Windows (cmd.exe), one line with escaped quotes:
+
+```cmd
+curl -s -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getCharacter\",\"params\":[],\"id\":1}"
+```
+
+> In PowerShell use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`).
+
 Frontend check at http://localhost:3000:
 
 1. You're now greeted by the **sign-in / register** screen (no more auto-login).
