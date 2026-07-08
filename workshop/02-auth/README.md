@@ -76,8 +76,10 @@ Every method that called the fake `requireAuth()` now awaits the real one. The f
 synchronous and took no args; the real one is `async` and needs `context`:
 
 ```ts
-// before:  const user = requireAuth();
-// after:   const user = await auth.requireAuth(context);
+// before:
+const user = requireAuth();
+// after:
+const user = await auth.requireAuth(context);
 ```
 
 Do this for all of them (`saveCharacter`, `getCharacter`, `createGame`, `getState`,
@@ -116,7 +118,7 @@ Compare your file against [`index.ts`](index.ts) in this folder — that's the c
 module. To catch up or start clean, copy it over your app:
 
 ```bash
-cp ../02-auth/index.ts app/aws-blocks/index.ts   # from the workshop/ dir
+cp ../02-auth/solution/index.ts app/aws-blocks/index.ts   # from the workshop/ dir
 ```
 
 ---

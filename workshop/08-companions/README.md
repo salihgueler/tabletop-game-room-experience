@@ -75,7 +75,7 @@ Blocks and exports as the reference app in [`../../tabletop-app/`](../../tableto
 `AuthBasic`, four `DistributedTable`s, `Realtime`, a DM `Agent`, per-class companion
 `Agent`s, and the `authApi` / `api` namespaces.
 
-Catch up: `cp ../08-companions/index.ts app/aws-blocks/index.ts`
+Catch up: `cp ../08-companions/solution/index.ts app/aws-blocks/index.ts`
 
 ---
 

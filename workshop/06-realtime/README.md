@@ -89,7 +89,7 @@ turns those subscriptions live — the "refresh to see the bot's turn" friction 
    live. In an AI game, companion turns now stream in on their own instead of needing a
    refresh.
 
-Catch up: `cp ../06-realtime/index.ts app/aws-blocks/index.ts`
+Catch up: `cp ../06-realtime/solution/index.ts app/aws-blocks/index.ts`
 
 ---
 

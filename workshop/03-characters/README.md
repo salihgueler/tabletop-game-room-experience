@@ -93,7 +93,7 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
 Catch up / start clean by copying this folder's solution:
 
 ```bash
-cp ../03-characters/index.ts app/aws-blocks/index.ts   # from workshop/
+cp ../03-characters/solution/index.ts app/aws-blocks/index.ts   # from workshop/
 ```
 
 ---

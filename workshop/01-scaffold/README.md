@@ -53,9 +53,9 @@ This module's folder ships the game's backend + two glue files. Copy them over t
 scaffolder's output (run from `app/`):
 
 ```bash
-cp ../01-scaffold/index.ts          aws-blocks/index.ts          # the game (mock backend)
-cp ../01-scaffold/index.handler.ts  aws-blocks/index.handler.ts  # see gotcha ①
-cp ../01-scaffold/server.ts         aws-blocks/scripts/server.ts # see gotcha ②
+cp ../01-scaffold/solution/index.ts          aws-blocks/index.ts          # the game (mock backend)
+cp ../01-scaffold/solution/index.handler.ts  aws-blocks/index.handler.ts  # see gotcha ①
+cp ../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts # see gotcha ②
 ```
 
 > If you run `npm run dev` **before** these steps, you won't get a cryptic error — the

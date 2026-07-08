@@ -107,7 +107,7 @@ d20 roll, the DC check, narration, and turn order end to end.
    ls app/.bb-data/    # tt-gameStates and tt-chat now exist alongside the rest
    ```
 
-Catch up: `cp ../05-state/index.ts app/aws-blocks/index.ts`
+Catch up: `cp ../05-state/solution/index.ts app/aws-blocks/index.ts`
 
 ---
 

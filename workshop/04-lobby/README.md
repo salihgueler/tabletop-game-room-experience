@@ -81,7 +81,7 @@ const all = await Array.fromAsync(
    cat app/.bb-data/tt-games/data.json    # your lobby rows, all with listKey:"all"
    ```
 
-Catch up: `cp ../04-lobby/index.ts app/aws-blocks/index.ts`
+Catch up: `cp ../04-lobby/solution/index.ts app/aws-blocks/index.ts`
 
 ---
 

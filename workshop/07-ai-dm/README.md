@@ -120,7 +120,7 @@ inference-profile id instead of the preset.
    Restart `npm run dev` and play a turn. Now the DM narrates in-character, the action
    choices fit the moment, and the "🤔 thinking" bar streams the DM's reasoning live.
 
-Catch up: `cp ../07-ai-dm/index.ts app/aws-blocks/index.ts`
+Catch up: `cp ../07-ai-dm/solution/index.ts app/aws-blocks/index.ts`
 
 ---
 
