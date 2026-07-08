@@ -23,7 +23,33 @@ table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
 - To list them all: `query({ index: "byCreated", where: { listKey: { equals: "all" } } })`
   — one partition, sorted by creation time.
 
+> **⚠️ `index` must be an index _name_, not a field.**
+> `games.query({ index: "gameId", ... })` throws `Index 'gameId' not found`. Only names
+> from the `indexes` config are valid.
+
+## Steps
+
+1. **Add the `games` table** (schema + index) right after the `characters` table. The
+   schema adds two fields the Map version didn't need: `listKey` and `gameId`.
+
 ```ts
+// A game room in the lobby list.
+const gameSchema = z.object({
+  listKey: z.string(), // constant partition key for public listing ("all")
+  gameId: z.string(), // sort key
+  name: z.string(),
+  theme: z.string(),
+  note: z.string(),
+  dmType: z.string(),
+  dmLevel: z.string(),
+  maxParty: z.number(),
+  status: z.string(), // 'Awaiting Players' | 'In Session'
+  isPublic: z.boolean(),
+  accessCode: z.string().nullable(),
+  hostUserId: z.string(),
+  createdAt: z.number(),
+});
+
 const games = new DistributedTable(scope, "games", {
   schema: gameSchema, // includes listKey + gameId
   key: { partitionKey: "listKey", sortKey: "gameId" },
@@ -37,15 +63,6 @@ const all = await Array.fromAsync(
   games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
 );
 ```
-
-> **⚠️ `index` must be an index _name_, not a field.**
-> `games.query({ index: "gameId", ... })` throws `Index 'gameId' not found`. Only names
-> from the `indexes` config are valid.
-
-## Steps
-
-1. **Add the `games` table** (schema + index) right after the `characters` table. The
-   schema adds two fields the Map version didn't need: `listKey` and `gameId`.
 
 2. **Delete `const gameStore = new Map(...)`** from the persistence mock (keep
    `gameStateStore` and `chatStore` — that's module 05).

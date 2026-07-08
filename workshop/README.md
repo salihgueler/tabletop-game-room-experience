@@ -3,7 +3,7 @@
 Turn a **mock-backed** tabletop RPG into a real cloud application — one AWS
 [Building Block](https://github.com/aws) at a time.
 
-You start with [`app/`](app/): the **Adventurer's Guild Hall** game *frontend*. In
+You start with [`app/`](app/): the **Adventurer's Guild Hall** game _frontend_. In
 Module 01 you scaffold the backend with `create-blocks-app` and drop in a mock backend
 that fakes everything in memory (auth, persistence, real-time, AI). Each module then
 replaces one mock with a real AWS Block until the whole thing runs on Auth, DynamoDB,
@@ -17,7 +17,7 @@ The finished reference implementation lives in [`../tabletop-app/`](../tabletop-
 ## The model: one app, nine steps
 
 **You work in a single project — [`app/`](app/) — the whole way through.** Set it up once
-(Module 01: scaffold + `npm install`). After that, each module is a *step* that edits
+(Module 01: scaffold + `npm install`). After that, each module is a _step_ that edits
 `app/aws-blocks/index.ts` (the backend is one file). The app stays runnable after every
 module.
 
@@ -48,7 +48,7 @@ AI are faked in-memory. That's deliberate:
   `npm run dev` and you're playing a full game (solo, vs. canned AI companions).
 - **The seams are the syllabus.** Each mock is clearly labelled with the module that
   replaces it (`// MOCK: auth (Module 02 → AuthBasic)`). Your job each module is to
-  delete one mock and wire in the real Block behind the *same* function shape — so the
+  delete one mock and wire in the real Block behind the _same_ function shape — so the
   frontend never changes and you see exactly what a Block gives you over a hand-roll.
 
 ## What you'll build
@@ -61,25 +61,25 @@ server-authoritative, real-time-synced across players.
 
 Work through them in order. Each is a runnable checkpoint.
 
-| # | Module | Mock replaced | Block introduced |
-|---|--------|---------------|------------------|
-| 01 | [Scaffold with create-blocks-app](01-scaffold/) | — (setup) | `Scope`, `ApiNamespace` |
-| 02 | [Auth](02-auth/) | `fakeAuth` | `AuthBasic` |
-| 03 | Characters | `characterStore` Map | `DistributedTable` |
-| 04 | Guild Hall lobby | `gameStore` Map | `DistributedTable` + GSI |
-| 05 | Game state & chat (turn engine) | `gameStateStore` / `chatStore` Maps | `DistributedTable` |
-| 06 | Realtime | `fakeChannel` / `publish` | `Realtime` |
-| 07 | AI Dungeon Master | `narrate` / `nextScene` | `Agent` |
-| 08 | AI companions | `companionDecide` | `Agent` × party |
-| 09 | Deploy | — | CDK `Hosting` |
+| #   | Module                                          | Mock replaced                       | Block introduced         |
+| --- | ----------------------------------------------- | ----------------------------------- | ------------------------ |
+| 01  | [Scaffold with create-blocks-app](01-scaffold/) | — (setup)                           | `Scope`, `ApiNamespace`  |
+| 02  | [Auth](02-auth/)                                | `fakeAuth`                          | `AuthBasic`              |
+| 03  | Characters                                      | `characterStore` Map                | `DistributedTable`       |
+| 04  | Guild Hall lobby                                | `gameStore` Map                     | `DistributedTable` + GSI |
+| 05  | Game state & chat (turn engine)                 | `gameStateStore` / `chatStore` Maps | `DistributedTable`       |
+| 06  | Realtime                                        | `fakeChannel` / `publish`           | `Realtime`               |
+| 07  | AI Dungeon Master                               | `narrate` / `nextScene`             | `Agent`                  |
+| 08  | AI companions                                   | `companionDecide`                   | `Agent` × party          |
+| 09  | Deploy                                          | —                                   | CDK `Hosting`            |
 
 ## Prerequisites
 
-- **Node.js ≥ 20** and **npm ≥ 10** (`node -v`, `npm -v`)
+- **Node.js ≥ 22** and **npm ≥ 10** (`node -v`, `npm -v`)
 - A TypeScript-aware editor (VS Code recommended)
-- *(Module 07+ only, optional)* [Ollama](https://ollama.com) for real local AI. Without
+- _(Module 07+ only, optional)_ [Ollama](https://ollama.com) for real local AI. Without
   it the game keeps using the canned provider and stays fully playable.
-- *(Module 09 only)* An AWS account with credentials configured and CDK bootstrapped.
+- _(Module 09 only)_ An AWS account with credentials configured and CDK bootstrapped.
 
 The frontend is **React 19 + Vite 6** (matching what `create-blocks-app`'s `react`
 template installs), so the scaffolded backend deps line up with the app on the same majors.
