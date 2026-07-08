@@ -593,6 +593,15 @@ async function nextScene(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const uid = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+// Short, human-shareable access code for private games. Excludes ambiguous
+// glyphs (0/O, 1/I) so it's easy to read aloud and type.
+const makeAccessCode = (len = 6) => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < len; i++)
+    code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return code;
+};
 const rollD20 = () => 1 + Math.floor(Math.random() * 20);
 const spriteForRoll = (value: number) =>
   Math.min(24, Math.max(1, Math.round((value / 20) * 24)));
@@ -1127,6 +1136,12 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     const fillMode = input.fillMode === "humans" ? "humans" : "ai";
     const name = `${character.name}'s ${scenario} Run`;
 
+    // Private games need a code so others can join them; use one the host
+    // supplied, otherwise generate a readable one. Public games have none.
+    const accessCode = input.isPublic
+      ? null
+      : input.accessCode?.trim() || makeAccessCode();
+
     await games.put({
       listKey: "all",
       gameId,
@@ -1139,7 +1154,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       // AI-filled starts live; waiting-for-humans starts in the lobby.
       status: fillMode === "ai" ? "In Session" : "Awaiting Players",
       isPublic: input.isPublic,
-      accessCode: input.accessCode ?? null,
+      accessCode,
       hostUserId: user.username,
       createdAt: Date.now(),
     });
@@ -1180,7 +1195,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     };
     if (fillMode === "ai") await beginAdventure(state);
     await gameStates.put(state);
-    return { gameId };
+    return { gameId, accessCode };
   },
 
   async joinPrivate(accessCode: string) {

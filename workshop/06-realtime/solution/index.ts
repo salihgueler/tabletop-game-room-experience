@@ -280,11 +280,14 @@ const RESULTS: Record<
   { hit: (a: string) => string; miss: (a: string) => string }
 > = {
   attack: {
-    hit: (a) => `${a} strikes true! Steel bites deep and the shadowed figure reels.`,
-    miss: (a) => `${a} lunges, but the target twists away. The blade meets only air.`,
+    hit: (a) =>
+      `${a} strikes true! Steel bites deep and the shadowed figure reels.`,
+    miss: (a) =>
+      `${a} lunges, but the target twists away. The blade meets only air.`,
   },
   magic: {
-    hit: (a) => `${a} weaves the incantation flawlessly — arcane force erupts, lighting the chamber.`,
+    hit: (a) =>
+      `${a} weaves the incantation flawlessly — arcane force erupts, lighting the chamber.`,
     miss: (a) => `${a}'s spell sputters and fizzles into wasted motes of mana.`,
   },
   skill: {
@@ -292,12 +295,15 @@ const RESULTS: Record<
     miss: (a) => `${a}'s hands slip. The mechanism jams with an ominous grind.`,
   },
   investigate: {
-    hit: (a) => `${a} studies the scene and uncovers a hidden detail the others missed.`,
+    hit: (a) =>
+      `${a} studies the scene and uncovers a hidden detail the others missed.`,
     miss: (a) => `${a} searches, but the shadows keep their secrets for now.`,
   },
   support: {
-    hit: (a) => `${a} bolsters the party — a warm glow steadies every hand in the room.`,
-    miss: (a) => `${a}'s effort falters; the blessing fades before it takes hold.`,
+    hit: (a) =>
+      `${a} bolsters the party — a warm glow steadies every hand in the room.`,
+    miss: (a) =>
+      `${a}'s effort falters; the blessing fades before it takes hold.`,
   },
 };
 
@@ -309,13 +315,18 @@ function cannedNarration(
 ): string {
   const bank = RESULTS[categorize(action)] || RESULTS.investigate;
   const line = roll >= dc ? bank.hit(actor) : bank.miss(actor);
-  const crit = roll === 20 ? " A CRITICAL success — the whole party feels the momentum shift!" : "";
-  const fumble = roll === 1 ? " A critical fumble! The misstep costs the party dearly." : "";
+  const crit =
+    roll === 20
+      ? " A CRITICAL success — the whole party feels the momentum shift!"
+      : "";
+  const fumble =
+    roll === 1 ? " A critical fumble! The misstep costs the party dearly." : "";
   return `${line}${crit}${fumble}`;
 }
 
 const PROMPTS = [
-  (n: string) => `The path forks and the air grows colder. What do you do, ${n}?`,
+  (n: string) =>
+    `The path forks and the air grows colder. What do you do, ${n}?`,
   (n: string) => `A sound echoes from deeper within. ${n}, how do you proceed?`,
   (n: string) => `The party looks to you. ${n}, make your move.`,
   (n: string) => `Danger prickles at the back of your neck. Your call, ${n}.`,
@@ -367,7 +378,9 @@ async function companionDecide(
   situation: string,
   options: string[],
 ): Promise<{ action: string; line: string; reasoning: string }> {
-  const opts = options?.length ? options : (CLASS_META[classKey]?.actions ?? ["Investigate"]);
+  const opts = options?.length
+    ? options
+    : (CLASS_META[classKey]?.actions ?? ["Investigate"]);
   const bank = COMPANION_LINES[classKey] ?? [""];
   return {
     action: opts[Math.floor(Math.random() * opts.length)],
@@ -381,6 +394,15 @@ async function companionDecide(
 // ═══════════════════════════════════════════════════════════════════════════════
 const uid = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+// Short, human-shareable access code for private games. Excludes ambiguous
+// glyphs (0/O, 1/I) so it's easy to read aloud and type.
+const makeAccessCode = (len = 6) => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < len; i++)
+    code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return code;
+};
 const rollD20 = () => 1 + Math.floor(Math.random() * 20);
 const spriteForRoll = (value: number) =>
   Math.min(24, Math.max(1, Math.round((value / 20) * 24)));
@@ -538,7 +560,10 @@ async function loadState(gameId: string): Promise<GameState> {
 async function saveAndBroadcast(state: GameState) {
   const next = { ...state, version: state.version + 1 };
   await gameStates.put(next);
-  await rt.publish("state", next.gameId, { gameId: next.gameId, version: next.version });
+  await rt.publish("state", next.gameId, {
+    gameId: next.gameId,
+    version: next.version,
+  });
   return next;
 }
 
@@ -553,7 +578,10 @@ async function transcribe(
     text: string;
   }>,
 ) {
-  const withColor = entries.map((e) => ({ ...e, color: e.color ?? "var(--dm)" }));
+  const withColor = entries.map((e) => ({
+    ...e,
+    color: e.color ?? "var(--dm)",
+  }));
   state.log = [
     ...state.log,
     ...withColor.map((e) => ({
@@ -587,7 +615,13 @@ async function resolveAction(state: GameState, action: string) {
   const actor = state.players[state.turnIndex];
   const value = rollD20();
   const success = value >= state.dc;
-  const text = await narrate(state.scenario, action, actor.name, value, state.dc);
+  const text = await narrate(
+    state.scenario,
+    action,
+    actor.name,
+    value,
+    state.dc,
+  );
   state.lastRoll = {
     value,
     sprite: spriteForRoll(value),
@@ -655,7 +689,14 @@ async function postBotChat(
   color: string,
   text: string,
 ) {
-  const msg: ChatMsg = { gameId, ts: Date.now(), who: name, color, text, kind: "say" };
+  const msg: ChatMsg = {
+    gameId,
+    ts: Date.now(),
+    who: name,
+    color,
+    text,
+    kind: "say",
+  };
   await chatMessages.put(msg);
   await rt.publish("chat", gameId, msg);
 }
@@ -667,9 +708,27 @@ function currentSituation(state: GameState): string {
 
 // Showcase public games seeded on first lobby load so the hall isn't empty.
 const SEED_GAMES = [
-  { name: "The Gloomspire Sanctum", theme: "Cave Crypt", dmType: "Grimjaw", dmLevel: "Intermediate", host: "paladin" },
-  { name: "Rune-Carved Door Mystery", theme: "Magic Tower", dmType: "Grimjaw", dmLevel: "Intermediate", host: "rogue" },
-  { name: "Frostbite Hollow", theme: "Frozen Keep", dmType: "Mistweaver", dmLevel: "Master", host: "ranger" },
+  {
+    name: "The Gloomspire Sanctum",
+    theme: "Cave Crypt",
+    dmType: "Grimjaw",
+    dmLevel: "Intermediate",
+    host: "paladin",
+  },
+  {
+    name: "Rune-Carved Door Mystery",
+    theme: "Magic Tower",
+    dmType: "Grimjaw",
+    dmLevel: "Intermediate",
+    host: "rogue",
+  },
+  {
+    name: "Frostbite Hollow",
+    theme: "Frozen Keep",
+    dmType: "Mistweaver",
+    dmLevel: "Master",
+    host: "ranger",
+  },
 ];
 
 async function seedIfEmpty() {
@@ -721,8 +780,16 @@ async function seedIfEmpty() {
       dc: 12,
       lastRoll: null,
       log: [
-        { kind: "dm", who: `AI DM: ${g.dmType}`, text: OPENERS[g.theme] ?? OPENERS["Cave Crypt"] },
-        { kind: "dm", who: `AI DM: ${g.dmType}`, text: "Waiting for adventurers to take their seats…" },
+        {
+          kind: "dm",
+          who: `AI DM: ${g.dmType}`,
+          text: OPENERS[g.theme] ?? OPENERS["Cave Crypt"],
+        },
+        {
+          kind: "dm",
+          who: `AI DM: ${g.dmType}`,
+          text: "Waiting for adventurers to take their seats…",
+        },
       ],
       inventory: ["scroll", "potion", "key", "gem", "map"],
       options: [],
@@ -772,7 +839,10 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     // scan). Query returns an async iterator sorted by createdAt ascending;
     // reverse for newest-first.
     const all = await Array.fromAsync(
-      games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
+      games.query({
+        index: "byCreated",
+        where: { listKey: { equals: "all" } },
+      }),
     );
     const publicGames = all.filter((g) => g.isPublic).reverse();
     const result = [];
@@ -783,7 +853,9 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       const finished =
         !!st &&
         (st.roomPhase === "ended" ||
-          (st.roomPhase === "live" && st.endsAt != null && Date.now() >= st.endsAt));
+          (st.roomPhase === "live" &&
+            st.endsAt != null &&
+            Date.now() >= st.endsAt));
       result.push({
         id: g.gameId,
         name: g.name,
@@ -794,11 +866,19 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
         dm: g.dmType,
         finished,
         full: finished || !open,
-        status: finished ? "Finished" : open ? "Awaiting Players" : "In Session",
+        status: finished
+          ? "Finished"
+          : open
+            ? "Awaiting Players"
+            : "In Session",
         party: filled,
         partyClasses: st ? st.players.map((p) => p.classKey) : [],
         members: st
-          ? st.players.map((p) => ({ name: p.name, classKey: p.classKey, seat: p.seat }))
+          ? st.players.map((p) => ({
+              name: p.name,
+              classKey: p.classKey,
+              seat: p.seat,
+            }))
           : [],
       });
     }
@@ -826,6 +906,12 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     const fillMode = input.fillMode === "humans" ? "humans" : "ai";
     const name = `${character.name}'s ${scenario} Run`;
 
+    // Private games need a code so others can join them; use one the host
+    // supplied, otherwise generate a readable one. Public games have none.
+    const accessCode = input.isPublic
+      ? null
+      : input.accessCode?.trim() || makeAccessCode();
+
     await games.put({
       listKey: "all",
       gameId,
@@ -837,13 +923,18 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       maxParty: MAX_PARTY,
       status: fillMode === "ai" ? "In Session" : "Awaiting Players",
       isPublic: input.isPublic,
-      accessCode: input.accessCode ?? null,
+      accessCode,
       hostUserId: user.username,
       createdAt: Date.now(),
     });
 
     const players = buildParty(
-      { name: character.name, classKey: character.classKey, sprite: character.sprite, userId: user.username },
+      {
+        name: character.name,
+        classKey: character.classKey,
+        sprite: character.sprite,
+        userId: user.username,
+      },
       fillMode,
     );
     const state: GameState = {
@@ -858,20 +949,29 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       phase: "player",
       dc: 12,
       lastRoll: null,
-      log: [{ kind: "dm", who: `AI DM: ${dmName}`, text: "Waiting for adventurers to take their seats…" }],
+      log: [
+        {
+          kind: "dm",
+          who: `AI DM: ${dmName}`,
+          text: "Waiting for adventurers to take their seats…",
+        },
+      ],
       inventory: ["scroll", "potion", "key", "gem", "map"],
       options: [],
       version: 0,
     };
     if (fillMode === "ai") await beginAdventure(state);
     await gameStates.put(state);
-    return { gameId };
+    return { gameId, accessCode };
   },
 
   async joinPrivate(accessCode: string) {
     await auth.requireAuth(context);
     const all = await Array.fromAsync(
-      games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
+      games.query({
+        index: "byCreated",
+        where: { listKey: { equals: "all" } },
+      }),
     );
     const game = all.find((g) => g.accessCode && g.accessCode === accessCode);
     if (!game) throw new Error("No game found for that access code");
@@ -882,7 +982,8 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     const user = await auth.requireAuth(context);
     const state = await loadState(gameId);
     if (await finalizeIfExpired(state)) await saveAndBroadcast(state);
-    const mySeatId = state.players.find((p) => p.userId === user.username)?.id ?? null;
+    const mySeatId =
+      state.players.find((p) => p.userId === user.username)?.id ?? null;
     return {
       ...state,
       viewer: { userId: user.username, mySeatId, spectator: mySeatId === null },
@@ -933,7 +1034,8 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     const user = await auth.requireAuth(context);
     const state = await loadState(gameId);
     if (await finalizeIfExpired(state)) return await saveAndBroadcast(state);
-    if (state.roomPhase !== "live") throw new Error("The game has not started yet");
+    if (state.roomPhase !== "live")
+      throw new Error("The game has not started yet");
     const actor = state.players[state.turnIndex];
     if (state.phase !== "player") throw new Error("Not ready for an action");
     if (actor.seat !== "human" || actor.userId !== user.username)
@@ -952,7 +1054,11 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       return { state: saved, botActed: false, botTurnPending: false };
     }
     const actor = state.players[state.turnIndex];
-    if (state.roomPhase !== "live" || state.phase !== "player" || !isAiSeat(actor)) {
+    if (
+      state.roomPhase !== "live" ||
+      state.phase !== "player" ||
+      !isAiSeat(actor)
+    ) {
       return { state, botActed: false, botTurnPending: false };
     }
     const { action, line } = await companionDecide(
@@ -1006,7 +1112,9 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       gameId,
       ts: Date.now(),
       who: character?.name ?? user.username,
-      color: character ? (CLASS_META[character.classKey]?.color ?? "var(--text)") : "var(--text)",
+      color: character
+        ? (CLASS_META[character.classKey]?.color ?? "var(--text)")
+        : "var(--text)",
       text: text.trim(),
       kind: "say",
     };

@@ -19,6 +19,9 @@ export default function GuildHall({ character, onOpenGame }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // After creating a private game the server returns its access code; hold it
+  // (with the new game id) so we can show it in a dialog before entering.
+  const [created, setCreated] = useState(null) // { gameId, accessCode }
 
   const refresh = useCallback(async () => {
     try {
@@ -45,10 +48,14 @@ export default function GuildHall({ character, onOpenGame }) {
     setBusy(true)
     setError('')
     try {
-      const { gameId } = await api.createGame({ scenario, dmType: dm, isPublic, fillMode, accessCode: code.trim() || undefined })
-      onOpenGame(gameId)
+      const { gameId, accessCode } = await api.createGame({ scenario, dmType: dm, isPublic, fillMode })
+      // Private game → reveal its shareable access code first; the host enters
+      // from the dialog. Public game → jump straight in as before.
+      if (!isPublic && accessCode) setCreated({ gameId, accessCode })
+      else onOpenGame(gameId)
     } catch (e) {
       setError(e?.message || 'Could not create game.')
+    } finally {
       setBusy(false)
     }
   }
@@ -179,7 +186,69 @@ export default function GuildHall({ character, onOpenGame }) {
           </div>
         </div>
       </div>
+
+      {/* ACCESS CODE DIALOG — reveals the shareable code for a new private game */}
+      {created && (
+        <AccessCodeDialog
+          code={created.accessCode}
+          onEnter={() => onOpenGame(created.gameId)}
+        />
+      )}
     </Cabinet>
+  )
+}
+
+// Themed modal that reveals a new private game's access code. Mirrors the
+// "TIME'S UP" game-over dialog design so the two feel like one family.
+function AccessCodeDialog({ code, onEnter }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard unavailable — the code is shown for manual copy */ }
+  }
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50, display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        background: '#0a061699', backdropFilter: 'blur(2px)',
+      }}
+    >
+      <div
+        className="panel col center"
+        style={{
+          width: 'min(460px, 92vw)', padding: '28px 26px', gap: 14, textAlign: 'center',
+          border: '3px solid var(--gold)', boxShadow: '0 0 40px #000, 0 0 24px var(--dm)',
+        }}
+      >
+        <Sprite src="/ui/crest.png" alt="crest" style={{ height: 84, width: 'auto', filter: 'drop-shadow(0 0 12px #00ffff55)' }} />
+        <h1 className="head" style={{ fontSize: 22, color: 'var(--gold-bright)' }}>PRIVATE GAME READY</h1>
+        <p className="meta" style={{ fontSize: 21, lineHeight: 1.3, margin: 0 }}>
+          Share this access code so other adventurers can join your party.
+        </p>
+        <button
+          onClick={copy}
+          title="Copy access code"
+          className="head"
+          style={{
+            fontSize: 30, letterSpacing: 6, color: 'var(--gold-bright)',
+            background: '#0f1120', border: '2px solid var(--gold)', borderRadius: 10,
+            padding: '10px 20px', cursor: 'pointer',
+          }}
+        >
+          {code}
+        </button>
+        <span className="dim" style={{ fontSize: 16, minHeight: 18 }}>
+          {copied ? '✓ Copied to clipboard' : 'Tap the code to copy'}
+        </span>
+        <button className="btn" onClick={onEnter} style={{ marginTop: 6 }}>
+          ⚔ ENTER THE GAME
+        </button>
+      </div>
+    </div>
   )
 }
 
