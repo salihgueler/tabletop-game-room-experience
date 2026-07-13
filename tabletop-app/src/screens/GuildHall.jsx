@@ -88,7 +88,7 @@ export default function GuildHall({ character, onOpenGame }) {
 
   return (
     <Cabinet leftRail={left} rightRail={right}>
-      <div className="col" style={{ height: '100%', gap: 10 }}>
+      <div className="col guild-layout" style={{ height: '100%', gap: 10 }}>
         {/* Title banner — real ornate plaque art from the design sheet */}
         <div className="col center" style={{ flex: '0 0 auto' }}>
           <Sprite
@@ -111,9 +111,9 @@ export default function GuildHall({ character, onOpenGame }) {
         {error && <div style={{ color: '#ff6b6b', fontSize: 17, textAlign: 'center' }}>⚠ {error}</div>}
 
         {/* Two columns: game list | create */}
-        <div className="row gap grow" style={{ alignItems: 'stretch', minHeight: 0 }}>
+        <div className="row gap grow guild-main" style={{ alignItems: 'stretch', minHeight: 0 }}>
           {/* PUBLIC GAME LIST */}
-          <div className="panel col" style={{ flex: '1.5' }}>
+          <div className="panel col guild-list-panel" style={{ flex: '1.5' }}>
             <div className="panel-header">PUBLIC GAME LIST</div>
             <div className="grow" style={{ overflowY: 'auto', padding: 10 }}>
               {games.length === 0 ? (
@@ -127,7 +127,7 @@ export default function GuildHall({ character, onOpenGame }) {
           </div>
 
           {/* CREATE A NEW GAME */}
-          <div className="panel col" style={{ flex: '1' }}>
+          <div className="panel col guild-create-panel" style={{ flex: '1' }}>
             <div className="panel-header">CREATE A NEW GAME</div>
             <div className="col grow" style={{ padding: 14, overflowY: 'auto' }}>
               <div className="field">
@@ -175,7 +175,7 @@ export default function GuildHall({ character, onOpenGame }) {
         </div>
 
         {/* Guild Dice Collection */}
-        <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'flex-end', flex: '0 0 auto' }}>
+        <div className="row guild-dice-row" style={{ justifyContent: 'flex-end', alignItems: 'flex-end', flex: '0 0 auto' }}>
           <div className="col center" style={{ gap: 2 }}>
             <div className="row gap-sm" style={{ alignItems: 'flex-end' }}>
               {COLLECTION.map((d, i) => (
@@ -260,8 +260,8 @@ function GameCard({ game, onJoin }) {
   const statusText = finished ? 'Finished' : full ? 'In Session' : 'Awaiting Players'
   const statusColor = finished ? 'var(--text-dim)' : full ? 'var(--rogue)' : 'var(--ranger)'
   return (
-    <div className="panel" style={{ padding: 12, marginBottom: 10, borderColor: 'var(--wood)', opacity: finished ? 0.7 : 1 }}>
-      <div className="row between" style={{ alignItems: 'flex-start' }}>
+    <div className="panel game-card" style={{ padding: 12, marginBottom: 10, borderColor: 'var(--wood)', opacity: finished ? 0.7 : 1 }}>
+      <div className="row between game-card-head" style={{ alignItems: 'flex-start' }}>
         <div className="grow">
           <div className="head" style={{ fontSize: 12, color: 'var(--gold-bright)', marginBottom: 6 }}>{game.name}</div>
           <div className="dim" style={{ fontSize: 16 }}>{game.note}</div>

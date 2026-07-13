@@ -32,7 +32,7 @@ export default function AuthScreen({ onAuthed }) {
   }
 
   return (
-    <div className="col center" style={{ height: '100vh', padding: 24, gap: 18 }}>
+    <div className="col center auth-screen" style={{ height: '100vh', padding: 24, gap: 18 }}>
       <Sprite src="/ui/crest.png" alt="crest" style={{ height: 90, width: 'auto', filter: 'drop-shadow(0 0 12px #00ffff55)' }} />
       <h1 style={{ fontSize: 24, textAlign: 'center' }}>ADVENTURER'S GUILD HALL</h1>
       <p className="meta" style={{ fontSize: 22, marginTop: -8 }}>

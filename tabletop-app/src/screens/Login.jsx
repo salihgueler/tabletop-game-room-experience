@@ -36,14 +36,14 @@ export default function Login({ user, onEnter }) {
   const pickedClass = picked ? CLASSES[picked.classKey] : null
 
   return (
-    <div className="col center" style={{ height: '100vh', padding: 24, gap: 18, overflowY: 'auto' }}>
+    <div className="col center character-screen" style={{ height: '100vh', padding: 24, gap: 18, overflowY: 'auto' }}>
       <h1 style={{ fontSize: 26, textAlign: 'center' }}>ADVENTURER'S GUILD HALL</h1>
       <p className="meta" style={{ fontSize: 22, marginTop: -6 }}>Forge your hero and take a seat at the table.</p>
 
-      <Frame style={{ width: 'min(920px, 96vw)' }} innerStyle={{ padding: 20 }}>
-        <div className="row gap" style={{ flexWrap: 'wrap' }}>
+      <Frame className="character-frame" style={{ width: 'min(920px, 96vw)' }} innerStyle={{ padding: 20 }}>
+        <div className="row gap character-layout" style={{ flexWrap: 'wrap' }}>
           {/* left: name + selected preview */}
-          <div className="col gap" style={{ width: 260, flex: '0 0 auto' }}>
+          <div className="col gap character-preview" style={{ width: 260, flex: '0 0 auto' }}>
             <div className="field">
               <label>Adventurer Name</label>
               <input
@@ -96,6 +96,7 @@ export default function Login({ user, onEnter }) {
               CHOOSE YOUR CHARACTER
             </div>
             <div
+              className="character-grid"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(5, 1fr)',

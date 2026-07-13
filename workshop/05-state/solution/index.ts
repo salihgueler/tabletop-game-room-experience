@@ -396,8 +396,12 @@ const makeAccessCode = (len = 6) => {
   return code;
 };
 const rollD20 = () => 1 + Math.floor(Math.random() * 20);
+const DICE_FRAMES = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+  13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+] as const;
 const spriteForRoll = (value: number) =>
-  Math.min(24, Math.max(1, Math.round((value / 20) * 24)));
+  DICE_FRAMES[Math.round(((Math.min(20, Math.max(1, value)) - 1) / 19) * (DICE_FRAMES.length - 1))];
 const diceColorFor = (classKey: string) =>
   ["paladin", "sorcerer"].includes(classKey) ? "blue" : "red";
 
@@ -647,7 +651,6 @@ function recentLog(state: GameState, n = 6): string {
 
 async function advanceTurn(state: GameState) {
   const next = state.turnIndex + 1;
-  state.lastRoll = null;
   if (next >= state.players.length) {
     state.turnIndex = 0;
     state.round += 1;

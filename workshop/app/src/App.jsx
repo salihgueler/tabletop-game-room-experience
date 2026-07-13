@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthScreen from './screens/AuthScreen.jsx'
 import Login from './screens/Login.jsx'
 import GuildHall from './screens/GuildHall.jsx'
@@ -15,31 +15,73 @@ export default function App() {
   const [view, setView] = useState('hall') // 'hall' | 'game'
   const [gameId, setGameId] = useState(null)
 
-  // Subscribe to auth changes and restore any existing character on sign-in.
-  useEffect(() => {
-    const unsub = onAuthChange(authApi, async (u) => {
-      setUser(u)
-      if (u) {
-        try {
-          const existing = await api.getCharacter()
-          setCharacter(existing)
-        } catch {
-          setCharacter(null)
-        }
-      } else {
-        setCharacter(null)
-      }
-      setReady(true)
-    })
-    return () => unsub?.()
+  const sessionRequest = useRef(0)
+
+  const restoreSession = useCallback(async (u) => {
+    const request = ++sessionRequest.current
+    setReady(false)
+    setUser(u ?? null)
+
+    if (!u) {
+      setCharacter(null)
+      setView('hall')
+      setGameId(null)
+      if (request === sessionRequest.current) setReady(true)
+      return
+    }
+
+    let existing = null
+    try {
+      existing = await api.getCharacter()
+    } catch {
+      existing = null
+    }
+
+    if (request !== sessionRequest.current) return
+    setUser(u)
+    setCharacter(existing)
+    setView('hall')
+    setGameId(null)
+    setReady(true)
   }, [])
+
+  // Hydrate the real auth state before the first interactive screen appears,
+  // then subscribe to later sign-in/sign-out broadcasts.
+  useEffect(() => {
+    let cancelled = false
+    let unsub
+
+    ;(async () => {
+      try {
+        const state = await authApi.getAuthState()
+        if (!cancelled) await restoreSession(state.user ?? null)
+      } catch {
+        if (!cancelled) await restoreSession(null)
+      }
+
+      if (cancelled) return
+      let skipInitialEmit = true
+      unsub = onAuthChange(authApi, (u) => {
+        if (skipInitialEmit) {
+          skipInitialEmit = false
+          return
+        }
+        restoreSession(u)
+      })
+    })()
+
+    return () => {
+      cancelled = true
+      unsub?.()
+    }
+  }, [restoreSession])
 
   if (!ready) {
     return <div className="col center" style={{ height: '100vh', color: 'var(--text-meta)', fontSize: 24 }}>Loading the guild hall…</div>
   }
 
   // Not signed in → auth gate.
-  if (!user) return <AuthScreen onAuthed={setUser} />
+  if (!user) return <AuthScreen onAuthed={restoreSession} />
 
   // Signed in but no character chosen → character select.
   if (!character) return <Login user={user} onEnter={setCharacter} />

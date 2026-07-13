@@ -5,7 +5,7 @@ import Sprite from './Sprite.jsx'
 // Guild Hall and Game Room render inside, matching the mockups.
 export default function Cabinet({ children, leftRail, rightRail, crest = true }) {
   return (
-    <div className="row" style={{ height: '100vh', padding: '10px 8px', gap: 8 }}>
+    <div className="row cabinet-shell" style={{ height: '100vh', padding: '10px 8px', gap: 8 }}>
       <IconRail>{leftRail}</IconRail>
 
       <div className="cabinet grow" style={{ position: 'relative' }}>
@@ -41,7 +41,7 @@ export default function Cabinet({ children, leftRail, rightRail, crest = true })
 
 function IconRail({ children }) {
   return (
-    <div className="col" style={{ justifyContent: 'space-between', padding: '4px 0', flex: '0 0 auto' }}>
+    <div className="col icon-rail" style={{ justifyContent: 'space-between', padding: '4px 0', flex: '0 0 auto' }}>
       {children}
     </div>
   )

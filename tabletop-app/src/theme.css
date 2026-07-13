@@ -157,6 +157,41 @@ h1, h2, h3, .head {
 .meta { color: var(--text-meta); }
 .dim { color: var(--text-dim); }
 
+/* Wooden frame used by the auth and character screens. */
+.frame {
+  position: relative;
+  border-radius: 10px;
+  padding: 12px;
+  background:
+    linear-gradient(180deg, var(--wood-light), var(--wood-dark));
+  border: 3px solid #2a1806;
+  box-shadow:
+    inset 0 1px 0 #ffffff30,
+    inset 0 -5px 12px #00000066,
+    0 10px 30px #00000099;
+}
+.frame-inner {
+  position: relative;
+  border-radius: 7px;
+  border: 2px solid var(--gold);
+  background: linear-gradient(#24123af2, #1a1c2ef2);
+  box-shadow: inset 0 0 18px #00000077;
+}
+.stud {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  z-index: 2;
+  border-radius: 50%;
+  border: 2px solid #6f430c;
+  background: radial-gradient(circle at 35% 35%, var(--gold-bright), var(--gold) 55%, #7a4b12);
+  box-shadow: 0 1px 0 #00000088;
+}
+.stud.tl { top: 7px; left: 7px; }
+.stud.tr { top: 7px; right: 7px; }
+.stud.bl { bottom: 7px; left: 7px; }
+.stud.br { bottom: 7px; right: 7px; }
+
 /* --------------------------------------------------------------------------
    Buttons
    -------------------------------------------------------------------------- */
@@ -255,4 +290,490 @@ input:-webkit-autofill:focus {
 @keyframes floatFlame {
   0%,100% { transform: translate(-50%, 0); }
   50% { transform: translate(-50%, -3px); }
+}
+
+.dice-cluster .die {
+  width: 60px !important;
+  height: 60px !important;
+  object-fit: contain;
+  transform-origin: 50% 55%;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.dice-cluster .die-red { transform: rotate(-9deg); }
+.dice-cluster .die-blue { transform: rotate(12deg); }
+.dice-cluster .rolling-primary {
+  z-index: 2;
+  animation-duration: 1.3s;
+  animation-timing-function: cubic-bezier(0.2, 0.75, 0.25, 1);
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+}
+.dice-cluster .rolling-primary.die-red { animation-name: diceTumbleRed; }
+.dice-cluster .rolling-primary.die-blue { animation-name: diceTumbleBlue; }
+.dice-cluster.is-rolling {
+  animation: diceTrayImpact 1.3s ease-out both;
+}
+.dice-result.rolling {
+  animation: pulseGlow 0.55s ease-in-out infinite;
+}
+
+@keyframes diceTumbleRed {
+  0% { transform: translate(-10px, 16px) rotate(-35deg) scale(0.78); }
+  18% { transform: translate(30px, -20px) rotate(118deg) scale(1.16); }
+  38% { transform: translate(46px, 11px) rotate(278deg) scale(0.92); }
+  58% { transform: translate(20px, -13px) rotate(438deg) scale(1.1); }
+  78% { transform: translate(38px, 14px) rotate(612deg) scale(0.96); }
+  100% { transform: translate(18px, 10px) rotate(720deg) scale(1.05); }
+}
+
+@keyframes diceTumbleBlue {
+  0% { transform: translate(10px, 16px) rotate(35deg) scale(0.78); }
+  18% { transform: translate(-30px, -20px) rotate(-118deg) scale(1.16); }
+  38% { transform: translate(-46px, 11px) rotate(-278deg) scale(0.92); }
+  58% { transform: translate(-20px, -13px) rotate(-438deg) scale(1.1); }
+  78% { transform: translate(-38px, 14px) rotate(-612deg) scale(0.96); }
+  100% { transform: translate(-18px, 10px) rotate(-720deg) scale(1.05); }
+}
+
+@keyframes diceTrayImpact {
+  0%, 74% { transform: translateY(0); }
+  82% { transform: translateY(3px); }
+  88% { transform: translateY(-2px); }
+  94% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+
+.dice-tray-panel {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.dice-tray-body {
+  align-items: center;
+  gap: 12px;
+  min-height: 102px;
+  padding: 10px 12px;
+  overflow: visible;
+}
+
+.roll-summary {
+  min-width: 0;
+  gap: 2px;
+  font-size: 17px;
+  line-height: 1.15;
+}
+
+.roll-summary > span {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 960px) {
+  html, body, #root {
+    min-height: 100%;
+    height: auto;
+  }
+
+  body {
+    overflow: auto;
+    font-size: 18px;
+  }
+
+  #root {
+    background-attachment: scroll;
+  }
+
+  h1 {
+    font-size: 18px !important;
+    line-height: 1.35;
+  }
+
+  .auth-screen,
+  .character-screen {
+    min-height: 100dvh !important;
+    height: auto !important;
+    justify-content: flex-start !important;
+    padding: 18px 10px !important;
+    gap: 12px !important;
+    overflow-y: auto;
+  }
+
+  .auth-screen .sprite {
+    height: 68px !important;
+  }
+
+  .auth-screen .meta,
+  .character-screen .meta {
+    font-size: 18px !important;
+    text-align: center;
+  }
+
+  .frame {
+    width: 100% !important;
+    padding: 9px;
+  }
+
+  .frame-inner {
+    padding: 14px !important;
+  }
+
+  .character-layout,
+  .guild-main,
+  .game-layout,
+  .game-card-head {
+    flex-direction: column !important;
+  }
+
+  .character-preview {
+    width: 100% !important;
+    flex: 0 0 auto !important;
+  }
+
+  .character-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .character-grid button {
+    min-height: 112px;
+  }
+
+  .cabinet-shell {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    min-height: 100dvh !important;
+    height: auto !important;
+    padding: 6px !important;
+    gap: 6px !important;
+  }
+
+  .icon-rail {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    justify-content: center !important;
+    gap: 6px;
+    padding: 0 !important;
+  }
+
+  .rail-btn {
+    width: 38px;
+    height: 38px;
+    margin: 0 !important;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .cabinet {
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .cabinet > img.sprite {
+    top: -22px !important;
+    width: 62px !important;
+  }
+
+  .cabinet > .cabinet-inner {
+    height: auto;
+    min-height: calc(100dvh - 116px);
+    overflow: visible;
+    padding: 10px;
+  }
+
+  .corner {
+    width: 24px;
+    height: 24px;
+  }
+
+  .guild-layout,
+  .game-room {
+    min-height: calc(100dvh - 136px);
+    height: auto !important;
+  }
+
+  .guild-main,
+  .game-layout {
+    min-height: 0 !important;
+    overflow: visible;
+  }
+
+  .guild-list-panel,
+  .guild-create-panel,
+  .turn-order-panel,
+  .game-side-panel {
+    flex: 0 0 auto !important;
+  }
+
+  .guild-list-panel {
+    min-height: 280px;
+  }
+
+  .guild-dice-row {
+    justify-content: center !important;
+  }
+
+  .game-card .row.gap-sm {
+    flex-wrap: wrap;
+  }
+
+  .turn-order-panel {
+    max-height: 168px;
+  }
+
+  .turn-list {
+    flex-direction: row !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding-bottom: 12px !important;
+  }
+
+  .turn-list > .row {
+    min-width: 172px;
+  }
+
+  .game-status-banner {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    flex-wrap: wrap;
+    align-items: flex-start !important;
+    gap: 8px !important;
+    padding: 8px 10px !important;
+  }
+
+  .game-status-banner .head {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 9px !important;
+    line-height: 1.45;
+  }
+
+  .game-status-banner > span:last-child {
+    margin-left: auto;
+  }
+
+  .lobby-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+
+  .lobby-bar > span {
+    font-size: 17px !important;
+    line-height: 1.25;
+  }
+
+  .thinking-banner {
+    max-height: 112px;
+    overflow-y: auto;
+    font-size: 16px;
+  }
+
+  .board-column {
+    min-height: 560px;
+    flex: 0 0 auto !important;
+  }
+
+  .board {
+    min-height: 560px !important;
+    background-size: cover, 96px 96px !important;
+  }
+
+  .dm-badge-wrap {
+    top: 6px !important;
+    max-width: calc(100% - 16px);
+  }
+
+  .dm-badge {
+    max-width: 100%;
+    padding: 4px 9px !important;
+    border-radius: 14px !important;
+  }
+
+  .dm-badge .head {
+    font-size: 8px !important;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .token-layer {
+    bottom: 48% !important;
+  }
+
+  .board-token {
+    gap: 3px !important;
+    transform: translate(-50%, -50%) scale(0.72) !important;
+  }
+
+  .token-abilities {
+    gap: 3px !important;
+  }
+
+  .token-abilities > div {
+    width: 25px !important;
+    height: 25px !important;
+    font-size: 13px !important;
+    border-width: 2px !important;
+  }
+
+  .token-disc {
+    width: 76px !important;
+    height: 76px !important;
+    border-width: 3px !important;
+  }
+
+  .token-sprite {
+    height: 66px !important;
+  }
+
+  .token-nameplate {
+    min-width: 78px !important;
+  }
+
+  .token-name {
+    max-width: 92px;
+    font-size: 14px !important;
+    padding: 1px 5px !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .board-overlay {
+    padding: 8px !important;
+  }
+
+  .board-narration {
+    max-height: 132px;
+    overflow-y: auto;
+    padding: 8px 10px !important;
+  }
+
+  .board-narration div {
+    font-size: 18px !important;
+    line-height: 1.2 !important;
+  }
+
+  .board-narration .head {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 9px !important;
+  }
+
+  .action-menu {
+    align-items: stretch !important;
+    gap: 7px !important;
+  }
+
+  .action-status {
+    font-size: 9px !important;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .action-button {
+    width: 100% !important;
+    min-height: 44px;
+    font-size: 18px !important;
+    line-height: 1.15;
+    padding: 8px 10px !important;
+  }
+
+  .game-side-panel {
+    min-height: auto;
+  }
+
+  .game-side-panel > .grow {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    height: 300px;
+  }
+
+  .chat-panel {
+    min-height: 0;
+  }
+
+  .chat-panel form {
+    align-items: stretch;
+  }
+
+  .chat-panel form .btn {
+    min-width: 64px;
+  }
+
+  .dice-tray-body {
+    justify-content: center;
+  }
+
+  .dice-cluster {
+    width: 96px !important;
+    height: 70px !important;
+  }
+
+  .dice-cluster .die {
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  .panel-header {
+    font-size: 9px;
+    line-height: 1.35;
+  }
+
+  .field > label {
+    font-size: 16px;
+  }
+
+  select,
+  input[type='text'],
+  input[type='password'],
+  input[type='email'],
+  input[type='number'],
+  textarea {
+    width: 100%;
+    font-size: 18px;
+    min-height: 40px;
+  }
+
+  .btn {
+    white-space: normal;
+    line-height: 1.35;
+  }
+}
+
+@media (max-width: 430px) {
+  .character-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .cabinet > .cabinet-inner {
+    padding: 8px;
+  }
+
+  .board-column,
+  .board {
+    min-height: 600px !important;
+  }
+
+  .turn-list > .row {
+    min-width: 148px;
+  }
+
+  .token-layer {
+    bottom: 50% !important;
+  }
+
+  .board-token {
+    transform: translate(-50%, -50%) scale(0.64) !important;
+  }
+
+  .board-narration {
+    max-height: 150px;
+  }
+
+  .game-side-panel > .grow {
+    height: 260px;
+  }
 }

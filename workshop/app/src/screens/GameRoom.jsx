@@ -3,14 +3,14 @@ import Cabinet, { RailBtn } from '../components/Cabinet.jsx'
 import Chat from '../components/Chat.jsx'
 import Sprite from '../components/Sprite.jsx'
 import { CLASSES } from '../data/classes.js'
-import { diceUrl } from '../data/dice.js'
+import { DICE_FRAMES, diceUrl } from '../data/dice.js'
 import { api } from '../api.js'
 
-const INV_ICON = { scroll: '📜', potion: '🧪', key: '🗝', gem: '💎', map: '🗺' }
+const DICE_ROLL_MS = 1300
 
 // The active game table, laid out inside the wooden cabinet to mirror gamepage.png:
 // turn-order rail, stone-tile dungeon board with glowing character discs, DM
-// narration overlay + centered action list, chat, inventory, dice tray.
+// narration overlay + centered action list, chat, and animated dice tray.
 //
 // All game state is authoritative on the backend. We fetch it via getState,
 // subscribe to the Realtime `state` channel for live updates (from bots / other
@@ -23,6 +23,16 @@ export default function GameRoom({ gameId, character, onLeave }) {
   const [thinking, setThinking] = useState(null) // { who, color, text } live agent reasoning
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now()) // ticks the countdown display
+  const [revealedRollCount, setRevealedRollCount] = useState(0)
+
+  useEffect(() => {
+    setRevealedRollCount(0)
+  }, [gameId])
+
+  const stateRollCount = state?.log.filter((entry) => entry.kind === 'roll').length ?? 0
+  useEffect(() => {
+    if (state && !state.lastRoll) setRevealedRollCount(stateRollCount)
+  }, [state, stateRollCount])
 
   const refreshState = useCallback(async () => {
     try {
@@ -257,13 +267,21 @@ export default function GameRoom({ gameId, character, onLeave }) {
     return { text: '', tone: 'idle' }
   })()
   const statusColor = { you: 'var(--rogue)', wait: 'var(--ranger)', dm: 'var(--dm)', busy: 'var(--gold-bright)', idle: 'var(--text-meta)' }[status.tone]
+  const lastRollId = state.log.reduce((last, entry, index) => entry.kind === 'roll' ? index : last, -1)
+  let chatRollCount = 0
+  const firstHiddenRoll = chat.findIndex((message) => {
+    if (message.kind !== 'roll') return false
+    chatRollCount += 1
+    return chatRollCount > revealedRollCount
+  })
+  const visibleChat = firstHiddenRoll < 0 ? chat : chat.slice(0, firstHiddenRoll)
 
   return (
     <Cabinet leftRail={left} rightRail={right}>
-      <div className="col" style={{ height: '100%', gap: 8 }}>
+      <div className="col game-room" style={{ height: '100%', gap: 8 }}>
         {/* STATUS BANNER — always tells the player whose turn it is / what's happening */}
         <div
-          className="row"
+          className="row game-status-banner"
           style={{
             flex: '0 0 auto', gap: 10, padding: '7px 14px', borderRadius: 8, alignItems: 'center',
             background: '#0f1120', border: `2px solid ${statusColor}`,
@@ -297,7 +315,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
 
         {/* LOBBY BAR — seat status + host controls while gathering the party */}
         {inLobby && (
-          <div className="row between" style={{ flex: '0 0 auto', alignItems: 'center', padding: '8px 14px', borderRadius: 8, background: '#12142e', border: '2px solid var(--ranger)' }}>
+          <div className="row between lobby-bar" style={{ flex: '0 0 auto', alignItems: 'center', padding: '8px 14px', borderRadius: 8, background: '#12142e', border: '2px solid var(--ranger)' }}>
             <span style={{ fontSize: 19, color: 'var(--text)' }}>
               {state.players.filter((p) => p.seat !== 'open').length}/{state.players.length} seats filled
               {spectator ? ' · you are watching' : isHost ? ' · you are the host' : ' · you are seated'}
@@ -313,7 +331,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
         {/* LIVE THINKING — streams the acting companion's reasoning as it arrives */}
         {thinking && (
           <div
-            className="row gap-sm"
+            className="row gap-sm thinking-banner"
             style={{
               flex: '0 0 auto', alignItems: 'flex-start', padding: '8px 14px', borderRadius: 8,
               background: '#12142e', border: `2px dashed ${thinking.color}`, minHeight: 40,
@@ -328,11 +346,11 @@ export default function GameRoom({ gameId, character, onLeave }) {
           </div>
         )}
 
-        <div className="row gap grow" style={{ alignItems: 'stretch', minHeight: 0 }}>
+        <div className="row gap grow game-layout" style={{ alignItems: 'stretch', minHeight: 0 }}>
         {/* TURN ORDER */}
-        <div className="panel col" style={{ flex: '0 0 200px' }}>
+        <div className="panel col turn-order-panel" style={{ flex: '0 0 200px' }}>
           <div className="panel-header">TURN ORDER</div>
-          <div className="col grow" style={{ padding: 10, gap: 10, overflowY: 'auto' }}>
+          <div className="col grow turn-list" style={{ padding: 10, gap: 10, overflowY: 'auto' }}>
             {state.players.map((p, i) => (
               <TurnChip key={p.id} p={p} n={i + 1} active={!inLobby && state.turnIndex === i && state.phase === 'player'} me={p.id === me?.id} />
             ))}
@@ -341,7 +359,7 @@ export default function GameRoom({ gameId, character, onLeave }) {
         </div>
 
         {/* CENTER: board (with AI DM tab + narration overlay) */}
-        <div className="col grow" style={{ minWidth: 0 }}>
+        <div className="col grow board-column" style={{ minWidth: 0 }}>
           <Board
             players={state.players}
             activeIndex={state.phase === 'player' ? state.turnIndex : -1}
@@ -358,25 +376,16 @@ export default function GameRoom({ gameId, character, onLeave }) {
           />
         </div>
 
-        {/* RIGHT: chat + inventory + dice */}
-        <div className="col gap" style={{ flex: '0 0 260px' }}>
+        {/* RIGHT: chat + dedicated dice tray */}
+        <div className="col gap game-side-panel" style={{ flex: '0 0 260px' }}>
           <div className="grow" style={{ display: 'flex', minHeight: 0 }}>
-            <Chat title="CHAT" messages={chat} onSend={sendChat} />
+            <Chat title="CHAT" messages={visibleChat} onSend={sendChat} />
           </div>
-
-          <div className="panel" style={{ flex: '0 0 auto' }}>
-            <div className="panel-header">INVENTORY</div>
-            <div className="row" style={{ gap: 6, padding: 10, alignItems: 'center' }}>
-              <div className="row wrap grow" style={{ gap: 6 }}>
-                {state.inventory.map((it, i) => (
-                  <div key={i} title={it} style={{ width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, background: '#0f1120', border: '2px solid var(--panel-line)', borderRadius: 6 }}>
-                    {INV_ICON[it] || '▪'}
-                  </div>
-                ))}
-              </div>
-              <DiceCluster roll={state.lastRoll} />
-            </div>
-          </div>
+          <DiceTray
+            roll={state.lastRoll}
+            rollId={lastRollId}
+            onRollComplete={() => setRevealedRollCount(stateRollCount)}
+          />
         </div>
         </div>
       </div>
@@ -469,7 +478,7 @@ function Board({ players, activeIndex, dmName, dmActive, narration, actions, ena
   ]
   return (
     <div
-      className="col"
+      className="col board"
       style={{
         position: 'relative', flex: 1, minHeight: 0, borderRadius: 8,
         border: '3px solid #0a0d18',
@@ -486,21 +495,22 @@ function Board({ players, activeIndex, dmName, dmActive, narration, actions, ena
       <div style={{ position: 'absolute', inset: 0, boxShadow: 'inset 0 0 50px #39ff1418, inset 0 0 90px #9d4edd33', pointerEvents: 'none' }} />
 
       {/* AI DM tab centered at the very top of the board */}
-      <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
+      <div className="dm-badge-wrap" style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
         <DMBadge name={dmName} active={dmActive} />
       </div>
 
       {/* character discs — confined to the upper play area so they never collide
           with the narration overlay pinned at the bottom */}
-      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: '38%' }}>
+      <div className="token-layer" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: '38%' }}>
         {players.map((p, i) => (
           <Token key={p.id} p={p} pos={SLOTS[p.slot] || SLOTS[i]} active={activeIndex === i} />
         ))}
       </div>
 
       {/* narration overlay + action menu pinned to the board bottom */}
-      <div style={{ marginTop: 'auto', position: 'relative', zIndex: 4, padding: 12 }}>
+      <div className="board-overlay" style={{ marginTop: 'auto', position: 'relative', zIndex: 4, padding: 12 }}>
         <div
+          className="board-narration"
           style={{
             background: '#12142ee6', border: '2px solid var(--panel-line)', borderRadius: 8,
             padding: '10px 14px', boxShadow: '0 4px 14px #000a',
@@ -521,9 +531,9 @@ function Token({ p, pos, active }) {
   const abilities = CLASSES[p.classKey].abilities || []
   const hpPct = Math.max(0, Math.min(100, (p.hp / 20) * 100))
   return (
-    <div style={{ position: 'absolute', left: pos.left, top: pos.top, transform: 'translate(-50%,-50%)', display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div className="board-token" style={{ position: 'absolute', left: pos.left, top: pos.top, transform: 'translate(-50%,-50%)', display: 'flex', alignItems: 'center', gap: 6 }}>
       {/* ability icons stacked to the left */}
-      <div className="col" style={{ gap: 4 }}>
+      <div className="col token-abilities" style={{ gap: 4 }}>
         {abilities.map((a, i) => (
           <div key={i} style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, background: '#0f1120dd', border: `2px solid ${p.color}`, borderRadius: 6, boxShadow: `0 0 6px ${p.color}55` }}>{a}</div>
         ))}
@@ -532,6 +542,7 @@ function Token({ p, pos, active }) {
       {/* glowing circular disc with the character + nameplate + HP bar */}
       <div className="col center" style={{ position: 'relative' }}>
         <div
+          className="token-disc"
           style={{
             width: 92, height: 92, borderRadius: '50%',
             display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
@@ -542,11 +553,11 @@ function Token({ p, pos, active }) {
             color: p.color, overflow: 'hidden',
           }}
         >
-          <Sprite src={p.sprite} alt={p.name} style={{ height: 78, width: 'auto', marginBottom: -4 }} />
+          <Sprite className="token-sprite" src={p.sprite} alt={p.name} style={{ height: 78, width: 'auto', marginBottom: -4 }} />
         </div>
         {/* nameplate + HP bar overlapping the bottom of the disc */}
-        <div style={{ marginTop: -10, minWidth: 88, zIndex: 2 }}>
-          <div style={{ fontSize: 16, textAlign: 'center', color: 'var(--text)', background: '#0a0d18', border: `2px solid ${p.color}`, borderRadius: 5, padding: '0 8px' }}>{p.name}</div>
+        <div className="token-nameplate" style={{ marginTop: -10, minWidth: 88, zIndex: 2 }}>
+          <div className="token-name" style={{ fontSize: 16, textAlign: 'center', color: 'var(--text)', background: '#0a0d18', border: `2px solid ${p.color}`, borderRadius: 5, padding: '0 8px' }}>{p.name}</div>
           <div style={{ height: 7, background: '#2a0d10', border: '1px solid #000', borderRadius: 3, marginTop: 2, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${hpPct}%`, background: 'linear-gradient(90deg,#ff3b3b,#c81e1e)' }} />
           </div>
@@ -562,13 +573,14 @@ function Token({ p, pos, active }) {
 // stray click can't fire an action out of turn.
 function ActionMenu({ actions, enabled, onAct, statusText, statusColor }) {
   return (
-    <div className="col center" style={{ gap: 6, marginTop: 8 }}>
-      <div className="head" style={{ fontSize: 11, color: statusColor, textAlign: 'center', marginBottom: 2 }}>
+    <div className="col center action-menu" style={{ gap: 6, marginTop: 8 }}>
+      <div className="head action-status" style={{ fontSize: 11, color: statusColor, textAlign: 'center', marginBottom: 2 }}>
         {enabled ? '▶ YOUR TURN — CHOOSE AN ACTION' : statusText}
       </div>
       {actions.map((a, i) => (
         <button
           key={a}
+          className="action-button"
           disabled={!enabled}
           onClick={() => enabled && onAct(a)}
           style={{
@@ -595,32 +607,92 @@ function ActionMenu({ actions, enabled, onAct, statusText, statusColor }) {
 }
 
 /* --------------------------------------------------------------------- dice */
-// Large overlapping d20s tucked bottom-right, matching the design.
-function DiceCluster({ roll }) {
-  // Brief "tumbling" animation whenever a new roll arrives (keyed on actor+value+dc)
-  // so the roll reads as a real moment rather than a static number.
-  const rollKey = roll ? `${roll.actor}:${roll.value}:${roll.dc}` : ''
+function DiceTray({ roll, rollId, onRollComplete }) {
+  const [settledRollId, setSettledRollId] = useState(null)
+  const settled = !!roll && settledRollId === rollId
+
+  return (
+    <div className="panel dice-tray-panel">
+      <div className="panel-header">DICE ROLL</div>
+      <div className="row dice-tray-body">
+        <DiceCluster
+          roll={roll}
+          rollId={rollId}
+          onRollStart={() => setSettledRollId(null)}
+          onRollComplete={() => {
+            setSettledRollId(rollId)
+            onRollComplete?.()
+          }}
+        />
+        <div className="col roll-summary">
+          {roll ? (
+            <>
+              <span style={{ color: 'var(--text)' }}>{roll.actor}</span>
+              <span className="dim">{roll.action}</span>
+              <span style={{ color: settled ? (roll.success ? 'var(--rogue)' : '#ff6b6b') : 'var(--gold-bright)' }}>
+                {settled ? `${roll.success ? 'SUCCESS' : 'FAIL'} vs DC ${roll.dc}` : 'Rolling...'}
+              </span>
+            </>
+          ) : (
+            <span className="dim">Waiting for the first roll</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Cycle through real sprite frames and physically tumble the active die.
+function DiceCluster({ roll, rollId, onRollStart, onRollComplete }) {
   const [rolling, setRolling] = useState(false)
-  const [shownFace, setShownFace] = useState(20)
+  const [shownSprite, setShownSprite] = useState(20)
+
   useEffect(() => {
-    if (!roll) return
-    setRolling(true)
-    // flicker random faces while "rolling", then settle on the real value
-    const iv = setInterval(() => setShownFace(1 + Math.floor(Math.random() * 20)), 80)
-    const done = setTimeout(() => { clearInterval(iv); setShownFace(roll.value); setRolling(false) }, 700)
-    return () => { clearInterval(iv); clearTimeout(done) }
-  }, [rollKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    for (const color of ['red', 'blue']) {
+      for (const frame of DICE_FRAMES) {
+        const image = new Image()
+        image.src = diceUrl(color, frame)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!roll) {
+      setRolling(false)
+      return
+    }
+
+    setRolling(false)
+    onRollStart?.()
+    const start = requestAnimationFrame(() => setRolling(true))
+    const iv = setInterval(() => {
+      setShownSprite(DICE_FRAMES[Math.floor(Math.random() * DICE_FRAMES.length)])
+    }, 75)
+    const done = setTimeout(() => {
+      clearInterval(iv)
+      setShownSprite(roll.sprite)
+      setRolling(false)
+      onRollComplete?.()
+    }, DICE_ROLL_MS)
+    return () => {
+      cancelAnimationFrame(start)
+      clearInterval(iv)
+      clearTimeout(done)
+    }
+  }, [rollId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const redN = roll && roll.color === 'red' ? roll.sprite : 24
   const blueN = roll && roll.color === 'blue' ? roll.sprite : 20
+  const animatedRedN = roll?.color === 'red' && rolling ? shownSprite : redN
+  const animatedBlueN = roll?.color === 'blue' && rolling ? shownSprite : blueN
   const glow = roll ? (roll.success ? 'var(--rogue)' : 'var(--ranger)') : '#dfa13b88'
-  const face = rolling ? shownFace : (roll ? roll.value : '')
+  const face = roll ? roll.value : ''
   return (
-    <div style={{ position: 'relative', width: 84, height: 60, flex: '0 0 auto' }} title={roll ? `${roll.actor}: ${roll.value} vs DC ${roll.dc}` : 'dice'}>
-      <Sprite src={diceUrl('red', redN)} alt="d20" style={{ position: 'absolute', left: 0, top: 0, height: 46, transition: 'transform .1s', transform: rolling ? 'rotate(-14deg) scale(1.08)' : 'none', filter: `drop-shadow(0 0 8px ${roll?.color === 'red' ? glow : '#00000088'})` }} />
-      <Sprite src={diceUrl('blue', blueN)} alt="d20" style={{ position: 'absolute', right: 0, bottom: 0, height: 46, transition: 'transform .1s', transform: rolling ? 'rotate(12deg) scale(1.08)' : 'none', filter: `drop-shadow(0 0 8px ${roll?.color === 'blue' ? glow : '#00000088'})` }} />
+    <div className={`dice-cluster ${rolling ? 'is-rolling' : ''}`} style={{ position: 'relative', width: 112, height: 82, flex: '0 0 auto' }} title={roll ? `${roll.actor}: ${roll.value} vs DC ${roll.dc}` : 'dice'}>
+      <Sprite key={`red-${rollId}`} className={roll?.color === 'red' && rolling ? 'die die-red rolling-primary active-die' : 'die die-red'} src={diceUrl('red', animatedRedN)} alt="red d20" style={{ position: 'absolute', left: 0, top: 0, height: 60, filter: `drop-shadow(0 0 8px ${roll?.color === 'red' ? glow : '#00000088'})` }} />
+      <Sprite key={`blue-${rollId}`} className={roll?.color === 'blue' && rolling ? 'die die-blue rolling-primary active-die' : 'die die-blue'} src={diceUrl('blue', animatedBlueN)} alt="blue d20" style={{ position: 'absolute', right: 0, bottom: 0, height: 60, filter: `drop-shadow(0 0 8px ${roll?.color === 'blue' ? glow : '#00000088'})` }} />
       {roll && (
-        <span style={{ position: 'absolute', top: -8, right: -6, fontFamily: 'var(--font-head)', fontSize: 11, color: rolling ? 'var(--gold-bright)' : glow, textShadow: '0 1px 2px #000' }}>{face}</span>
+        <span aria-live="polite" className={rolling ? 'dice-result rolling' : 'dice-result'} style={{ position: 'absolute', top: -6, right: -4, fontFamily: 'var(--font-head)', fontSize: 11, color: rolling ? 'var(--gold-bright)' : glow, textShadow: '0 1px 2px #000' }}>{rolling ? 'ROLLING' : face}</span>
       )}
     </div>
   )
@@ -628,7 +700,7 @@ function DiceCluster({ roll }) {
 
 function DMBadge({ name, active }) {
   return (
-    <div className="row gap-sm" style={{ alignItems: 'center', padding: '5px 14px', borderRadius: 20, background: '#0f1120ee', border: '2px solid var(--dm)', boxShadow: active ? '0 0 18px var(--dm)' : '0 2px 6px #000a', color: 'var(--dm)' }}>
+    <div className="row gap-sm dm-badge" style={{ alignItems: 'center', padding: '5px 14px', borderRadius: 20, background: '#0f1120ee', border: '2px solid var(--dm)', boxShadow: active ? '0 0 18px var(--dm)' : '0 2px 6px #000a', color: 'var(--dm)' }}>
       <span style={{ fontSize: 18, filter: 'drop-shadow(0 0 6px var(--dm-flame))' }}>💀</span>
       <span className="head" style={{ fontSize: 11 }}>AI DM: {name}</span>
     </div>
