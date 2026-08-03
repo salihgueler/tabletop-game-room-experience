@@ -1,0 +1,6 @@
+targets:
+  $default:
+    builders:
+      blocks_codegen|blocks_codegen:
+        options:
+          spec: lib/blocks.spec.json

@@ -11,6 +11,8 @@ fully-typed RPC + Realtime consumer.
 ```text
 .
 ├─ tabletop-app/     # The application — React 18 SPA + AWS Blocks backend (start here)
+├─ tabletop-flutter/ # Flutter reference client for the same Blocks backend
+├─ workshop-flutter/ # Nine-module Flutter + AWS Blocks workshop
 ├─ designs/          # Architecture diagram (Excalidraw) and pixel-art mockups
 ├─ .kiro/steering/   # AI-assistant steering docs (product / tech / structure)
 └─ README.md         # You are here
@@ -18,6 +20,18 @@ fully-typed RPC + Realtime consumer.
 
 The app lives entirely in [`tabletop-app/`](tabletop-app/) — that's where you install,
 run, build, and deploy.
+
+The Flutter client lives in [`tabletop-flutter/`](tabletop-flutter/). Start the Blocks
+backend on port 3001, then run Flutter:
+
+```bash
+cd tabletop-app && npm run dev:server
+# in another terminal
+cd tabletop-flutter && flutter run -d macos
+```
+
+For the guided Flutter version, begin at
+[`workshop-flutter/README.md`](workshop-flutter/README.md).
 
 ## Quick start
 

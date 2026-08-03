@@ -1,0 +1,2289 @@
+{
+	"openrpc": "1.3.2",
+	"info": {
+		"title": "api",
+		"version": "1.0.0"
+	},
+	"methods": [
+		{
+			"name": "api.advanceBotTurn",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "AdvanceBotTurnResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"state": {
+							"type": "object",
+							"properties": {
+								"version": {
+									"type": "number"
+								},
+								"gameId": {
+									"type": "string"
+								},
+								"scenario": {
+									"type": "string"
+								},
+								"dmName": {
+									"type": "string"
+								},
+								"players": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"id": {
+												"type": "string"
+											},
+											"name": {
+												"type": "string"
+											},
+											"classKey": {
+												"type": "string"
+											},
+											"sprite": {
+												"type": "string"
+											},
+											"color": {
+												"type": "string"
+											},
+											"seat": {
+												"type": "string",
+												"enum": [
+													"human",
+													"ai",
+													"open"
+												]
+											},
+											"isHuman": {
+												"type": "boolean"
+											},
+											"userId": {
+												"oneOf": [
+													{
+														"type": "string"
+													},
+													{
+														"type": "null"
+													}
+												]
+											},
+											"hp": {
+												"type": "number"
+											},
+											"slot": {
+												"type": "number"
+											}
+										},
+										"required": [
+											"id",
+											"name",
+											"classKey",
+											"sprite",
+											"color",
+											"seat",
+											"isHuman",
+											"userId",
+											"hp",
+											"slot"
+										]
+									}
+								},
+								"roomPhase": {
+									"type": "string",
+									"enum": [
+										"lobby",
+										"live",
+										"ended"
+									]
+								},
+								"endsAt": {
+									"oneOf": [
+										{
+											"type": "number"
+										},
+										{
+											"type": "null"
+										}
+									]
+								},
+								"turnIndex": {
+									"type": "number"
+								},
+								"round": {
+									"type": "number"
+								},
+								"phase": {
+									"type": "string",
+									"enum": [
+										"player",
+										"resolving",
+										"dm"
+									]
+								},
+								"dc": {
+									"type": "number"
+								},
+								"lastRoll": {
+									"oneOf": [
+										{
+											"type": "object",
+											"properties": {
+												"value": {
+													"type": "number"
+												},
+												"sprite": {
+													"type": "number"
+												},
+												"color": {
+													"type": "string"
+												},
+												"dc": {
+													"type": "number"
+												},
+												"success": {
+													"type": "boolean"
+												},
+												"actor": {
+													"type": "string"
+												},
+												"action": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"value",
+												"sprite",
+												"color",
+												"dc",
+												"success",
+												"actor",
+												"action"
+											]
+										},
+										{
+											"type": "null"
+										}
+									]
+								},
+								"log": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"kind": {
+												"type": "string",
+												"enum": [
+													"dm",
+													"action",
+													"roll",
+													"system"
+												]
+											},
+											"who": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											},
+											"color": {
+												"oneOf": [
+													{
+														"type": "string"
+													},
+													{
+														"type": "null"
+													}
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"who",
+											"text"
+										]
+									}
+								},
+								"inventory": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									}
+								},
+								"options": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									}
+								}
+							},
+							"required": [
+								"version",
+								"gameId",
+								"scenario",
+								"dmName",
+								"players",
+								"roomPhase",
+								"endsAt",
+								"turnIndex",
+								"round",
+								"phase",
+								"dc",
+								"lastRoll",
+								"log",
+								"inventory",
+								"options"
+							]
+						},
+						"botActed": {
+							"type": "boolean"
+						},
+						"botTurnPending": {
+							"type": "boolean"
+						}
+					},
+					"required": [
+						"state",
+						"botActed",
+						"botTurnPending"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.createGame",
+			"params": [
+				{
+					"name": "input",
+					"required": true,
+					"schema": {
+						"type": "object",
+						"properties": {
+							"scenario": {
+								"type": "string"
+							},
+							"dmType": {
+								"type": "string"
+							},
+							"isPublic": {
+								"type": "boolean"
+							},
+							"accessCode": {
+								"oneOf": [
+									{
+										"type": "string"
+									},
+									{
+										"type": "null"
+									}
+								]
+							},
+							"fillMode": {
+								"oneOf": [
+									{
+										"type": "string",
+										"enum": [
+											"ai",
+											"humans"
+										]
+									},
+									{
+										"type": "null"
+									}
+								]
+							}
+						},
+						"required": [
+							"scenario",
+							"dmType",
+							"isPublic"
+						]
+					}
+				}
+			],
+			"result": {
+				"name": "CreateGameResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"gameId": {
+							"type": "string"
+						},
+						"accessCode": {
+							"oneOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "null"
+								}
+							]
+						}
+					},
+					"required": [
+						"gameId",
+						"accessCode"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.getCharacter",
+			"params": [],
+			"result": {
+				"name": "GetCharacterResult",
+				"schema": {
+					"oneOf": [
+						{
+							"type": "object",
+							"properties": {
+								"userId": {
+									"type": "string"
+								},
+								"name": {
+									"type": "string"
+								},
+								"classKey": {
+									"type": "string"
+								},
+								"spriteId": {
+									"type": "string"
+								},
+								"sprite": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"userId",
+								"name",
+								"classKey",
+								"spriteId",
+								"sprite"
+							]
+						},
+						{
+							"type": "null"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "api.getChatChannel",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "GetChatChannelResult",
+				"schema": {
+					"x-blocks-transferable": "realtime/channel"
+				}
+			}
+		},
+		{
+			"name": "api.getChatHistory",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "GetChatHistoryResult",
+				"schema": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"gameId": {
+								"type": "string"
+							},
+							"ts": {
+								"type": "number"
+							},
+							"who": {
+								"type": "string"
+							},
+							"color": {
+								"type": "string"
+							},
+							"text": {
+								"type": "string"
+							},
+							"kind": {
+								"oneOf": [
+									{
+										"type": "string",
+										"enum": [
+											"dm",
+											"action",
+											"roll",
+											"system",
+											"say"
+										]
+									},
+									{
+										"type": "null"
+									}
+								]
+							}
+						},
+						"required": [
+							"gameId",
+							"ts",
+							"who",
+							"color",
+							"text"
+						]
+					}
+				}
+			}
+		},
+		{
+			"name": "api.getConstants",
+			"params": [],
+			"result": {
+				"name": "GetConstantsResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"scenarios": {
+							"type": "object",
+							"properties": {
+								"0": {
+									"type": "string",
+									"enum": [
+										"Cave Crypt"
+									]
+								},
+								"1": {
+									"type": "string",
+									"enum": [
+										"Dungeon Crawl"
+									]
+								},
+								"2": {
+									"type": "string",
+									"enum": [
+										"Magic Tower"
+									]
+								},
+								"3": {
+									"type": "string",
+									"enum": [
+										"Frozen Keep"
+									]
+								},
+								"4": {
+									"type": "string",
+									"enum": [
+										"Sunken Vault"
+									]
+								},
+								"length": {
+									"type": "number",
+									"enum": [
+										5
+									]
+								},
+								"toString": {
+									"type": "object"
+								},
+								"toLocaleString": {
+									"type": "object"
+								},
+								"concat": {
+									"type": "object"
+								},
+								"join": {
+									"type": "object"
+								},
+								"slice": {
+									"type": "object"
+								},
+								"indexOf": {
+									"type": "object"
+								},
+								"lastIndexOf": {
+									"type": "object"
+								},
+								"every": {
+									"type": "object"
+								},
+								"some": {
+									"type": "object"
+								},
+								"forEach": {
+									"type": "object"
+								},
+								"map": {
+									"type": "object"
+								},
+								"filter": {
+									"type": "object"
+								},
+								"reduce": {
+									"type": "object"
+								},
+								"reduceRight": {
+									"type": "object"
+								},
+								"find": {
+									"type": "object"
+								},
+								"findIndex": {
+									"type": "object"
+								},
+								"entries": {
+									"type": "object"
+								},
+								"keys": {
+									"type": "object"
+								},
+								"values": {
+									"type": "object"
+								},
+								"includes": {
+									"type": "object"
+								},
+								"flatMap": {
+									"type": "object"
+								},
+								"flat": {
+									"type": "object"
+								},
+								"at": {
+									"type": "object"
+								},
+								"findLast": {
+									"type": "object"
+								},
+								"findLastIndex": {
+									"type": "object"
+								},
+								"toReversed": {
+									"type": "object"
+								},
+								"toSorted": {
+									"type": "object"
+								},
+								"toSpliced": {
+									"type": "object"
+								},
+								"with": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"0",
+								"1",
+								"2",
+								"3",
+								"4",
+								"length",
+								"toString",
+								"toLocaleString",
+								"concat",
+								"join",
+								"slice",
+								"indexOf",
+								"lastIndexOf",
+								"every",
+								"some",
+								"forEach",
+								"map",
+								"filter",
+								"reduce",
+								"reduceRight",
+								"find",
+								"findIndex",
+								"entries",
+								"keys",
+								"values",
+								"includes",
+								"flatMap",
+								"flat",
+								"at",
+								"findLast",
+								"findLastIndex",
+								"toReversed",
+								"toSorted",
+								"toSpliced",
+								"with"
+							]
+						},
+						"dmTypes": {
+							"type": "object",
+							"properties": {
+								"0": {
+									"type": "string",
+									"enum": [
+										"Grimjaw"
+									]
+								},
+								"1": {
+									"type": "string",
+									"enum": [
+										"Xandros"
+									]
+								},
+								"2": {
+									"type": "string",
+									"enum": [
+										"Mistweaver"
+									]
+								},
+								"3": {
+									"type": "string",
+									"enum": [
+										"Hollowvoice"
+									]
+								},
+								"length": {
+									"type": "number",
+									"enum": [
+										4
+									]
+								},
+								"toString": {
+									"type": "object"
+								},
+								"toLocaleString": {
+									"type": "object"
+								},
+								"concat": {
+									"type": "object"
+								},
+								"join": {
+									"type": "object"
+								},
+								"slice": {
+									"type": "object"
+								},
+								"indexOf": {
+									"type": "object"
+								},
+								"lastIndexOf": {
+									"type": "object"
+								},
+								"every": {
+									"type": "object"
+								},
+								"some": {
+									"type": "object"
+								},
+								"forEach": {
+									"type": "object"
+								},
+								"map": {
+									"type": "object"
+								},
+								"filter": {
+									"type": "object"
+								},
+								"reduce": {
+									"type": "object"
+								},
+								"reduceRight": {
+									"type": "object"
+								},
+								"find": {
+									"type": "object"
+								},
+								"findIndex": {
+									"type": "object"
+								},
+								"entries": {
+									"type": "object"
+								},
+								"keys": {
+									"type": "object"
+								},
+								"values": {
+									"type": "object"
+								},
+								"includes": {
+									"type": "object"
+								},
+								"flatMap": {
+									"type": "object"
+								},
+								"flat": {
+									"type": "object"
+								},
+								"at": {
+									"type": "object"
+								},
+								"findLast": {
+									"type": "object"
+								},
+								"findLastIndex": {
+									"type": "object"
+								},
+								"toReversed": {
+									"type": "object"
+								},
+								"toSorted": {
+									"type": "object"
+								},
+								"toSpliced": {
+									"type": "object"
+								},
+								"with": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"0",
+								"1",
+								"2",
+								"3",
+								"length",
+								"toString",
+								"toLocaleString",
+								"concat",
+								"join",
+								"slice",
+								"indexOf",
+								"lastIndexOf",
+								"every",
+								"some",
+								"forEach",
+								"map",
+								"filter",
+								"reduce",
+								"reduceRight",
+								"find",
+								"findIndex",
+								"entries",
+								"keys",
+								"values",
+								"includes",
+								"flatMap",
+								"flat",
+								"at",
+								"findLast",
+								"findLastIndex",
+								"toReversed",
+								"toSorted",
+								"toSpliced",
+								"with"
+							]
+						},
+						"classMeta": {
+							"type": "object",
+							"additionalProperties": {
+								"type": "object",
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"color": {
+										"type": "string"
+									},
+									"actions": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										}
+									}
+								},
+								"required": [
+									"name",
+									"color",
+									"actions"
+								]
+							}
+						}
+					},
+					"required": [
+						"scenarios",
+						"dmTypes",
+						"classMeta"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.getState",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "GetStateResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"viewer": {
+							"type": "object",
+							"properties": {
+								"userId": {
+									"type": "string"
+								},
+								"mySeatId": {
+									"oneOf": [
+										{
+											"type": "string"
+										},
+										{
+											"type": "null"
+										}
+									]
+								},
+								"spectator": {
+									"type": "boolean"
+								}
+							},
+							"required": [
+								"userId",
+								"mySeatId",
+								"spectator"
+							]
+						},
+						"gameId": {
+							"type": "string"
+						},
+						"scenario": {
+							"type": "string"
+						},
+						"dmName": {
+							"type": "string"
+						},
+						"players": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"properties": {
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"classKey": {
+										"type": "string"
+									},
+									"sprite": {
+										"type": "string"
+									},
+									"color": {
+										"type": "string"
+									},
+									"seat": {
+										"type": "string",
+										"enum": [
+											"human",
+											"ai",
+											"open"
+										]
+									},
+									"isHuman": {
+										"type": "boolean"
+									},
+									"userId": {
+										"oneOf": [
+											{
+												"type": "string"
+											},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"hp": {
+										"type": "number"
+									},
+									"slot": {
+										"type": "number"
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"classKey",
+									"sprite",
+									"color",
+									"seat",
+									"isHuman",
+									"userId",
+									"hp",
+									"slot"
+								]
+							}
+						},
+						"roomPhase": {
+							"type": "string",
+							"enum": [
+								"lobby",
+								"live",
+								"ended"
+							]
+						},
+						"endsAt": {
+							"oneOf": [
+								{
+									"type": "number"
+								},
+								{
+									"type": "null"
+								}
+							]
+						},
+						"turnIndex": {
+							"type": "number"
+						},
+						"round": {
+							"type": "number"
+						},
+						"phase": {
+							"type": "string",
+							"enum": [
+								"player",
+								"resolving",
+								"dm"
+							]
+						},
+						"dc": {
+							"type": "number"
+						},
+						"lastRoll": {
+							"oneOf": [
+								{
+									"type": "object",
+									"properties": {
+										"value": {
+											"type": "number"
+										},
+										"sprite": {
+											"type": "number"
+										},
+										"color": {
+											"type": "string"
+										},
+										"dc": {
+											"type": "number"
+										},
+										"success": {
+											"type": "boolean"
+										},
+										"actor": {
+											"type": "string"
+										},
+										"action": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"value",
+										"sprite",
+										"color",
+										"dc",
+										"success",
+										"actor",
+										"action"
+									]
+								},
+								{
+									"type": "null"
+								}
+							]
+						},
+						"log": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"dm",
+											"action",
+											"roll",
+											"system"
+										]
+									},
+									"who": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									},
+									"color": {
+										"oneOf": [
+											{
+												"type": "string"
+											},
+											{
+												"type": "null"
+											}
+										]
+									}
+								},
+								"required": [
+									"kind",
+									"who",
+									"text"
+								]
+							}
+						},
+						"inventory": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"options": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"version": {
+							"type": "number"
+						}
+					},
+					"required": [
+						"viewer",
+						"gameId",
+						"scenario",
+						"dmName",
+						"players",
+						"roomPhase",
+						"endsAt",
+						"turnIndex",
+						"round",
+						"phase",
+						"dc",
+						"lastRoll",
+						"log",
+						"inventory",
+						"options",
+						"version"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.getStateChannel",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "GetStateChannelResult",
+				"schema": {
+					"x-blocks-transferable": "realtime/channel"
+				}
+			}
+		},
+		{
+			"name": "api.getThinkingChannel",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "GetThinkingChannelResult",
+				"schema": {
+					"x-blocks-transferable": "realtime/channel"
+				}
+			}
+		},
+		{
+			"name": "api.joinGame",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "JoinGameResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"gameId": {
+							"type": "string"
+						},
+						"seated": {
+							"type": "boolean"
+						}
+					},
+					"required": [
+						"gameId",
+						"seated"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.joinPrivate",
+			"params": [
+				{
+					"name": "accessCode",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "JoinPrivateResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"gameId": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"gameId"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.listGames",
+			"params": [],
+			"result": {
+				"name": "ListGamesResult",
+				"schema": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							},
+							"theme": {
+								"type": "string"
+							},
+							"note": {
+								"type": "string"
+							},
+							"maxParty": {
+								"type": "number"
+							},
+							"dmLevel": {
+								"type": "string"
+							},
+							"dm": {
+								"type": "string"
+							},
+							"finished": {
+								"type": "boolean"
+							},
+							"full": {
+								"type": "boolean"
+							},
+							"status": {
+								"type": "string"
+							},
+							"party": {
+								"type": "number"
+							},
+							"partyClasses": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							},
+							"members": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"classKey": {
+											"type": "string"
+										},
+										"seat": {
+											"type": "string",
+											"enum": [
+												"human",
+												"ai",
+												"open"
+											]
+										}
+									},
+									"required": [
+										"name",
+										"classKey",
+										"seat"
+									]
+								}
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"theme",
+							"note",
+							"maxParty",
+							"dmLevel",
+							"dm",
+							"finished",
+							"full",
+							"status",
+							"party",
+							"partyClasses",
+							"members"
+						]
+					}
+				}
+			}
+		},
+		{
+			"name": "api.saveCharacter",
+			"params": [
+				{
+					"name": "input",
+					"required": true,
+					"schema": {
+						"type": "object",
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"classKey": {
+								"type": "string"
+							},
+							"spriteId": {
+								"type": "string"
+							},
+							"sprite": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"name",
+							"classKey",
+							"spriteId",
+							"sprite"
+						]
+					}
+				}
+			],
+			"result": {
+				"name": "SaveCharacterResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"name": {
+							"type": "string"
+						},
+						"classKey": {
+							"type": "string"
+						},
+						"spriteId": {
+							"type": "string"
+						},
+						"sprite": {
+							"type": "string"
+						},
+						"userId": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"name",
+						"classKey",
+						"spriteId",
+						"sprite",
+						"userId"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.sendChat",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				},
+				{
+					"name": "text",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "SendChatResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"ok": {
+							"type": "boolean"
+						}
+					},
+					"required": [
+						"ok"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.startWithAi",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "StartWithAiResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"gameId": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"gameId"
+					]
+				}
+			}
+		},
+		{
+			"name": "api.takeAction",
+			"params": [
+				{
+					"name": "gameId",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				},
+				{
+					"name": "action",
+					"required": true,
+					"schema": {
+						"type": "string"
+					}
+				}
+			],
+			"result": {
+				"name": "TakeActionResult",
+				"schema": {
+					"type": "object",
+					"properties": {
+						"version": {
+							"type": "number"
+						},
+						"gameId": {
+							"type": "string"
+						},
+						"scenario": {
+							"type": "string"
+						},
+						"dmName": {
+							"type": "string"
+						},
+						"players": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"properties": {
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"classKey": {
+										"type": "string"
+									},
+									"sprite": {
+										"type": "string"
+									},
+									"color": {
+										"type": "string"
+									},
+									"seat": {
+										"type": "string",
+										"enum": [
+											"human",
+											"ai",
+											"open"
+										]
+									},
+									"isHuman": {
+										"type": "boolean"
+									},
+									"userId": {
+										"oneOf": [
+											{
+												"type": "string"
+											},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"hp": {
+										"type": "number"
+									},
+									"slot": {
+										"type": "number"
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"classKey",
+									"sprite",
+									"color",
+									"seat",
+									"isHuman",
+									"userId",
+									"hp",
+									"slot"
+								]
+							}
+						},
+						"roomPhase": {
+							"type": "string",
+							"enum": [
+								"lobby",
+								"live",
+								"ended"
+							]
+						},
+						"endsAt": {
+							"oneOf": [
+								{
+									"type": "number"
+								},
+								{
+									"type": "null"
+								}
+							]
+						},
+						"turnIndex": {
+							"type": "number"
+						},
+						"round": {
+							"type": "number"
+						},
+						"phase": {
+							"type": "string",
+							"enum": [
+								"player",
+								"resolving",
+								"dm"
+							]
+						},
+						"dc": {
+							"type": "number"
+						},
+						"lastRoll": {
+							"oneOf": [
+								{
+									"type": "object",
+									"properties": {
+										"value": {
+											"type": "number"
+										},
+										"sprite": {
+											"type": "number"
+										},
+										"color": {
+											"type": "string"
+										},
+										"dc": {
+											"type": "number"
+										},
+										"success": {
+											"type": "boolean"
+										},
+										"actor": {
+											"type": "string"
+										},
+										"action": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"value",
+										"sprite",
+										"color",
+										"dc",
+										"success",
+										"actor",
+										"action"
+									]
+								},
+								{
+									"type": "null"
+								}
+							]
+						},
+						"log": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"dm",
+											"action",
+											"roll",
+											"system"
+										]
+									},
+									"who": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									},
+									"color": {
+										"oneOf": [
+											{
+												"type": "string"
+											},
+											{
+												"type": "null"
+											}
+										]
+									}
+								},
+								"required": [
+									"kind",
+									"who",
+									"text"
+								]
+							}
+						},
+						"inventory": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"options": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						}
+					},
+					"required": [
+						"version",
+						"gameId",
+						"scenario",
+						"dmName",
+						"players",
+						"roomPhase",
+						"endsAt",
+						"turnIndex",
+						"round",
+						"phase",
+						"dc",
+						"lastRoll",
+						"log",
+						"inventory",
+						"options"
+					]
+				}
+			}
+		},
+		{
+			"name": "authApi.getAuthState",
+			"params": [],
+			"result": {
+				"name": "GetAuthStateResult",
+				"schema": {
+					"$ref": "#/components/schemas/AuthState"
+				}
+			}
+		},
+		{
+			"name": "authApi.setAuthState",
+			"params": [
+				{
+					"name": "input",
+					"required": true,
+					"schema": {
+						"oneOf": [
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"signIn"
+										]
+									},
+									"username": {
+										"type": "string"
+									},
+									"password": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"username",
+									"password"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"signInWithPasskey"
+										]
+									},
+									"username": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"username"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"signUp"
+										]
+									},
+									"username": {
+										"type": "string"
+									},
+									"password": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"username",
+									"password"
+								],
+								"additionalProperties": {
+									"type": "string"
+								}
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"confirmSignUp"
+										]
+									},
+									"username": {
+										"type": "string"
+									},
+									"code": {
+										"type": "string"
+									},
+									"password": {
+										"oneOf": [
+											{
+												"type": "string"
+											},
+											{
+												"type": "null"
+											}
+										]
+									}
+								},
+								"required": [
+									"action",
+									"username",
+									"code"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"resendSignUpCode"
+										]
+									},
+									"username": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"username"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"signOut"
+										]
+									}
+								},
+								"required": [
+									"action"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"resetPassword"
+										]
+									},
+									"username": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"username"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"confirmResetPassword"
+										]
+									},
+									"username": {
+										"type": "string"
+									},
+									"code": {
+										"type": "string"
+									},
+									"newPassword": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"username",
+									"code",
+									"newPassword"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"autoSignIn"
+										]
+									},
+									"username": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"username"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"confirmSignIn"
+										]
+									},
+									"session": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"session"
+								],
+								"oneOf": [
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"code"
+												]
+											},
+											"code": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"code"
+										]
+									},
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"mfaType"
+												]
+											},
+											"mfaType": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"mfaType"
+										]
+									},
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"newPassword"
+												]
+											},
+											"newPassword": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"newPassword"
+										]
+									},
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"totpSetup"
+												]
+											},
+											"sharedSecret": {
+												"type": "string"
+											},
+											"code": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"sharedSecret",
+											"code"
+										]
+									},
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"email"
+												]
+											},
+											"email": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"email"
+										]
+									},
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"password"
+												]
+											},
+											"password": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"password"
+										]
+									},
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"firstFactor"
+												]
+											},
+											"firstFactor": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"firstFactor"
+										]
+									},
+									{
+										"type": "object",
+										"properties": {
+											"challenge": {
+												"type": "string",
+												"enum": [
+													"webauthn"
+												]
+											},
+											"credential": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"challenge",
+											"credential"
+										]
+									}
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"startPasskeyRegistration"
+										]
+									}
+								},
+								"required": [
+									"action"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"completePasskeyRegistration"
+										]
+									},
+									"credential": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"credential"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"listPasskeys"
+										]
+									}
+								},
+								"required": [
+									"action"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"deletePasskey"
+										]
+									},
+									"credentialId": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"credentialId"
+								]
+							}
+						]
+					}
+				}
+			],
+			"result": {
+				"name": "SetAuthStateResult",
+				"schema": {
+					"$ref": "#/components/schemas/AuthState"
+				}
+			}
+		}
+	],
+	"components": {
+		"schemas": {
+			"AuthState": {
+				"type": "object",
+				"properties": {
+					"state": {
+						"type": "string",
+						"enum": [
+							"signedOut",
+							"signedIn",
+							"confirmingSignUp",
+							"confirmingSignIn",
+							"confirmingMfa",
+							"confirmingPasswordReset"
+						]
+					},
+					"user": {
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/AuthUser"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"actions": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/AuthAction"
+						}
+					},
+					"error": {
+						"oneOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"errorName": {
+						"oneOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"retriable": {
+						"oneOf": [
+							{
+								"type": "boolean"
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				},
+				"required": [
+					"state",
+					"actions"
+				]
+			},
+			"AuthUser": {
+				"type": "object",
+				"properties": {
+					"userId": {
+						"type": "string"
+					},
+					"username": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"userId",
+					"username"
+				]
+			},
+			"AuthAction": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"label": {
+						"type": "string"
+					},
+					"fields": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/AuthField"
+						}
+					},
+					"url": {
+						"oneOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"method": {
+						"oneOf": [
+							{
+								"type": "string",
+								"enum": [
+									"GET",
+									"POST"
+								]
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"capability": {
+						"oneOf": [
+							{
+								"type": "string",
+								"enum": [
+									"webauthn-get",
+									"webauthn-create"
+								]
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				},
+				"required": [
+					"name",
+					"label",
+					"fields"
+				]
+			},
+			"AuthField": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"label": {
+						"type": "string"
+					},
+					"type": {
+						"type": "string",
+						"enum": [
+							"number",
+							"text",
+							"password",
+							"email",
+							"tel",
+							"hidden"
+						]
+					},
+					"required": {
+						"type": "boolean"
+					},
+					"defaultValue": {
+						"oneOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				},
+				"required": [
+					"name",
+					"label",
+					"type",
+					"required"
+				]
+			}
+		}
+	},
+	"servers": [
+		{
+			"name": "production",
+			"url": "https://zbyz47p3l0.execute-api.us-east-1.amazonaws.com/prod/aws-blocks/api"
+		}
+	]
+}
