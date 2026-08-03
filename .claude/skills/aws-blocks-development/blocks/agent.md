@@ -254,7 +254,7 @@ Frontend → API (stream()) → AsyncJob.submit() → returns { channelId } imme
 Frontend subscribes to Realtime channel ← receives text-delta, tool-call, tool-result, done chunks
 ```
 
-- **Locally:** AsyncJob runs synchronously in-process. Realtime uses a local WebSocket server on the dev server port (3001). No external services needed.
+- **Locally:** AsyncJob runs synchronously in-process. Realtime uses a local WebSocket server on the dev server port (3000). No external services needed.
 - **On AWS:** AsyncJob → SQS + Lambda. Realtime → AppSync Events (WebSocket). DynamoDB for conversation persistence.
 - **Chunk types:** `text-delta` (streaming text), `tool-call` (agent calling a tool), `tool-result` (tool returned), `interrupt` (needs user approval), `error`, `done` (final text + token usage).
 
@@ -316,7 +316,7 @@ for i in $(seq 1 30); do
 done
 
 # Test the agent endpoint (JSON-RPC 2.0)
-curl -X POST http://localhost:3001/aws-blocks/api \
+curl -X POST http://localhost:3000/aws-blocks/api \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"api.chat","params":["Hello","conv-1","user-1"],"id":1}'
 

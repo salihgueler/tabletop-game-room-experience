@@ -133,7 +133,7 @@ After any code change to `aws-blocks/index.ts`:
 2. Start dev server (tmux) → look for **"Blocks local server running"**
 3. If type errors appear → fix → rerun typecheck → restart
 4. After adding new exports → run dev once to regenerate `client.js`
-5. Test API call: `curl -X POST http://localhost:3001/aws-blocks/api -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"api.methodName","params":[],"id":1}'`
+5. Test API call: `curl -X POST http://localhost:3000/aws-blocks/api -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"api.methodName","params":[],"id":1}'`
 6. Verify response is correct
 
 **Do not proceed to frontend work until the backend verifies clean.**
@@ -173,7 +173,7 @@ import { Authenticator, onAuthChange, broadcastAuthChange } from "@aws-blocks/bl
 
 **Next.js local dev** — set `BLOCKS_API_URL` env var for server components:
 ```json
-{ "dev:next": "BLOCKS_API_URL=http://localhost:3001/api next dev" }
+{ "dev:next": "BLOCKS_API_URL=http://localhost:3000/api next dev" }
 ```
 
 ## Key rules

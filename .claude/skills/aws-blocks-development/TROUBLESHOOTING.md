@@ -116,11 +116,11 @@ Ensure Ollama is running: `ollama serve` + `ollama pull llama3.1:8b`.
 Check logs for specific failure per candidate. Common causes: Ollama not running, wrong endpoint/port, model not pulled. Health checks ping `GET /v1/models` at the configured endpoint (now respects global API prefix — fixed in Jun 2026). Uses `OPENAI_API_KEY` env var fallback if no `apiKey` configured. The agent tries candidates in order — if all fail (including the implicit `canned` fallback for local), this error fires.
 
 **Agent stream hangs / no chunks arrive on frontend**
-The Agent routing architecture is: `stream()` → `AsyncJob.submit()` → (async) `runAgent()` → publishes chunks to `Realtime`. Locally, AsyncJob runs in-process and Realtime uses a local WebSocket on the same port (3001). **Important:** Subscribe to the channel BEFORE calling `stream()` — early chunks may be lost otherwise. If chunks don't arrive:
+The Agent routing architecture is: `stream()` → `AsyncJob.submit()` → (async) `runAgent()` → publishes chunks to `Realtime`. Locally, AsyncJob runs in-process and Realtime uses a local WebSocket on the same port (3000). **Important:** Subscribe to the channel BEFORE calling `stream()` — early chunks may be lost otherwise. If chunks don't arrive:
 - Check dev server console for errors in the AsyncJob handler
 - Ensure your frontend subscribes to the correct `channelId` returned by `stream()`
 - Ensure you `await sub.established` before calling `stream()` (or use the `useChat` hook which handles ordering)
-- Verify WebSocket connection to `ws://localhost:3001` is not blocked
+- Verify WebSocket connection to `ws://localhost:3000` is not blocked
 
 **Tools declared as plain array — "Type '...' is not assignable" compile error**
 `tools` must use the callback pattern: `tools: (tool) => ({ name: tool({...}) })`. A plain array/object is rejected at compile time. The callback enables TypeScript to infer typed `input` from Zod schemas. Handler signature is `async ({ input, context }) =>` (destructured), not `async (input) =>`.
@@ -250,7 +250,7 @@ Certificate must be in `us-east-1`. DNS must point to CloudFront. Allow 10-15 mi
 ## Realtime
 
 **WebSocket fails locally**
-Check nothing else is using port 3001.
+Check nothing else is using port 3000.
 
 **Messages not arriving in production**
 Check channel token validity (tokens expire). Verify namespace and channel names match exactly.
@@ -272,4 +272,4 @@ CloudFront + S3 doesn't resolve `/posts` → `/posts/index.html`. Astro's defaul
 ## Angular integration
 
 **Angular: "Blocks API URL not configured" during local dev**
-Angular's `ng serve` doesn't serve `.blocks-sandbox/config.json`. The Blocks client fetches `/.blocks-sandbox/config.json` to discover the API URL, but Angular's dev server only serves files from `src/`. Fix: add `config.json` as a static asset in `angular.json` (`"assets": [{ "glob": "**/*", "input": "src/.blocks-sandbox", "output": ".blocks-sandbox" }]`) and/or add a `proxy.conf.json` to forward `/.blocks-sandbox/*` and `/api` requests to `localhost:3001`.
+Angular's `ng serve` doesn't serve `.blocks-sandbox/config.json`. The Blocks client fetches `/.blocks-sandbox/config.json` to discover the API URL, but Angular's dev server only serves files from `src/`. Fix: add `config.json` as a static asset in `angular.json` (`"assets": [{ "glob": "**/*", "input": "src/.blocks-sandbox", "output": ".blocks-sandbox" }]`) and/or add a `proxy.conf.json` to forward `/.blocks-sandbox/*` and `/api` requests to `localhost:3000`.

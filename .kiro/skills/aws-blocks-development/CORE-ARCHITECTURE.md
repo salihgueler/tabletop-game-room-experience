@@ -44,7 +44,7 @@ Frontend (fully typed): `import { api } from 'aws-blocks'; const r = await api.g
 
 | Environment | URL |
 |---|---|
-| Local dev | `http://localhost:3001/aws-blocks/api` |
+| Local dev | `http://localhost:3000/aws-blocks/api` |
 | Sandbox | `http://localhost:3000/aws-blocks/api` (proxied to Lambda) |
 | Deployed | `https://<api-id>.execute-api.<region>.amazonaws.com/prod/aws-blocks/api` |
 
@@ -55,7 +55,7 @@ Frontend (fully typed): `import { api } from 'aws-blocks'; const r = await api.g
 - **Errors** — HTTP **200** with JSON-RPC `error` body (never non-2xx)
 
 ```bash
-curl -X POST http://localhost:3001/aws-blocks/api \
+curl -X POST http://localhost:3000/aws-blocks/api \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"api.greet","params":["World"],"id":1}'
 # → {"jsonrpc":"2.0","result":{"message":"Hello, World!"},"id":1}
@@ -168,7 +168,7 @@ onAuthChange(authApi, (user) => console.log(user ? 'in' : 'out'));
 ### `npm run dev` — Local mocks
 
 - All Building Blocks use **local mocks** (no AWS credentials needed)
-- Server on **port 3001**; frontend proxy on internal port 3100
+- Unified front door on **port 3000** (backend + frontend same origin)
 - Mock data persists to `.bb-data/` — delete to reset
 - Use for: rapid iteration, local testing
 

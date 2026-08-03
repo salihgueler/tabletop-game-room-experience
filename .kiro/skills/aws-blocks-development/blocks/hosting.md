@@ -45,7 +45,7 @@ SSR runs via Lambda Web Adapter. `BLOCKS_API_URL` is injected automatically for 
 
 **Nuxt local dev** — set `BLOCKS_API_URL` in `nuxt.config.ts` runtimeConfig:
 ```typescript
-export default defineNuxtConfig({ runtimeConfig: { blocksApiUrl: 'http://localhost:3001/api' } });
+export default defineNuxtConfig({ runtimeConfig: { blocksApiUrl: 'http://localhost:3000/api' } });
 ```
 
 **Next.js local dev** — use concurrently:
@@ -54,7 +54,7 @@ export default defineNuxtConfig({ runtimeConfig: { blocksApiUrl: 'http://localho
   "scripts": {
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:next\"",
     "dev:api": "tsx watch aws-blocks/scripts/server.ts",
-    "dev:next": "BLOCKS_API_URL=http://localhost:3001/api next dev"
+    "dev:next": "BLOCKS_API_URL=http://localhost:3000/api next dev"
   }
 }
 ```

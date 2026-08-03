@@ -125,7 +125,7 @@ export default {
 ```typescript
 export default {
   local: {
-    port: 3001,
+    port: 3000,
     hotReload: true,
     mockServices: true,    // local mocks vs real AWS
     cors: { origin: 'http://localhost:3000' }

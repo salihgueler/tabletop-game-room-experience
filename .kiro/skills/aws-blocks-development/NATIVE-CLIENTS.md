@@ -57,7 +57,7 @@ awsBlocks {
     visibility = GeneratedVisibility.Internal
 
     servers {
-        local("http://10.0.2.2:3001")
+        local("http://10.0.2.2:3000")
         prod("https://api.example.com")
         custom("staging", "https://staging.example.com")
     }
