@@ -1,0 +1,39 @@
+{
+  "name": "tabletop-flutter",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "aws-blocks"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "npm run dev:server",
+    "dev:server": "tsx watch aws-blocks/scripts/server.ts",
+    "generate:spec": "blocks-generate-spec aws-blocks/index.ts lib/blocks.spec.json",
+    "generate:client": "dart run build_runner build --delete-conflicting-outputs && dart format lib/blocks.blocks.dart",
+    "generate": "npm run generate:spec && npm run generate:client",
+    "build": "flutter build web --release",
+    "verify": "npm run typecheck && flutter analyze && flutter test && flutter build web",
+    "sandbox": "tsx aws-blocks/scripts/sandbox.ts",
+    "sandbox:destroy": "tsx -C cdk aws-blocks/scripts/sandbox-destroy.ts",
+    "sandbox:console": "tsx aws-blocks/scripts/console.ts",
+    "cleanup": "tsx aws-blocks/scripts/cleanup.ts",
+    "deploy": "tsx aws-blocks/scripts/deploy.ts",
+    "destroy": "tsx aws-blocks/scripts/destroy.ts"
+  },
+  "dependencies": {
+    "@aws-blocks/blocks": "*",
+    "zod": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "aws-cdk-lib": "^2.257.0",
+    "constructs": "^10.6.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}

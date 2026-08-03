@@ -2833,24 +2833,14 @@ class AuthApiApi {
   }
 }
 
-// --- Servers ---
-
-class Servers {
-  static const String production =
-      'https://zbyz47p3l0.execute-api.us-east-1.amazonaws.com/prod/aws-blocks/api';
-}
-
 // --- Blocks Client ---
 
 class Blocks {
   late final ApiApi api;
   late final AuthApiApi authApi;
 
-  Blocks({String? baseUrl, SessionStore? sessionStore}) {
-    final client = BlocksClient(
-      baseUrl: baseUrl ?? Servers.production,
-      sessionStore: sessionStore,
-    );
+  Blocks({required String baseUrl, SessionStore? sessionStore}) {
+    final client = BlocksClient(baseUrl: baseUrl, sessionStore: sessionStore);
     api = ApiApi(client);
     authApi = AuthApiApi(client);
   }

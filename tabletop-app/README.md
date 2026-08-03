@@ -9,6 +9,10 @@ Built on **AWS Blocks** — all game logic, persistence, auth, real-time sync, a
 AI narration run server-side. No mock data; the client is a thin typed RPC +
 Realtime consumer.
 
+> This document covers the standalone React application in `tabletop-app/`.
+> The independent Flutter application and backend are documented in
+> [`../tabletop-flutter/README.md`](../tabletop-flutter/README.md).
+
 > New to the codebase? Read [`CLAUDE.md`](CLAUDE.md) for conventions, the mental
 > model, and gotchas before making changes.
 

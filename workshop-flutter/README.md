@@ -8,7 +8,7 @@ persistence, auth, realtime, and AI stay in the TypeScript backend.
 
 ```text
 workshop-flutter/
-├── app/                 Flutter app and generated Blocks client
+├── app/                 Workshop Flutter app; backend is created in Module 01
 ├── 01-scaffold/         Scope + ApiNamespace
 ├── 02-auth/             AuthBasic
 ├── 03-characters/       DistributedTable
@@ -23,6 +23,11 @@ workshop-flutter/
 You work in one project, `app/`. Module 01 creates `app/backend/`. Every module
 copies or edits one backend checkpoint, regenerates the OpenRPC contract, and
 rebuilds `app/lib/blocks.blocks.dart`.
+
+This workshop is independent from both finished applications. It does not edit
+`../tabletop-flutter/aws-blocks/` or `../tabletop-app/aws-blocks/`, and its local
+accounts and game data are separate. The completed standalone Flutter app is
+available at [`../tabletop-flutter/`](../tabletop-flutter/).
 
 ## Prerequisites
 
