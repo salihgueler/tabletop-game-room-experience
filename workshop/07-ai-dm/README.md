@@ -97,7 +97,7 @@ inference-profile id instead of the preset.
 
    > `companionDecide` stays canned for now — that's module 08.
 
-   The complete implementations are in [`index.ts`](index.ts).
+   The complete implementations are in [`solution/index.ts`](solution/index.ts).
 
 5. **Verify (canned — no setup):**
 
@@ -147,7 +147,7 @@ inference-profile id instead of the preset.
    > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
    > PowerShell use `curl.exe`.
 
-Catch up: `cp ../07-ai-dm/solution/index.ts app/aws-blocks/index.ts`
+Catch up from `workshop/app/`: `cp ../07-ai-dm/solution/index.ts aws-blocks/index.ts`
 
 ---
 

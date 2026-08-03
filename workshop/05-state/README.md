@@ -90,7 +90,7 @@ d20 roll, the DC check, narration, and turn order end to end.
    | `[...chatStore.get(id)].sort(...)` (`getChatHistory`) | `await Array.fromAsync(chatMessages.query({ where: { gameId: { equals: gameId } } }))` |
 
    In `saveAndBroadcast`, build a new `next = { ...state, version: state.version + 1 }`,
-   `put` it, and return it. The full versions are in [`index.ts`](index.ts).
+   `put` it, and return it. The full version is in [`solution/index.ts`](solution/index.ts).
 
 5. **Verify:**
 
@@ -133,7 +133,7 @@ d20 roll, the DC check, narration, and turn order end to end.
    > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` from `api.listGames`, and use your own
    > credentials. In PowerShell use `curl.exe`.
 
-Catch up: `cp ../05-state/solution/index.ts app/aws-blocks/index.ts`
+Catch up from `workshop/app/`: `cp ../05-state/solution/index.ts aws-blocks/index.ts`
 
 ---
 

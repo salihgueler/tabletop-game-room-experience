@@ -36,8 +36,8 @@ workshop/
 `app/` ships **without an `aws-blocks/` folder** on purpose — Module 01 generates it with
 the official CLI (the scaffolder refuses to run if one already exists). From Module 02 on,
 each module folder holds its guide (`README.md`) and just the backend file(s) that change —
-almost always a new `aws-blocks/index.ts`. If you fall behind or want to jump ahead, copy
-that module's `index.ts` into `app/aws-blocks/` and keep going.
+almost always a new `solution/index.ts`. If you fall behind or want to jump ahead, copy
+that module's `solution/index.ts` into `app/aws-blocks/index.ts` and keep going.
 
 ## Why the starter is all mocks
 

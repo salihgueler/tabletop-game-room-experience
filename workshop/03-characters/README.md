@@ -116,10 +116,10 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
    Now the real test: stop `npm run dev`, start it again, sign in as the **same** user —
    your character loads without re-picking. (In the starter it would have been wiped.)
 
-Catch up / start clean by copying this folder's solution:
+Catch up / start clean by copying this folder's solution from `workshop/app/`:
 
 ```bash
-cp ../03-characters/solution/index.ts app/aws-blocks/index.ts   # from workshop/
+cp ../03-characters/solution/index.ts aws-blocks/index.ts
 ```
 
 ---

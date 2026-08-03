@@ -53,7 +53,7 @@ spoken line is posted to chat via `postBotChat`.
    - the real `companionDecide` that streams reasoning, parses JSON, validates the action
      against `options`, and falls back on error.
 
-   Full implementation in [`index.ts`](index.ts).
+   Full implementation in [`solution/index.ts`](solution/index.ts).
 
 2. **Nothing else changes.** `advanceBotTurn` already calls `companionDecide` and
    `postBotChat` — it doesn't care that the decision now comes from an LLM.
@@ -101,7 +101,7 @@ Blocks and exports as the reference app in [`../../tabletop-app/`](../../tableto
 `AuthBasic`, four `DistributedTable`s, `Realtime`, a DM `Agent`, per-class companion
 `Agent`s, and the `authApi` / `api` namespaces.
 
-Catch up: `cp ../08-companions/solution/index.ts app/aws-blocks/index.ts`
+Catch up from `workshop/app/`: `cp ../08-companions/solution/index.ts aws-blocks/index.ts`
 
 ---
 

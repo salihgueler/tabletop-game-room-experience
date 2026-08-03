@@ -122,11 +122,12 @@ Frontend check at http://localhost:3000:
 3. Reload the page — you stay signed in (the session cookie persists).
 4. Sign out (⎋ in the guild hall) → you're bounced back to the auth screen.
 
-Compare your file against [`index.ts`](index.ts) in this folder — that's the completed
-module. To catch up or start clean, copy it over your app:
+Compare your file against [`solution/index.ts`](solution/index.ts) in this folder — that's
+the completed module. To catch up or start clean, copy it over your app from
+`workshop/app/`:
 
 ```bash
-cp ../02-auth/solution/index.ts app/aws-blocks/index.ts   # from the workshop/ dir
+cp ../02-auth/solution/index.ts aws-blocks/index.ts
 ```
 
 ---

@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "predev": "node -e \"require('fs').existsSync('aws-blocks/scripts/server.ts')||(console.error('\\n\\u26a0  No backend yet — this app is frontend-only until you scaffold it.\\n  Run the Module 01 step first (see workshop/01-scaffold/README.md):\\n    npm create @aws-blocks/blocks-app@latest . -- --template react\\n    cp ../01-scaffold/index.ts aws-blocks/index.ts\\n    cp ../01-scaffold/index.handler.ts aws-blocks/index.handler.ts\\n    cp ../01-scaffold/server.ts aws-blocks/scripts/server.ts\\n'),process.exit(1))\"",
+    "predev": "node -e \"require('fs').existsSync('aws-blocks/scripts/server.ts')||(console.error('\\n\\u26a0  No backend yet — this app is frontend-only until you scaffold it.\\n  Run the Module 01 step first (see workshop/01-scaffold/README.md):\\n    npm create @aws-blocks/blocks-app@latest . -- --template react\\n    cp ../01-scaffold/solution/index.ts aws-blocks/index.ts\\n    cp ../01-scaffold/solution/index.handler.ts aws-blocks/index.handler.ts\\n    cp ../01-scaffold/solution/server.ts aws-blocks/scripts/server.ts\\n'),process.exit(1))\"",
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch aws-blocks/scripts/server.ts",
     "dev:client": "wait-on tcp:3001 && vite",

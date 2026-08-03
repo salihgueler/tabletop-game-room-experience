@@ -81,7 +81,7 @@ const existing = await Array.fromAsync(
    | `gameStore.get(state.gameId)` (finalize/sync)       | `await games.get({ listKey: "all", gameId: state.gameId })`                                                                            |
    | `[...gameStore.values()].find(...)` (`joinPrivate`) | query the index, then `.find(...)`                                                                                                     |
 
-   The completed versions are in [`index.ts`](index.ts) — diff against yours.
+   The completed version is in [`solution/index.ts`](solution/index.ts) — diff against yours.
 
 5. **Verify:**
 
@@ -123,7 +123,7 @@ const existing = await Array.fromAsync(
 
    > Replace `aldric` / `password123` with your account. In PowerShell use `curl.exe`.
 
-Catch up: `cp ../04-lobby/solution/index.ts app/aws-blocks/index.ts`
+Catch up from `workshop/app/`: `cp ../04-lobby/solution/index.ts aws-blocks/index.ts`
 
 ---
 

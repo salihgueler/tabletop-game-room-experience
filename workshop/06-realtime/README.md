@@ -60,7 +60,7 @@ turns those subscriptions live — the "refresh to see the bot's turn" friction 
 
 1. **Import `Realtime`** and construct it after the tables. Reuse `chatSchema` for the
    `chat` namespace; define inline schemas for `state` and `thinking`. (See
-   [`index.ts`](index.ts).)
+   [`solution/index.ts`](solution/index.ts).)
 
 2. **Delete the realtime mock** — both `fakeChannel()` and the no-op `publish()` function.
 
@@ -116,7 +116,7 @@ turns those subscriptions live — the "refresh to see the bot's turn" friction 
    > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
    > PowerShell use `curl.exe`.
 
-Catch up: `cp ../06-realtime/solution/index.ts app/aws-blocks/index.ts`
+Catch up from `workshop/app/`: `cp ../06-realtime/solution/index.ts aws-blocks/index.ts`
 
 ---
 

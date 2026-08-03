@@ -35,17 +35,17 @@ This will add AWS Blocks backend to your project:
 Proceed? (y/N)
 ```
 
-Type **`y`**. It's surgical — it creates `aws-blocks/` + `cdk.json`, merges the Blocks
-deps and `sandbox`/`deploy`/`dev:server` scripts into your `package.json`, and adds
-`.gitignore` entries. It does **not** touch your `src/`, `vite.config.js`, or
-`tsconfig.json`.
+Type **`y`**. The scaffolder creates `aws-blocks/` + `cdk.json` and updates root
+project files such as `package.json`, `.gitignore`, and possibly `tsconfig.json` or
+Vite config depending on the template and CLI version.
 
 > ⚠️ Always run the scaffolder on a **clean git tree** so you can `git diff` its changes
 > and restore anything you want to keep. On existing repos it can reset root-config fields;
-> here it only merges, but check the diff regardless.
+> in this workshop starter, keep the provided frontend files (`src/`, `vite.config.js`,
+> `tsconfig.json`) if the scaffolded template changes them unexpectedly.
 
-The generated `aws-blocks/index.ts` is a **to-do app** — a fine Blocks demo, but not our
-game. You'll replace it next.
+The generated `aws-blocks/index.ts` is a generic React Blocks starter — useful scaffolding,
+but not our game. You'll replace it next.
 
 ## 2. Drop in the game's mock backend
 
@@ -206,8 +206,8 @@ curl ...            # hit the method to confirm the backend behaves
 ## What you learned
 
 - `create-blocks-app` scaffolds the Blocks backend into any project with one command; it
-  won't clobber an existing `aws-blocks/`, and on an existing repo it merges rather than
-  resets.
+  won't clobber an existing `aws-blocks/`, but on an existing repo it may update or reset
+  root config files, so scaffold on a clean tree and review the diff.
 - An AWS Blocks backend is one file whose **exports define a typed API** — no routes, no
   controllers. `Scope` + `ApiNamespace` are the substrate; the client is generated from
   your exports.
