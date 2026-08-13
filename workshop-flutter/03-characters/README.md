@@ -1,19 +1,52 @@
-# Module 03 - Persistent Characters
+# Module 03 — Characters (`characterStore` Map → `DistributedTable`)
 
-**Goal:** replace the character `Map` with `DistributedTable`.
+**Goal:** persist the player's hero in a real, schema-validated NoSQL table instead
+of an in-memory Map — so it survives a server restart.
+
+**Block introduced:** `DistributedTable`
+**You edit:** `app/backend/aws-blocks/index.ts`
+**You'll know you're done when:** you save a hero, restart the backend, sign back in,
+and your hero is still there — character select is skipped.
+
+---
+
+## Concept
+
+`DistributedTable` is the default data Block: structured items with a partition key
+(optionally a sort key) and secondary indexes. Locally it persists to JSON under
+`.bb-data/`; deployed it's DynamoDB — same API either way. You define the shape with
+a **Zod schema** (validated on every write) and read/write by key:
+
+```ts
+const characters = new DistributedTable(scope, "characters", {
+  schema: characterSchema, // validates every put()
+  key: { partitionKey: "userId" }, // one hero per account
+});
+
+await characters.put(character); // write
+await characters.get({ userId: "aldric" }); // read by key → item | undefined
+```
+
+Characters are the simplest case: one item per user, always fetched by `userId`. No
+sort key, no index. (The lobby in Module 04 needs an index — that's the next lesson.)
+
+On the Flutter side, the generated `GetCharacterResult` type (a nullable record
+matching the Zod schema fields) is mapped into the app's immutable `Character` domain
+model in `lib/data/repositories/game_repository.dart`. The mapping is straightforward
+— the generated type carries `userId`, `name`, `classKey`, `spriteId`, `sprite` — and
+the repository constructs the domain model from those fields.
+
+## Steps
+
+### 1. Copy the checkpoint
 
 ```bash
-cd ../app/backend
+cd app/backend
 cp ../../03-characters/solution/index.ts aws-blocks/index.ts
 npm run typecheck
 ```
 
-The table schema is defined with Zod and keyed by `userId`. `saveCharacter`
-writes the authenticated user's hero; `getCharacter` reads the same key. The
-Flutter repository maps generated `GetCharacterResult` into its immutable
-`Character` domain model.
-
-Regenerate and verify:
+### 2. Regenerate the Dart client
 
 ```bash
 npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
@@ -23,7 +56,103 @@ flutter analyze
 flutter test
 ```
 
-Choose a character, restart both processes, sign in, and confirm character
-selection is skipped.
+### 3. What changed in the backend
 
-Next: [Guild Hall](../04-lobby/README.md).
+Open `app/backend/aws-blocks/index.ts` and compare with Module 02:
+
+- `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`.
+- A `characterSchema` defines the shape: `userId`, `name`, `classKey`, `spriteId`,
+  `sprite` — all strings.
+- The table is created with `key: { partitionKey: "userId" }`.
+- `const characterStore = new Map(...)` is deleted.
+- `characterStore.set(...)` → `await characters.put(character)`.
+- `characterStore.get(user.username)` → `await characters.get({ userId: user.username })`.
+- The type `Character` is derived via `z.infer<typeof characterSchema>`.
+
+### 4. Run and test
+
+```bash
+# Terminal 1
+cd app/backend && npm run dev
+
+# Terminal 2
+cd app && flutter run -d macos
+```
+
+Pick a hero, save it. Then confirm persistence:
+
+```bash
+ls app/backend/.bb-data/tt-characters/    # your hero is now a file on disk
+```
+
+## Verify
+
+The real test: stop `npm run dev`, start it again, sign in as the **same** user —
+character select is skipped and your hero loads directly. In the starter it would
+have been wiped.
+
+Read the hero through the API (requires a session — sign in first):
+
+```bash
+# 1) sign in, saving the session cookie
+curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+
+# 2) fetch the saved hero
+curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"api.getCharacter","params":[],"id":1}'
+```
+
+Replace `aldric` / `password123` with the account you registered.
+
+Flutter verify:
+
+1. Save a character in the Flutter app.
+2. Stop `npm run dev` (Ctrl+C).
+3. Start `npm run dev` again.
+4. Hot-restart the Flutter app — you're taken straight to the Guild Hall (character
+   already loaded).
+
+---
+
+## Checklist
+
+- [ ] `npm run typecheck` and `flutter analyze` both pass.
+- [ ] Saving a hero writes a file under `app/backend/.bb-data/tt-characters/`.
+- [ ] The hero survives a backend restart (sign in → still there, character select
+      skipped).
+- [ ] `flutter test` passes.
+
+## What you learned
+
+- `DistributedTable` = schema-validated NoSQL, keyed access, no server or table
+  setup.
+- A **Zod schema** validates writes _and_ drives the generated Dart type via the
+  spec — one source of truth from TypeScript through to Flutter.
+- Local `.bb-data/` files stand in for DynamoDB; the code is identical either way —
+  which is why "works locally" is a real signal.
+- The Flutter repository maps generated result types into immutable domain models,
+  keeping the UI layer decoupled from the wire format.
+
+## Troubleshooting
+
+- **Stale generated types / missing fields** — regenerate:
+  ```bash
+  cd backend
+  npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
+  cd ..
+  dart run build_runner build --delete-conflicting-outputs
+  ```
+- **Old hero keeps loading / stale data** — `rm -rf app/backend/.bb-data` to reset
+  local tables, then restart the backend.
+- **Android emulator can't reach backend** — confirm `10.0.2.2` mapping in
+  `lib/data/services/blocks_api_url_io.dart`. Physical devices need
+  `--dart-define=BLOCKS_API_URL=http://LAN_IP:3001/aws-blocks/api`.
+- **Port 3001 clash** — stop the React workshop backend; both default to `:3001`.
+
+---
+
+**Next:** Module 04 — Guild Hall lobby — a `DistributedTable` with a **GSI**, and
+the "constant partition key" trick for listing all rows without a full-table scan.
