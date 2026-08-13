@@ -37,18 +37,18 @@ packages:
     dependency: "direct dev"
     description:
       name: blocks_codegen
-      sha256: "0f2f9d669979625c6218664ebe1f721f4e955caa26131c3b3ff9abbbc7dde1dc"
+      sha256: "250a9ef98021d957214856587ab52f7f712581f4c9a2822f5d473d86fb4173c5"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.1.1"
   blocks_runtime:
     dependency: "direct main"
     description:
       name: blocks_runtime
-      sha256: "5bec72033e020ad26e417a38df31c3991d06cfd0fca16c9e9df47dbff48e66da"
+      sha256: b20cb6a6fbd0bcb49443fcec7736549dde393379d9436d6fc6e12086b07155fc
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.1.1"
   boolean_selector:
     dependency: transitive
     description:

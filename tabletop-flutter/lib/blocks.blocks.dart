@@ -2833,14 +2833,23 @@ class AuthApiApi {
   }
 }
 
+// --- Servers ---
+
+class Servers {
+  static const String local = 'http://localhost:3001/aws-blocks/api';
+}
+
 // --- Blocks Client ---
 
 class Blocks {
   late final ApiApi api;
   late final AuthApiApi authApi;
 
-  Blocks({required String baseUrl, SessionStore? sessionStore}) {
-    final client = BlocksClient(baseUrl: baseUrl, sessionStore: sessionStore);
+  Blocks({String? baseUrl, SessionStore? sessionStore}) {
+    final client = BlocksClient(
+      baseUrl: baseUrl ?? Servers.local,
+      sessionStore: sessionStore,
+    );
     api = ApiApi(client);
     authApi = AuthApiApi(client);
   }
