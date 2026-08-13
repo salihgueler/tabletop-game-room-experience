@@ -1,5 +1,9 @@
 # Metrics
 
+**When to use:** Custom business metrics — conversion rates, active users, queue depths, processing times. Numbers you want to graph and alarm on.
+
+**When NOT to use:** Structured log messages (use Logger). Distributed tracing (use Tracer). One-off debugging (use Logger).
+
 CloudWatch metrics emission via EMF (Embedded Metric Format).
 
 ```typescript
@@ -41,3 +45,17 @@ endpointMetrics.emit("RequestCount", 1);
 - `timestamp` — custom timestamp (default: now)
 
 Local mock: Console logs metrics. AWS: CloudWatch via EMF.
+
+
+## What It Provisions
+
+- CloudWatch custom namespace
+- Metric data points with dimensions
+- Optional: CloudWatch Alarms
+- IAM permissions for PutMetricData
+
+## See Also
+
+- [logger](./logger.md) — Structured logs alongside metrics
+- [tracer](./tracer.md) — Request-level tracing
+- [dashboard](./dashboard.md) — Visualize your custom metrics

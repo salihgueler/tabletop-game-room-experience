@@ -1,8 +1,10 @@
 # Agent
 
-AI agent with streaming, tool calling, and conversation persistence. Powered by [Strands Agents SDK](https://strandsagents.com/).
+**When to use:** Conversational AI features — chatbots, copilots, customer support, any feature where users interact with an LLM via natural language with optional tool use.
 
-**When to use:** Conversational AI experiences — chatbots, copilots, data extraction, or any LLM-powered feature. Supports multi-turn conversations, tool calling with Zod schemas, and multiple model providers.
+**When NOT to use:** Simple text generation without conversation (use Bedrock SDK directly), RAG-only retrieval without conversation (use KnowledgeBase), or server-to-server LLM calls without streaming.
+
+AI agent with streaming, tool calling, and conversation persistence. Powered by [Strands Agents SDK](https://strandsagents.com/).
 
 ```typescript
 import { Scope, ApiNamespace, Agent } from '@aws-blocks/blocks';
@@ -10,7 +12,7 @@ import { Scope, ApiNamespace, Agent } from '@aws-blocks/blocks';
 const scope = new Scope('my-app');
 
 const agent = new Agent(scope, 'chat', {
-  // model is optional — defaults to Agent.BALANCED (Claude Sonnet 4.6)
+  // model is optional — defaults to BedrockModels.BALANCED (Claude Sonnet 4.6)
   systemPrompt: 'You are a helpful assistant.',
   tools: (tool) => ({
     getOrderStatus: tool({
@@ -35,7 +37,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
 ```
 
 **AgentConfig:**
-- `model` — **optional** (defaults to `Agent.BALANCED`). Full form: `{ deployed, local? }` — see Running Locally below
+- `model` — **optional** (defaults to `BedrockModels.BALANCED`). Full form: `{ deployed, local? }` — see Running Locally below
 
 **⚠️ Zod version:** Agent requires **Zod 4.x** specifically for tool parameter schemas. Other blocks (KVStore, Realtime, DistributedTable) accept any `@standard-schema/spec` compatible validator (Zod, Valibot, ArkType).
 - `systemPrompt` — system instructions for the agent
@@ -47,6 +49,8 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
 
 **⚠️ Tool declaration syntax:** `tools` MUST be a callback — a plain array/object is rejected at compile time. The callback form lets TypeScript infer each tool's `input` type from its Zod `parameters` schema. Handler receives `{ input, context }` (destructured), not a flat input object.
 
+**⚠️ Tool return types must be JSON-safe:** Tool handlers must return values where every field is an explicit JSON type (`string`, `number`, `boolean`, `null`, arrays, or plain objects). TypeScript's `undefined` is not valid JSON — if a field may be absent, use `null` explicitly instead of optional fields. Otherwise, the Agent will reject the return type with an index signature error.
+
 **Key methods:**
 - `stream(message, options?)` — submit a message, returns `{ channelId, subscribe, complete }`
 - `resume(channelId, responses, options?)` — resume after an interrupt
@@ -56,6 +60,21 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
 - `deleteConversation(id, userId)` — delete a conversation
 - `getPendingInterrupts(conversationId)` — get unanswered interrupts (for reload support)
 - `getChannel(channelId)` — get a Realtime channel for subscribing to chunks
+
+**⚠️ Subscribe before send:** The agent emits chunks immediately after `stream()`. The frontend must subscribe to the channel BEFORE calling `stream()`, otherwise early chunks are lost:
+
+```typescript
+// Backend: expose a subscribeChat method
+async subscribeChat(conversationId: string) {
+  const user = await auth.requireAuth(context);
+  // Validate ownership
+  const conversations = await agent.listConversations(user.username);
+  if (!conversations.some(c => c.conversationId === conversationId)) {
+    throw new Error('Conversation not found');
+  }
+  return agent.getChannel(conversationId);
+},
+```
 
 **Important: Subscribe before sending.** The agent emits chunks immediately after `stream()`. Subscribe first, await `established`, then send:
 
@@ -71,6 +90,8 @@ await agent.stream(message, { conversationId, userId });
 - `modelId` — model ID (required for bedrock and openai-api)
 - `endpoint` — API endpoint for openai-api (defaults to api.openai.com)
 - `apiKey` — string or `() => Promise<string>` for openai-api. Falls back to `OPENAI_API_KEY` env var
+- `inferenceConfig` — `{ temperature?: number, topP?: number, maxTokens?: number, stopSequences?: string[] }`
+- `guardrails` — `{ contentFilters?: Record<string, string>, pii?: Record<string, string>, blockedTopics?: string[] }`
 
 **Model Presets (recommended):**
 
@@ -83,16 +104,16 @@ const agent = new Agent(scope, 'agent', {
 });
 ```
 
-**Model presets (v0.2.0+):**
+**Model presets:**
 ```typescript
 import { Agent } from '@aws-blocks/blocks';
 
 const agent = new Agent(scope, 'chat', {
   model: {
-    deployed: Agent.BALANCED, // Claude Sonnet 4.6 (recommended default)
+    deployed: BedrockModels.BALANCED, // Claude Sonnet 4.6 (recommended default)
     // Other presets:
-    // Agent.SMART  — Claude Opus 4.8 (highest capability)
-    // Agent.FAST   — Claude Haiku 4.5 (lowest latency)
+    // BedrockModels.SMART  — Claude Opus 4.8 (highest capability)
+    // BedrockModels.FAST   — Claude Haiku 4.5 (lowest latency)
   },
   systemPrompt: '...',
 });
@@ -255,7 +276,7 @@ Frontend subscribes to Realtime channel ← receives text-delta, tool-call, tool
 ```
 
 - **Locally:** AsyncJob runs synchronously in-process. Realtime uses a local WebSocket server on the dev server port (3000). No external services needed.
-- **On AWS:** AsyncJob → SQS + Lambda. Realtime → AppSync Events (WebSocket). DynamoDB for conversation persistence.
+- **On AWS:** AsyncJob → SQS + Lambda. Realtime → API Gateway WebSocket. DynamoDB for conversation persistence.
 - **Chunk types:** `text-delta` (streaming text), `tool-call` (agent calling a tool), `tool-result` (tool returned), `interrupt` (needs user approval), `error`, `done` (final text + token usage).
 
 ### Running Agents Locally
@@ -337,4 +358,158 @@ const result = await classifier.stream('I love this product!');
 const done = await result.complete();
 ```
 
-Local mock: Canned provider (no API keys needed). AWS: Bedrock + DynamoDB + SQS + AppSync Events.
+Local mock: Canned provider (no API keys needed). AWS: Bedrock + DynamoDB + SQS + API Gateway WebSocket.
+
+## Complete Options Reference
+
+```typescript
+interface AgentOptions {
+  model?: ModelConfig | { deployed: ModelConfig | ModelConfig[]; local?: ModelConfig | ModelConfig[] };
+  systemPrompt: string;
+  tools?: (tool: ToolFactory) => Record<string, Tool>;
+  toolContextSchema?: ZodSchema;              // Zod 4.x schema for request-scoped data
+  inferenceOnly?: boolean;                    // default: false — skip persistence infra
+  conversation?: ConversationStrategy;
+  streamingMode?: 'token' | 'block';          // default: 'block'
+}
+
+interface ModelConfig {
+  provider: 'bedrock' | 'openai-api' | 'canned';
+  modelId?: string;                           // required for bedrock/openai-api
+  endpoint?: string;                          // openai-api: defaults to api.openai.com
+  apiKey?: string | (() => Promise<string>);  // openai-api: falls back to OPENAI_API_KEY env var
+}
+
+type ConversationStrategy =
+  | { strategy: 'sliding-window'; windowSize: number }   // keep last N messages
+  | { strategy: 'summarizing'; preserveRecentMessages?: number };  // auto-summarize older messages
+```
+
+## Streaming Modes
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `'block'` (default) | Chunks are complete paragraphs/tool results | Most UIs — smoother rendering |
+| `'token'` | Individual tokens streamed as they're generated | Typewriter effect, low-latency display |
+
+**Chunk types received on the Realtime channel:**
+
+| Type | Payload | When |
+|------|---------|------|
+| `text-delta` | `{ text: string }` | Each text chunk (token or block) |
+| `tool-call` | `{ toolName, input }` | Agent is calling a tool |
+| `tool-result` | `{ toolName, output }` | Tool returned a result |
+| `interrupt` | `{ interruptId, name, reason }` | Needs user approval |
+| `error` | `{ message }` | Agent execution error |
+| `done` | `{ text, usage: { inputTokens, outputTokens } }` | Final complete response + token counts |
+
+## Conversation Management
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `createConversationId(userId)` | `Promise<string>` | Generate a new conversation ID |
+| `getConversation(id, options?)` | `Promise<Message[]>` | Get messages. Options: `{ limit?, before? }` |
+| `listConversations(userId)` | `Promise<ConversationSummary[]>` | List all conversations for user |
+| `deleteConversation(id, userId)` | `Promise<void>` | Delete a conversation and its messages |
+| `getPendingInterrupts(conversationId)` | `Promise<Interrupt[]>` | Get unanswered interrupts (for reload) |
+
+```typescript
+// List user's conversations
+const convos = await agent.listConversations(userId);
+// Returns: [{ conversationId, createdAt, lastMessageAt, preview }]
+
+// Load messages with pagination
+const messages = await agent.getConversation(conversationId, { limit: 50 });
+// Returns: [{ role: 'user' | 'assistant', content, timestamp, toolCalls? }]
+```
+
+⚠️ These methods throw `AgentErrors.PersistenceRequired` if called on an `inferenceOnly` agent.
+
+## Headless Usage (No UI)
+
+### Without Tool Approval
+
+```typescript
+// Server-side — call agent and collect full response
+const result = await agent.stream('Summarize this document', {
+  conversationId, userId,
+  context: { docId: 'doc-123' },
+});
+
+// Wait for completion (blocks until done)
+const response = await result.complete();
+// response: { text: '...', usage: { inputTokens, outputTokens } }
+```
+
+### With Tool Approval
+
+```typescript
+const result = await agent.stream('Delete all draft orders', { conversationId, userId });
+const response = await result.complete();
+
+if (response.interrupted) {
+  // Agent paused — handle interrupt programmatically
+  const interrupts = response.interrupts;
+  // Auto-approve or reject based on business logic
+  const responses = interrupts.map(i => ({ interruptId: i.id, response: 'yes' }));
+  await agent.resume(result.channelId, responses, { conversationId });
+}
+```
+
+## Best Practices
+
+- **One agent per concern** — separate "support agent" from "data agent" rather than one mega-agent
+- **Keep tool count ≤ 10** — LLMs struggle with tool selection above this. Use tool descriptions to disambiguate
+- **Use toolContextSchema for auth data** — never put userId/tenantId in the system prompt (model can hallucinate it)
+- **Set conversation strategy** — without it, context grows unbounded. Use `sliding-window` for simple chats, `summarizing` for long-running assistants
+- **Test with canned provider first** — verify tool wiring and conversation flow without API costs
+- **Use `inferenceOnly` for stateless tasks** — classification, extraction, single-turn generation. Avoids DynamoDB costs
+- **Subscribe before stream** — always `await sub.established` before calling `stream()` or use `useChat` which handles ordering
+
+## Scaling & Cost (AWS)
+
+| Component | Cost | Notes |
+|-----------|------|-------|
+| Bedrock inference | ~$3/$15 per M input/output tokens (Sonnet) | Main cost driver |
+| Lambda execution | Standard Lambda pricing | Agent handler runs until done |
+| DynamoDB (conversations) | Pay-per-request | ~$0 for low-moderate usage |
+| API Gateway WebSocket (streaming) | ~$1 per M messages | Chunk delivery |
+| SQS (AsyncJob) | ~$0 | Negligible at normal scale |
+
+**Lambda timeout:** Agent Lambda has 15-minute max (configured automatically). Long conversations with many tool calls may approach this. Monitor via `done` chunk's `usage` field.
+
+**Concurrency:** Each `stream()` call occupies one Lambda invocation until complete. Set reserved concurrency if you need to limit parallel agent executions.
+
+## Common Mistakes
+
+❌ ``tools: [{ name: "search", ... }]``
+✅ ``tools: (tool) => ({ search: tool({ description: "...", schema: z.object({...}), handler: async ({ input }) => {...} }) })``
+_Tools must use the callback pattern, not a plain array_
+
+❌ `Importing Agent in frontend code`
+✅ `Only import Agent in `aws-blocks/index.ts` (backend). Frontend uses `useChat` hook or API calls.`
+_Agent is server-side only — "BrowserNotSupported" error_
+
+❌ `Expecting real LLM responses in local dev`
+✅ `Configure `model.local` with Ollama endpoint, or accept `canned` provider mock responses`
+_Default local provider is `canned` (keyword-based mock)_
+
+❌ `Calling `stream()` before subscribing to the channel`
+✅ ``await sub.established` THEN call `stream()` — or use `useChat` hook which handles ordering`
+_Early chunks are lost if subscription isn't ready_
+
+
+## What It Provisions
+
+- Lambda function (async agent execution)
+- DynamoDB table (conversation persistence)
+- API Gateway WebSocket channel (streaming chunks to frontend)
+- SQS queue (AsyncJob for background execution)
+- IAM roles with Bedrock InvokeModel permissions
+
+## See Also
+
+- [knowledge-base](./knowledge-base.md) — RAG retrieval as a tool for the agent
+- [realtime](./realtime.md) — Underlying streaming transport
+- [async-job](./async-job.md) — Underlying background execution
+- [auth-basic](./auth-basic.md) — Protecting agent endpoints

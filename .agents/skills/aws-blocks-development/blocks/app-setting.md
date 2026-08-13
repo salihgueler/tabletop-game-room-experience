@@ -1,5 +1,9 @@
 # AppSetting
 
+**When to use:** Single config values or secrets that your app reads at runtime — feature flags, API keys, environment-specific URLs.
+
+**When NOT to use:** Structured data with multiple records (use DistributedTable), large blobs (use FileBucket), or data that changes per-user (use KVStore).
+
 Single configuration value backed by SSM Parameter Store. Supports runtime updates and schema validation.
 
 ```typescript
@@ -39,3 +43,21 @@ await config.put({ maxRetries: 5, timeout: 10000 });
 - `put(value)` — update at runtime (validates against schema, max 4KB)
 
 Local mock: `.bb-data/settings.json` (single consolidated file, values JSON-serialized). AWS: SSM Parameter Store.
+
+
+## Common Mistakes
+
+❌ `Storing user-specific data in AppSetting`
+✅ `Use KVStore or DistributedTable for per-user data. AppSetting is for app-wide config.`
+_AppSetting is a single shared value, not per-user_
+
+
+## What It Provisions
+
+- SSM Parameter Store parameter (standard or secure string)
+- IAM policy for Lambda to read the parameter
+
+## See Also
+
+- [kv-store](./kv-store.md) — Per-user or per-entity key-value data
+- [distributed-table](./distributed-table.md) — Structured records with queries

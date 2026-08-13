@@ -1,5 +1,9 @@
 # Pipeline
 
+**When to use:** Automated multi-stage CI/CD deployments of your Blocks app via AWS CodePipeline. Handles source, build, and deploy stages with proper CDK synthesis.
+
+**When NOT to use:** Background processing (use AsyncJob). Scheduled tasks (use CronJob). Request-response APIs (use ApiNamespace). Event-driven workflows between services (use AsyncJob chaining).
+
 CDK CI/CD pipeline construct for deploying AWS Blocks applications via CodePipeline.
 
 **Package:** `@aws-blocks/pipeline` (also re-exported from `@aws-blocks/blocks/cdk` for backward compatibility)
@@ -59,3 +63,16 @@ new Pipeline(app, 'MyPipeline', {
 - `_sourceOverride` internal prop available for S3-source-based testing
 
 Local mock: N/A (CDK-only construct). AWS: CodePipeline + CodeBuild + CloudFormation.
+
+
+## What It Provisions
+
+- EventBridge event bus
+- Lambda functions (step handlers)
+- Event rules and targets
+- IAM roles for cross-service invocation
+
+## See Also
+
+- [async-job](./async-job.md) — Single-step background work
+- [cron-job](./cron-job.md) — Time-triggered instead of event-triggered

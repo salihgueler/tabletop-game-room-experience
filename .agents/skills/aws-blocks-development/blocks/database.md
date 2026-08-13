@@ -1,5 +1,9 @@
 # Database
 
+**When to use:** Full PostgreSQL — when you need JOINs, foreign keys, transactions, views, triggers, row-level security, or integration with existing Postgres tools.
+
+**When NOT to use:** Simple key-value lookups (use KVStore). Document-style records without JOINs (use DistributedTable — cheaper, no cold start). Multi-region needs (use DistributedDatabase).
+
 SQL with Kysely query builder. Requires `migrations/` folder with numbered `.sql` files.
 
 ```typescript
@@ -42,7 +46,7 @@ import { fromExisting } from "@aws-blocks/blocks";
 const extDb = new Database(scope, "ext", {
   ...fromExisting({
     connectionString: "postgresql://user:pass@host:5432/db",
-    ssl: { ca: process.env.DATABASE_CA_CERT }, // TLS verified by default (v0.2.0+)
+    ssl: { ca: process.env.DATABASE_CA_CERT }, // TLS verified by default
     // ssl: { rejectUnauthorized: false } // opt out of verification explicitly
   }),
 });
@@ -56,14 +60,44 @@ Migration files: `migrations/001_create_users.sql`, `migrations/002_create_posts
 
 Local mock: PGlite (WASM Postgres) in `.bb-data/`. AWS: Aurora Serverless v2.
 
-**External database TLS (v0.2.0+):**
+**External database TLS:**
 - `fromExisting()` now verifies server TLS certificate by default
 - Pass `ssl: { ca: '...' }` to pin your provider's CA cert
 - `bb-data pull` prompts for the CA and commits it to `aws-blocks/database.ca.ts`
 - `DATABASE_CA_CERT` env var overrides the committed cert at runtime
 - Deployed Lambda and CI **fail closed** (no unverified connections) — local dev warns but allows unverified for self-signed DBs
 
-**Engine version (v0.2.3+):**
+**Engine version:**
 - Default Aurora PostgreSQL engine: `16.13` (previously `16.4`, which was retired by AWS)
 - New option: `postgresVersion` on `DatabaseOptions` — override the engine version (e.g. `postgresVersion: '16.13'`)
 - Must be `MAJOR.MINOR` format (e.g. `'16.13'`) — validated at synth time
+
+
+## Common Mistakes
+
+❌ ``createKyselyAdapter(db)` at module top level`
+✅ `Lazy-init: `let _k = null; function getKysely() { if (!_k) _k = createKyselyAdapter(db); return _k; }``
+_Deploy fails — "Missing environment variables BLOCKS*undefined*" during code gen_
+
+❌ `JS arrays in PGlite TEXT[] columns`
+✅ `Use PostgreSQL array literal: `const arr = '{"a","b"}'; sql`...${arr}::text[]```
+_PGlite "malformed array literal" error_
+
+❌ `"relation does not exist"`
+✅ `Check `migrations/` folder — files need numeric prefixes (e.g., `001_create_users.sql`)`
+_Migrations haven't run or table name is wrong_
+
+
+## What It Provisions
+
+- Aurora Serverless v2 PostgreSQL cluster
+- RDS Data API for Lambda connectivity
+- Secrets Manager secret (credentials)
+- VPC + security groups (optional)
+- Migration Lambda for schema management
+
+## See Also
+
+- [distributed-database](./distributed-database.md) — Multi-region SQL without Aurora's idle cost
+- [distributed-table](./distributed-table.md) — NoSQL alternative — cheaper, no cold start
+- [kv-store](./kv-store.md) — Simple key-value when SQL is overkill

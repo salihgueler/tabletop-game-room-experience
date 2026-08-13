@@ -1,5 +1,9 @@
 # Logger
 
+**When to use:** Structured application logging — request tracking, error reporting, audit trails, debugging info.
+
+**When NOT to use:** Business metrics/KPIs (use Metrics). Request tracing across services (use Tracer). User-facing analytics (build custom).
+
 Structured JSON logging with log levels, context, and child loggers.
 
 ```typescript
@@ -29,3 +33,17 @@ requestLogger.info("Processing request"); // includes { service, requestId }
 **Log entry format:** `{ level, message, timestamp, logger, traceId?, ...context }`
 
 Local mock: Structured JSON to stdout. AWS: CloudWatch Logs (via Lambda).
+
+
+## What It Provisions
+
+- CloudWatch Log Group
+- Structured JSON log format
+- Log retention policy
+- IAM permissions for logging
+
+## See Also
+
+- [metrics](./metrics.md) — Numeric KPIs and counters
+- [tracer](./tracer.md) — Distributed request tracing
+- [dashboard](./dashboard.md) — Visualize logs and metrics together

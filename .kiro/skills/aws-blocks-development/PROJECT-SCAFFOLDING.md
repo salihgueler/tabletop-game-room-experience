@@ -4,6 +4,7 @@
 1. [Create a New Project](#create-a-new-project)
 2. [Available Templates](#available-templates)
 3. [Add to Existing Project](#add-to-existing-project)
+3b. [Default Template Contents](#default-template-contents)
 4. [Amplify Gen 2 Integration](#amplify-gen-2-integration)
 5. [Stack & Sandbox IDs](#stack--sandbox-ids)
 6. [Post-Scaffold Steps](#post-scaffold-steps)
@@ -31,6 +32,66 @@ Interactive mode prompts for template selection. To skip:
 | **demo** | Showcasing Blocks features (multiple API routes + sample UI) |
 | **nextjs** | Full-stack Next.js app with SSR-compatible Blocks integration |
 | **react** | Client-side React (Vite) app calling a Blocks backend |
+
+## Default Template Contents
+
+The `default` template (Vite + lit-html) is a **fully working real-time todo app**, not a minimal hello-world. After scaffolding, you get:
+
+### Backend (`aws-blocks/index.ts`)
+
+- **AuthBasic** — username/password auth with sessions, `crossDomain` support for sandbox
+- **DistributedTable** — Zod schema with `userId` (partition key) + `todoId` (sort key), two GSIs (`byPriority`, `byTitle`), and optimistic locking via `ifFieldEquals` + a `version` field
+- **Realtime** — typed WebSocket namespace (`todos`) with `created`/`updated`/`deleted` events
+- **ApiNamespace** — 6 methods: `subscribeTodos`, `createTodo`, `listTodos` (with optional `sortBy`), `toggleTodo`, `updatePriority`, `deleteTodo`
+
+### Frontend (`src/index.ts`)
+
+- **lit-html** for declarative rendering with `@event` binding
+- **AccountMenuBar** — sign-in/sign-out UI component
+- **AuthenticatedContent** — shows app content only when logged in
+- Full task UI: text input, priority selector (🔴🟡🟢), sorting buttons, checkboxes, delete
+- Real-time sync: subscribes to the `todos` namespace and reloads on any change
+
+### Tests (`test/e2e.test.ts`)
+
+- Full e2e suite using Node.js `test` runner
+- Auth tests: sign-up, sign-in, unauthenticated rejection
+- CRUD tests: create with priority, list, sort by GSI, toggle, delete
+- Optimistic locking test: concurrent toggle → conflict → retry
+- Run with `npm run test:e2e`
+
+### Agent Guide (`AGENTS.md`)
+
+Instructions for agentic IDEs:
+- Backend: `aws-blocks/index.ts`
+- Frontend: `src/`
+- Tests: `npm run test:e2e`
+- Block docs: `node_modules/@aws-blocks/blocks/README.md`
+- Per-block docs: `node_modules/@aws-blocks/blocks/docs/<package-name>.md`
+- Workflow: make changes → run tests → iterate
+
+### Scripts (`package.json`)
+
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Start local dev server (port 3000) |
+| `npm run test:e2e` | Run e2e tests (starts server if needed) |
+| `npm run typecheck` | TypeScript check |
+| `npm run build` | Production build |
+| `npm run sandbox` | Deploy to personal AWS sandbox |
+| `npm run sandbox:destroy` | Tear down sandbox |
+| `npm run deploy` | Full production deploy |
+| `npm run destroy` | Full production teardown |
+
+### Key Patterns to Know
+
+When extending the default template:
+
+1. **Per-user isolation**: All data is partitioned by `userId` (from `auth.requireAuth(context).username`)
+2. **Optimistic locking**: Use `ifFieldEquals: { version: todo.version }` on puts, increment version
+3. **Realtime broadcasting**: After mutations, publish to the user's namespace channel
+4. **Error handling**: Frontend wraps toggle/priority in try-catch and reloads on conflict
+5. **Type flow**: Frontend imports `api` from `'aws-blocks'` — all method signatures are typed automatically
 
 ## Add to Existing Project
 

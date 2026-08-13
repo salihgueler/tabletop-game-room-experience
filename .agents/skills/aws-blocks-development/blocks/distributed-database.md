@@ -1,5 +1,9 @@
 # DistributedDatabase
 
+**When to use:** SQL queries (Postgres-compatible) without Aurora's idle cost or cold start. Multi-region deployments. Basic JOINs and transactions (up to 3,000 rows).
+
+**When NOT to use:** Heavy transactions, foreign key enforcement, triggers, views, or > 3,000 row transactions (use Database). Simple NoSQL patterns (use DistributedTable).
+
 Globally distributed SQL database with CockroachDB-compatible semantics. Supports migrations, Kysely, and serializable transactions with OCC retry.
 
 ```typescript
@@ -40,3 +44,15 @@ Local mock: PGlite (WASM Postgres) in `.bb-data/`. AWS: Aurora Serverless v2 (mu
 ⚠️ **DSQL limitation:** Index key sort order (`ASC`/`DESC`) is not supported by Aurora DSQL. Index definitions that specify sort order will be rejected at deploy time. Omit sort order from index column definitions.
 
 ⚠️ **DSQL limitation:** `ALTER TABLE DROP COLUMN` is not supported by DSQL. The local PGlite mock now rejects it at dev time (previously only failed on deploy). Supported `ALTER TABLE` forms: `ALTER COLUMN ... DROP DEFAULT`, `DROP NOT NULL`, `DROP EXPRESSION`, `DROP IDENTITY`, and `DROP CONSTRAINT`.
+
+
+## What It Provisions
+
+- Aurora DSQL cluster (Postgres-compatible, serverless)
+- IAM-based authentication (no password management)
+- Multi-region endpoints
+
+## See Also
+
+- [database](./database.md) — Full Postgres when you need FK/triggers/views
+- [distributed-table](./distributed-table.md) — NoSQL when you don't need SQL

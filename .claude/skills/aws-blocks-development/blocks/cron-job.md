@@ -1,5 +1,9 @@
 # CronJob
 
+**When to use:** Scheduled/recurring tasks — daily reports, hourly data sync, cleanup jobs, periodic health checks.
+
+**When NOT to use:** One-off background work triggered by user action (use AsyncJob). Event-driven processing (use Pipeline).
+
 Scheduled task execution on recurring intervals or cron expressions.
 
 ```typescript
@@ -42,3 +46,16 @@ const sync = new CronJob(scope, "sync", {
 ⚠️ Handlers must be idempotent — EventBridge provides at-least-once delivery.
 
 Local mock: `setInterval`/`setTimeout` timers. AWS: EventBridge Scheduler + Lambda.
+
+
+## What It Provisions
+
+- EventBridge Scheduler rule
+- Lambda function (job handler)
+- IAM role for scheduler to invoke Lambda
+
+## See Also
+
+- [async-job](./async-job.md) — On-demand background work
+- [pipeline](./pipeline.md) — Event-driven multi-step processing
+- [dashboard](./dashboard.md) — Monitoring cron job execution

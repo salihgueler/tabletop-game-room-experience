@@ -1,5 +1,9 @@
 # RawRoute
 
+**When to use:** Raw HTTP endpoints outside JSON-RPC — webhook receivers, file upload endpoints, health checks, anything needing custom HTTP method/headers/status codes.
+
+**When NOT to use:** Standard app API methods (use ApiNamespace — it handles auth, CORS, typing automatically).
+
 Path-based HTTP routing for endpoints needing full request/response control.
 
 ## When to Use
@@ -68,6 +72,18 @@ new RawRoute(scope, 'Files', { method: 'GET', path: '/files/*',
 });
 ```
 
+## Registration Rules
+
+- **Reserved paths:** Routes under `/aws-blocks/` are reserved for internal use (auth callbacks, config, RPC endpoint). Registering a RawRoute there throws at startup.
+- **Duplicate routes:** Two routes with the same method + path throw at construction time (both locally and in AWS).
+- **Register-during-load:** All RawRoute instances must be created during module load (top-level or in the Scope constructor callback). Routes registered asynchronously (e.g., inside an API handler) are silently ignored.
+- **Hosting integration:** When a Hosting block is present, RawRoute paths are automatically added as CloudFront behaviors (no manual origin config needed).
+
+## ctx.request / ctx.response Reference
+
+- `ctx.request`: `.params` (path params), `.headers` (Headers object), `.json()`, `.text()`, `.arrayBuffer()`, `.method`, `.url`
+- `ctx.response`: `.status` (number), `.headers` (set with `.set(key, val)`), `.send(body)` (JSON or string), `.sendRaw(buffer, contentType)`
+
 ## Local Mock vs AWS
 
 | Aspect | Local | AWS |
@@ -76,3 +92,15 @@ new RawRoute(scope, 'Files', { method: 'GET', path: '/files/*',
 | Context shape | Same `BlocksContext` | Same `BlocksContext` |
 | Duplicates | Throws at startup | Same — detected at construction |
 | CloudFront | N/A | Hosting auto-adds behaviors |
+
+
+## What It Provisions
+
+- API Gateway HTTP API route (custom method + path)
+- Lambda function (raw request handler)
+- IAM execution role
+
+## See Also
+
+- [api-namespace](./api-namespace.md) — Standard typed API (preferred for most cases)
+- [file-bucket](./file-bucket.md) — Presigned uploads (may not need raw-route)

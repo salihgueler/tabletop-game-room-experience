@@ -1,5 +1,9 @@
 # ApiNamespace
 
+**When to use:** Every Blocks app — defines your backend API methods. Required as the entry point for all server-side logic.
+
+**When NOT to use:** Never skip this. If you need raw HTTP control (webhooks, file uploads with custom headers), combine with RawRoute.
+
 Type-safe RPC. Methods are callable from the frontend with full TypeScript types — no codegen, no route definitions.
 
 ```typescript
@@ -41,3 +45,27 @@ export const adminApi = new ApiNamespace(scope, "admin", (context) => ({...}));
 ```
 
 Frontend: `import { publicApi, adminApi } from "aws-blocks";`
+
+
+## Common Mistakes
+
+❌ `Curling `/api/greet` REST-style`
+✅ `POST to `/aws-blocks/api` with JSON-RPC body: `{"method": "namespace.greet", "params": [...], "id": 1}``
+_Blocks uses JSON-RPC 2.0, not REST_
+
+❌ `Forgetting `withAuth(auth)` on ApiNamespace`
+✅ `Pass auth in options: `new ApiNamespace(scope, "api", { auth }, (context) => ({...}))``
+_All routes return 401 without auth wiring_
+
+
+## What It Provisions
+
+- API Gateway HTTP API (single POST endpoint)
+- Lambda function (JSON-RPC handler)
+- IAM execution role
+
+## See Also
+
+- [raw-route](./raw-route.md) — Raw HTTP when JSON-RPC isn't sufficient
+- [auth-basic](./auth-basic.md) — Adding authentication to your API
+- [hosting](./hosting.md) — Connecting frontend to API via CloudFront proxy

@@ -1,5 +1,9 @@
 # Dashboard
 
+**When to use:** Auto-generated CloudWatch dashboards for monitoring your app — request rates, error counts, latencies, custom business metrics.
+
+**When NOT to use:** Custom analytics UIs for end users (build with your frontend framework). Alerting without visualization (use Metrics + CloudWatch Alarms directly).
+
 CloudWatch dashboard auto-generated from observability Building Blocks.
 
 ```typescript
@@ -35,3 +39,16 @@ const dashboard = new Dashboard(scope, "dashboard", {
 - `period` — aggregation period in seconds (default: 60)
 
 Local mock: Console summary of configured widgets. AWS: CloudWatch Dashboard.
+
+
+## What It Provisions
+
+- CloudWatch Dashboard
+- Auto-populated widgets from other blocks' metrics
+- IAM permissions for dashboard access
+
+## See Also
+
+- [metrics](./metrics.md) — Custom metrics that appear in the dashboard
+- [logger](./logger.md) — Structured logs correlated with dashboard data
+- [tracer](./tracer.md) — Distributed traces linked from dashboard

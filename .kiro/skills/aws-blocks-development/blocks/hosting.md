@@ -1,5 +1,9 @@
 # Hosting
 
+**When to use:** Deploying your frontend — SPAs (React/Vue/Angular), SSR apps (Next.js/Nuxt), or static sites. Handles CloudFront, S3, custom domains, WAF.
+
+**When NOT to use:** API-only backends (Hosting is for frontends). Serving user-uploaded files (use FileBucket).
+
 Deploy frontend apps to AWS (S3 + CloudFront) with API proxy, custom domains, WAF, and SSR support.
 
 **When to use:** Production deployment of SPA or SSR frontends alongside a Blocks backend. Supports Vite/React/Vue/Angular (SPA) and Next.js/Nuxt (SSR via Lambda Web Adapter + OpenNext).
@@ -91,9 +95,9 @@ new Hosting(blocksStack, 'Hosting', {
 
 Certificate MUST be in `us-east-1` (CloudFront requirement). CSP does NOT support double wildcards.
 
-**CSP note:** The default CSP blocks external resources. If you use Google Fonts, analytics, or external CDNs, add those origins to `contentSecurityPolicy`. Always include `https://*.amazonaws.com wss://*.amazonaws.com` in `connect-src` if using Realtime (AppSync WebSocket). For apps with user-generated content (markdown images), use `img-src 'self' data: https:`.
+**CSP note:** The default CSP blocks external resources. If you use Google Fonts, analytics, or external CDNs, add those origins to `contentSecurityPolicy`. Always include `https://*.amazonaws.com wss://*.amazonaws.com` in `connect-src` if using Realtime (API Gateway WebSocket). For apps with user-generated content (markdown images), use `img-src 'self' data: https:`.
 
-## basePath (v0.1.4)
+## basePath
 
 For apps served at a sub-path instead of the domain root:
 
@@ -108,7 +112,7 @@ new Hosting(blocksStack, 'Hosting', {
 
 Auto-detects Nuxt `app.baseURL` from `nuxt.config.ts`. For Next.js, also set `basePath` in `next.config.js`.
 
-## Quotas (v0.1.4)
+## Quotas
 
 For accounts with raised AWS service quotas, override defaults:
 
@@ -125,7 +129,7 @@ new Hosting(blocksStack, 'Hosting', {
 });
 ```
 
-## Storage Deployment Override (v0.1.4)
+## Storage Deployment Override
 
 For large static sites that exceed default S3 deployment limits:
 
@@ -227,3 +231,33 @@ Do NOT run `cdk deploy` directly — use the scaffolded scripts which handle san
 - Do NOT write your own `index.cdk.ts` — the scaffolder generates it correctly.
 
 Local mock: N/A (Hosting is deploy-time only). AWS: S3 + CloudFront + Lambda (SSR).
+
+
+## Common Mistakes
+
+❌ `"No index.html found in build output"`
+✅ `Ensure your framework outputs index.html, or use `framework: "nextjs"` for SSR`
+_SPA adapter requires index.html — SSR frameworks may not produce one_
+
+❌ `API URL is `undefined` in production`
+✅ `Pass `api: blocksStack` to Hosting constructor — this sets up the CloudFront proxy`
+_Must pass BlocksStack instance, not a URL string_
+
+❌ `CSP blocks API/WebSocket connections`
+✅ `Add `https://*.amazonaws.com` and `wss://*.amazonaws.com` to `connect-src``
+_CSP doesn't support double wildcards like `*.execute-api.*.amazonaws.com`_
+
+
+## What It Provisions
+
+- S3 bucket (static assets)
+- CloudFront distribution (CDN + HTTPS)
+- Lambda@Edge or CloudFront Functions (SSR/rewrites)
+- ACM certificate (if custom domain)
+- WAF WebACL (if enabled)
+- Route53 records (if custom domain)
+
+## See Also
+
+- [api-namespace](./api-namespace.md) — Backend API that Hosting proxies to
+- [file-bucket](./file-bucket.md) — User file uploads (separate from hosting)

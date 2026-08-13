@@ -1,5 +1,9 @@
 # EmailClient
 
+**When to use:** Sending transactional emails from your app — welcome emails, password resets, notifications, receipts.
+
+**When NOT to use:** Marketing/bulk email campaigns (use SES directly with dedicated IPs). Real-time messaging (use Realtime).
+
 Send transactional emails via SES with sender verification.
 
 ```typescript
@@ -30,3 +34,16 @@ const batch = await email.sendBatch([
 **EmailMessage fields:** `to`, `subject`, `body` (required), `html`, `cc`, `bcc` (optional).
 
 Local mock: Logs emails to console + writes to `.bb-data/`. AWS: Amazon SES.
+
+
+## What It Provisions
+
+- SES verified identity (domain or email)
+- Lambda function for sending
+- IAM role with SES send permissions
+
+## See Also
+
+- [async-job](./async-job.md) — Send emails in the background
+- [cron-job](./cron-job.md) — Scheduled email digests
+- [app-setting](./app-setting.md) — Store email templates/config

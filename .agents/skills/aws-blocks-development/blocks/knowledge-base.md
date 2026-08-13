@@ -1,5 +1,9 @@
 # KnowledgeBase
 
+**When to use:** RAG (Retrieval Augmented Generation) — semantic search over documents, context retrieval for AI features, document Q&A.
+
+**When NOT to use:** Full conversational agent (use Agent with KnowledgeBase as a tool). Keyword/full-text search (use DistributedTable with text fields).
+
 RAG (Retrieval-Augmented Generation) over documents with vector embeddings.
 
 ```typescript
@@ -62,7 +66,7 @@ Local mock: TF-IDF search over local files with Unicode-aware tokenization. AWS:
 - `ThrottlingException` → `ThrottlingException`
 - Unknown SDK errors → `RetrievalException` (original SDK message preserved; SDK error attached as non-enumerable `cause`)
 
-**Ingestion sync (v0.2.0+):**
+**Ingestion sync:**
 
 After deploy, Bedrock ingestion runs asynchronously — `retrieve()` returns empty during the sync window. Use these methods to check freshness:
 
@@ -86,3 +90,16 @@ const results = await kb.retrieve("query");
 - Tolerates transient errors (throttling, not-yet-visible KB) up to `maxConsecutiveTransientErrors` (default: 3).
 - Local mock: always reports synced immediately (no async ingestion in local dev).
 - `retrieve()` is always callable — serves prior synced snapshot during re-ingestion.
+
+
+## What It Provisions
+
+- Bedrock Knowledge Base
+- OpenSearch Serverless collection (vector store)
+- S3 bucket (document source)
+- IAM roles for Bedrock and OpenSearch access
+
+## See Also
+
+- [agent](./agent.md) — Use KnowledgeBase as a tool within an Agent
+- [file-bucket](./file-bucket.md) — Store documents that feed the knowledge base

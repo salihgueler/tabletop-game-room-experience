@@ -1,5 +1,9 @@
 # Tracer
 
+**When to use:** Distributed request tracing — track a single request across Lambda, DynamoDB, S3, external APIs. Find bottlenecks and failures in complex flows.
+
+**When NOT to use:** Simple log messages (use Logger). Business KPIs (use Metrics). Only need latency numbers without trace context (use Metrics with a latency dimension).
+
 Distributed tracing with X-Ray subsegments, annotations, and metadata.
 
 ```typescript
@@ -34,3 +38,17 @@ const result = await tracer.startSegment("fetchUserData", async (segment) => {
 - `setHttpStatus(code)` — categorize response (2xx/4xx/5xx)
 
 Local mock: Console logs with timing. AWS: X-Ray.
+
+
+## What It Provisions
+
+- X-Ray tracing configuration
+- X-Ray daemon/SDK integration
+- Trace segments and subsegments
+- IAM permissions for X-Ray
+
+## See Also
+
+- [logger](./logger.md) — Structured logs correlated with traces
+- [metrics](./metrics.md) — Latency metrics derived from traces
+- [dashboard](./dashboard.md) — Visualize trace data and service map

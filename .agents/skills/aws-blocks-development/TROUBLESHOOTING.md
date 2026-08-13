@@ -1,4 +1,13 @@
-# Troubleshooting
+
+**Deploy streams progress to stdout**
+`npm run deploy` now passes `--ci --progress events` to CDK. CloudFormation events stream to stdout line-by-line as resources transition. The `❌ Deployment failed.` banner now prints to stdout (was stderr) so callers capturing only stdout can distinguish a failed deploy from a killed process.
+
+**Signal resilience**
+A single SIGTERM (or any SIGHUP) no longer kills an in-flight deploy. The CDK CLI continues streaming until convergence completes. Ctrl-C, or a second SIGTERM, aborts and reaps the CDK process tree. This is POSIX-only — Windows has no process group delivery, so a kill on the process tree still ends the deploy there.
+
+**Deploy shows nothing on stdout**
+Ensure you're on the latest version. Older versions logged to stderr only (since CDK detected isCI=false), so piping stdout captured zero bytes.
+
 
 ## Contents
 - [Registry & installation](#registry--installation)
@@ -206,8 +215,8 @@ echo 'export { handler } from "../dist/migration-lambda.js";' > node_modules/@aw
 
 Note: this file will be lost on `npm install`. Add a `postinstall` script to automate it.
 
-**Realtime "channelNamespaceName must be between 1 and 50 characters"**
-AppSync has a 50-char limit on channel namespace names. The full name is `{stackName}-{scopeId}-{realtimeId}-{namespaceName}`. With long sandbox stack names, this easily exceeds 50 chars. Fix: use short Realtime IDs (e.g., `"rt"` not `"live"`) and short namespace names (e.g., `"match"` not `"matchmaking"`).
+**Realtime channel names too long in logs/URLs**
+The DynamoDB connections table stores the full channel path as `{stackName}-{scopeId}-{realtimeId}/{namespaceName}/{channel}`. With long sandbox stack names, this gets unwieldy in CloudWatch logs and debug output. Fix: use short Realtime IDs (e.g., `"rt"` not `"live"`) and short namespace names (e.g., `"match"` not `"matchmaking"`).
 
 ## Hosting & deployment
 
@@ -245,7 +254,7 @@ new Hosting(blocksStack, "Hosting", {
 Certificate must be in `us-east-1`. DNS must point to CloudFront. Allow 10-15 min for validation.
 
 **CSP blocks API/WebSocket connections in production**
-`connect-src` must allow `https://*.amazonaws.com` and `wss://*.amazonaws.com` for API Gateway and AppSync Realtime. CSP does NOT support double wildcards like `*.execute-api.*.amazonaws.com` — the browser silently ignores them. Use single wildcards only.
+`connect-src` must allow `https://*.amazonaws.com` and `wss://*.amazonaws.com` for API Gateway WebSocket. CSP does NOT support double wildcards like `*.execute-api.*.amazonaws.com` — the browser silently ignores them. Use single wildcards only.
 
 ## Realtime
 

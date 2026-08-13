@@ -14,7 +14,7 @@ AWS Blocks generates typed native clients from your `blocks.spec.json` for mobil
 ## How it works
 
 ```
-Backend (TypeScript) → npx blocks spec → blocks.spec.json → Native codegen → Typed client
+Backend (TypeScript) → npx blocks-generate-spec → blocks.spec.json → Native codegen → Typed client
 ```
 
 The codegen reads an OpenRPC-based spec emitted by your Blocks backend. Each native SDK ships its own build-time code generator that emits idiomatic code for the target platform.
@@ -22,7 +22,7 @@ The codegen reads an OpenRPC-based spec emitted by your Blocks backend. Each nat
 ## Generating the spec
 
 ```bash
-npx blocks spec            # outputs blocks.spec.json in project root
+npx blocks-generate-spec aws-blocks/index.ts blocks.spec.json   # generate the OpenRPC spec
 ```
 
 Commit this file to your repo and share it with mobile/native teams. Regenerate after any API or schema change.
@@ -201,10 +201,10 @@ Packages: `blocks_runtime`, `blocks_codegen`
 ```yaml
 # pubspec.yaml
 dependencies:
-  blocks_runtime: ^1.0.0
+  blocks_runtime: ^0.1.1
 
 dev_dependencies:
-  blocks_codegen: ^1.0.0
+  blocks_codegen: ^0.1.1
   build_runner: ^2.4.0
 ```
 

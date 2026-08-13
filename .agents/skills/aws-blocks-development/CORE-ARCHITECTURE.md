@@ -8,6 +8,7 @@
 - [withAuth (SSR)](#withauth-ssr)
 - [CORS](#cors)
 - [UI Components](#ui-components)
+- [Runtime Config Resolution](#runtime-config-resolution-v026)
 - [Development Modes](#development-modes)
 - [Common Mistakes to Avoid](#common-mistakes-to-avoid)
 
@@ -92,6 +93,13 @@ catch (e) {
 
 Errors serialize into the JSON-RPC error body and reconstruct on the client as typed `ApiError` instances.
 
+**ApiError constructor:**
+- `new ApiError(message, statusCode, { name?, cause?, retriable? })` — `cause` stays server-side (never serialized to client). `retriable` is a hint to the client.
+- `statusCode` becomes the JSON-RPC `error.code` field. On the client, it's decoded back into `ApiError.status`.
+- **`hasAuthError(state, name)`** — type guard for AuthState errors. Import from `@aws-blocks/blocks` (not `/ui`).
+- **`broadcastAuthChange(user)`** — broadcast auth state to other tabs. Import from `@aws-blocks/blocks/ui` (NOT from the package root).
+- **Params are positional:** `"params": [arg1, arg2]` — array, not named object. A top-level JSON array body (batch request) is rejected with error code `-32600` (Invalid Request).
+
 ---
 
 ## withAuth (SSR)
@@ -160,6 +168,20 @@ document.getElementById('main')!.appendChild(
 );
 onAuthChange(authApi, (user) => console.log(user ? 'in' : 'out'));
 ```
+
+---
+
+## Runtime Config Resolution
+
+The frontend client discovers the API URL by fetching `/.blocks-sandbox/config.json` (NOT `/config.json`).
+
+| Environment | Served by | Contents |
+|---|---|---|
+| Local dev | Dev server (automatic) | `{ "apiUrl": "http://localhost:3000" }` |
+| Sandbox | CloudFront | `{ "apiUrl": "https://<api>.execute-api..." }` |
+| Production | CloudFront | `{ "apiUrl": "https://<api>.execute-api..." }` |
+
+**`{"_placeholder":true}` in build output** is the Hosting construct's synth-time stub — the real `apiUrl` is still an unresolved CloudFormation token at build time. This is expected pre-deploy; it gets replaced during the CDK deployment phase.
 
 ---
 
