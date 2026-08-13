@@ -91,8 +91,8 @@ Diagram: [`../designs/architecture.excalidraw`](../designs/architecture.excalidr
   `llama3.1:8b`** locally, and a canned provider as an offline fallback. Configured
   in `aws-blocks/index.ts`.
 - **Local vs deployed**: every block runs as an in-memory/file mock locally and as a
-  real AWS service when deployed (Agent → SQS + Lambda + Bedrock, Realtime → AppSync
-  Events, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost
+  real AWS service when deployed (Agent → SQS + Lambda + Bedrock, Realtime → API Gateway
+  WebSocket, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost
   always a Bedrock/IAM/model issue — check CloudWatch first.
 - The frontend imports the fully-typed `api` / `authApi` clients from the
   `aws-blocks` workspace package. `client.js` is auto-generated — never edit it.
@@ -105,7 +105,7 @@ Diagram: [`../designs/architecture.excalidraw`](../designs/architecture.excalidr
 | Backend    | AWS Blocks (`@aws-blocks/blocks`) — single `ApiNamespace` on Lambda |
 | Auth       | AuthBasic (username/password + HttpOnly session cookie)             |
 | Data       | DistributedTable ×4 (DynamoDB + GSIs when deployed)                 |
-| Realtime   | Realtime ×3 namespaces (AppSync Events / local WebSocket)           |
+| Realtime   | Realtime ×3 namespaces (API Gateway WebSocket / local WS)           |
 | AI         | Agent ×5 (Strands) — Bedrock / Ollama / canned fallback chain       |
 | Validation | Zod 4                                                               |
 | Infra      | AWS CDK (`aws-cdk-lib`) via the Blocks deploy scripts               |
@@ -180,7 +180,7 @@ actions stay generic, see [Troubleshooting](#troubleshooting).
 ## Deploy (AWS)
 
 ```bash
-npm run sandbox          # ephemeral sandbox (Lambda + API GW + DynamoDB + AppSync)
+npm run sandbox          # ephemeral sandbox (Lambda + API GW + DynamoDB + WebSocket)
 npm run sandbox:destroy  # tear the sandbox down
 npm run deploy           # production deploy with Hosting (CloudFront + S3)
 npm run destroy          # tear the production stack down

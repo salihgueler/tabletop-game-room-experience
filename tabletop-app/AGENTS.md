@@ -73,7 +73,8 @@ typechecks clean.
 - **Comments:** explain *why*, not *what*. The existing code documents non-obvious AWS
   Blocks behavior and production gotchas inline — keep that density.
 - **Naming:** keep AWS Blocks Scope/Realtime namespace IDs short (scope `'tt'`;
-  namespaces `state`, `chat`, `thinking`) — AppSync caps namespace names at 50 chars.
+  namespaces `state`, `chat`, `thinking`) — the full channel path includes stack +
+  scope prefixes, and short names keep logs and URLs readable.
 
 ## Hard rules (AWS Blocks conventions)
 
@@ -128,8 +129,8 @@ live in [`CLAUDE.md`](CLAUDE.md).
 ## Extra notes
 
 - **Local vs deployed drift is expected.** Blocks run as in-memory/file mocks locally but
-  as real AWS services when deployed (Agent → SQS + Lambda + Bedrock, Realtime → AppSync
-  Events, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost always
+  as real AWS services when deployed (Agent → SQS + Lambda + Bedrock, Realtime → API
+  Gateway WebSocket, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost always
   a Bedrock / IAM / model-availability issue — check CloudWatch first, not the code.
 - **Session length** is controlled by `SESSION_MINUTES` (default `15`) in `index.ts` —
   lower it to test the expiry/game-over flow quickly.

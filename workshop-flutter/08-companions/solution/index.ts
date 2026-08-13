@@ -214,8 +214,8 @@ const chatMessages = new DistributedTable(scope, "chat", {
 
 // ─── Realtime ─────────────────────────────────────────────────────────────────
 // One channel per game (keyed by gameId) across three namespaces. Namespace names
-// are short because AppSync caps channel namespace names at 50 chars. Each payload
-// is schema-validated on publish, just like a table write.
+// are short — the full channel path includes stack + scope prefixes, so short
+// names keep logs and URLs readable. Each payload is schema-validated on publish.
 const rt = new Realtime(scope, "rt", {
   namespaces: {
     // A version bump — the client refetches getState (server stays authoritative;

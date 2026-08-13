@@ -52,7 +52,8 @@ work until the backend typechecks clean.
   the wrong tool for a listing you run constantly. List via a constant partition key + a
   GSI instead (see the `byCreated` index on `games`, queried with `listKey: { equals: 'all' }`).
 - **Short Scope/Realtime IDs.** The scope is `'tt'` and namespaces are short (`state`,
-  `chat`, `thinking`) because AppSync caps channel namespace names at 50 chars.
+  `chat`, `thinking`) because the full channel path includes stack + scope prefixes —
+  short names keep logs and URLs readable.
 - The frontend imports the typed `api` / `authApi` from the `aws-blocks` workspace
   package — never reaches into backend internals.
 
@@ -111,7 +112,7 @@ but as real AWS services when deployed:
 | Block        | Local                          | Deployed                             |
 |--------------|--------------------------------|--------------------------------------|
 | Agent        | Ollama or canned, in-process   | **SQS → Lambda → Bedrock**, async    |
-| Realtime     | local WebSocket on :3001       | AppSync Events (WSS)                 |
+| Realtime     | local WebSocket on :3001       | API Gateway WebSocket (WSS)          |
 | DistributedTable | file mock                  | DynamoDB (+ GSIs)                    |
 | AsyncJob     | runs synchronously in-process  | separate SQS-triggered invocation    |
 

@@ -64,7 +64,7 @@ cp ../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts # see 
 > `aws-blocks/scripts/server.ts` exists.)
 
 Three things that will trip you up if you skip them — all verified against
-`@aws-blocks/blocks@0.2.0`:
+`@aws-blocks/blocks@0.2.7`:
 
 - **① Lambda handler form.** The scaffolder emits `createLambdaHandler(backend)`, but the
   installed library expects the **lazy factory** `createLambdaHandler(() => import('./index.js'))`.
@@ -131,8 +131,8 @@ Three rules that hold for the entire workshop:
 3. **`context`** carries the request. Real auth reads the session cookie off it; the mock
    ignores it. It becomes load-bearing in module 02.
 
-> **Why `"tt"`?** Scope ids prefix resource names, and AppSync (the Realtime backend in
-> module 06) caps namespace names at 50 chars. Short ids keep you clear of that.
+> **Why `"tt"`?** Scope ids prefix every resource name, including Realtime channel
+> paths (module 06). Short ids keep channel paths, logs, and URLs readable.
 
 Prove the pipeline works — call a method directly:
 

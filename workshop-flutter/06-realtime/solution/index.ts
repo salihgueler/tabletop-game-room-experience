@@ -3,7 +3,7 @@
  *
  * Change from module 05: the stubbed `fakeChannel()` / no-op `publish()` are gone.
  * A real `Realtime` block now broadcasts over WebSocket (a local WS server in dev,
- * AppSync Events when deployed) across three namespaces:
+ * API Gateway WebSocket when deployed) across three namespaces:
  *   - state ..... a version bump telling every client to refetch getState
  *   - chat ...... each DM line, action, roll, and player message
  *   - thinking .. streamed AI reasoning tokens (used heavily in modules 07–08)
@@ -215,8 +215,8 @@ const chatMessages = new DistributedTable(scope, "chat", {
 
 // ─── Realtime ─────────────────────────────────────────────────────────────────
 // One channel per game (keyed by gameId) across three namespaces. Namespace names
-// are short because AppSync caps channel namespace names at 50 chars. Each payload
-// is schema-validated on publish, just like a table write.
+// are short — the full channel path includes stack + scope prefixes, so short
+// names keep logs and URLs readable. Each payload is schema-validated on publish.
 const rt = new Realtime(scope, "rt", {
   namespaces: {
     // A version bump — the client refetches getState (server stays authoritative;

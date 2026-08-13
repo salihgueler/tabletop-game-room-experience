@@ -16,7 +16,7 @@ or a turn taken in one appears in the other **without a manual refresh**.
 You `publish(namespace, key, payload)` on the server and hand the frontend a channel via
 `getChannel(namespace, key)` to `subscribe()` to. The `key` is per-room — here, the
 `gameId` — so each game is its own isolated channel. Locally it's a WebSocket server on
-the same port; deployed it's AppSync Events. Same code.
+the same port; deployed it's an API Gateway WebSocket API. Same code.
 
 ```ts
 const rt = new Realtime(scope, "rt", {
@@ -37,9 +37,10 @@ await rt.publish("chat", gameId, msg); // server broadcasts
 return rt.getChannel("chat", gameId); // frontend subscribes to this
 ```
 
-> **Short namespace names matter.** AppSync caps channel namespace names at 50 chars, and
-> the name is composed with your Scope id. That's why the scope is `"tt"` and the
-> namespaces are `state` / `chat` / `thinking`, not verbose descriptions.
+> **Short namespace names matter.** The full channel path is composed from your stack,
+> Scope id, Realtime id, and namespace name — long names make logs and URLs unwieldy.
+> That's why the scope is `"tt"` and the namespaces are `state` / `chat` / `thinking`,
+> not verbose descriptions.
 
 ### The three namespaces, and why `state` is just a version bump
 
@@ -132,15 +133,16 @@ Catch up from `workshop/app/`: `cp ../06-realtime/solution/index.ts aws-blocks/i
   `subscribe` on the client.
 - Broadcasting a **version bump** and refetching keeps the server authoritative — never
   trust a pushed payload as truth.
-- Keep Scope ids and namespace names short (AppSync's 50-char cap).
+- Keep Scope ids and namespace names short (readable channel paths, logs, and URLs).
 
 ## Troubleshooting
 
 - **Nothing arrives live, but works after refresh** — the subscription failed and the
   client fell back to polling. Check the browser console for a WS error and confirm you're
   on `:3000` (the Vite proxy forwards `/realtime`).
-- **`Namespace name too long`** — a long Scope id + namespace exceeded 50 chars. Shorten
-  the namespace (`state`/`chat`/`thinking` are safe).
+- **Channel names unwieldy in logs / connection errors on long names** — the full channel
+  path includes stack + Scope + Realtime id + namespace. Keep them short
+  (`state`/`chat`/`thinking` are safe).
 
 ---
 

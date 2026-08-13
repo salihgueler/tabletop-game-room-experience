@@ -11,7 +11,7 @@
 - Validation: Zod schemas for API and persistence shapes.
 - Auth: AWS Blocks `AuthBasic` with username/password and session cookies.
 - Data: AWS Blocks `DistributedTable`; local file/in-memory mocks, DynamoDB when deployed.
-- Realtime: AWS Blocks `Realtime`; local WebSocket, AppSync Events when deployed.
+- Realtime: AWS Blocks `Realtime`; local WebSocket, API Gateway WebSocket when deployed.
 - AI: AWS Blocks `Agent` / Strands-style agent development, with Bedrock deployed, Ollama local, and canned fallback behavior.
 - Infra: AWS CDK through AWS Blocks scripts.
 - Runtime: Node.js >= 20 for React, Node.js >= 22 for Flutter Blocks, npm >= 10,

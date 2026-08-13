@@ -1,7 +1,7 @@
 # Module 09 — Deploy to AWS (CDK `Hosting`)
 
 **Goal:** ship the finished app to AWS. Every mock's real counterpart — Cognito-less auth
-on DynamoDB, DynamoDB tables, AppSync Events, Bedrock, SQS/Lambda — comes online for the
+on DynamoDB, DynamoDB tables, API Gateway WebSocket, Bedrock, SQS/Lambda — comes online for the
 first time, fronted by CloudFront + S3.
 
 **Introduced:** CDK `Hosting`, the sandbox/prod deploy flow
@@ -38,7 +38,7 @@ if (!sandboxMode) {
 
 `BlocksStack.create` turns your `index.ts` into infrastructure: `AuthBasic` → a DynamoDB
 users table + JWT sessions, each `DistributedTable` → a DynamoDB table (+ GSIs),
-`Realtime` → AppSync Events, each `Agent` → SQS + a worker Lambda + Bedrock access.
+`Realtime` → API Gateway WebSocket, each `Agent` → SQS + a worker Lambda + Bedrock access.
 
 ### What actually changes between local and deployed
 
@@ -48,7 +48,7 @@ Your code is identical; the runtime underneath swaps:
 | ---------------- | --------------------------- | --------------------------------- |
 | AuthBasic        | file-backed JWT             | DynamoDB + JWT                    |
 | DistributedTable | JSON in `.bb-data/`         | DynamoDB (+ GSIs)                 |
-| Realtime         | local WebSocket on :3001    | AppSync Events (WSS)              |
+| Realtime         | local WebSocket on :3001    | API Gateway WebSocket (WSS)       |
 | Agent            | Ollama / canned, in-process | **SQS → Lambda → Bedrock**, async |
 
 The Agent row is the one that bites people: locally `stream()` round-trips in one process;
@@ -60,7 +60,7 @@ the code, first.**
 
 ### 1. Sandbox first (ephemeral, fast)
 
-The sandbox deploys the backend (Lambda + API Gateway + DynamoDB + AppSync) without the
+The sandbox deploys the backend (Lambda + API Gateway + DynamoDB + WebSocket API) without the
 CloudFront/S3 front end, with hot reload — ideal for a first real-cloud smoke test:
 
 ```bash

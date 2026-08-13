@@ -23,7 +23,8 @@ import {
 } from "@aws-blocks/blocks";
 import { z } from "zod";
 
-// Short scope id — Realtime namespace names must stay under 50 chars.
+// Short scope id — it prefixes every resource and Realtime channel path; short
+// names keep logs and URLs readable.
 const scope = new Scope("tt");
 
 // ─── Domain constants (exposed to the frontend via the getConstants() method,
