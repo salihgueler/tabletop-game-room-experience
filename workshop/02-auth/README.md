@@ -32,12 +32,15 @@ Block. That's the whole point of matching the mock's shape.
 
 ### 1. Add the `AuthBasic` block
 
-Near the top of `index.ts`, right after `const scope = new Scope("tt")`, add the import
-and the block:
+Update the blocks import to have `AuthBasic`:
 
 ```ts
 import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
+```
 
+Now, right after `const scope = new Scope("tt")`, add the import add the block:
+
+```ts
 const scope = new Scope("tt");
 
 const auth = new AuthBasic(scope, "auth", {
@@ -50,42 +53,47 @@ const auth = new AuthBasic(scope, "auth", {
 
 ### 2. Delete the auth mock
 
-Remove the entire **`MOCK: auth`** section — `type User`, `let fakeUser`, `fakeAuthApi`,
-and the fake `requireAuth()` function. (Keep the persistence/realtime/AI mocks; those are
-later modules.)
+1. Remove the entire **`MOCK: auth`** section
+2. Remove `type User`, `let fakeUser`, `fakeAuthApi`, and the fake `requireAuth()` function.
+
+(Keep the persistence/realtime/AI mocks; those are later modules.)
 
 ### 3. Export the real auth API
 
-Replace the hand-rolled auth namespace:
+Replace the below hand-rolled auth namespace:
 
 ```ts
-// before (starter):
 export const authApi = new ApiNamespace(
   scope,
   "authApi",
   (context) => fakeAuthApi,
 );
+```
 
-// after (module 02):
+with the following:
+
+```ts
 export const authApi = auth.createApi();
 ```
 
 ### 4. Use real auth in every method
 
 Every method that called the fake `requireAuth()` now awaits the real one. The fake was
-synchronous and took no args; the real one is `async` and needs `context`:
+synchronous and took no args; the real one is `async` and needs `context`. Search for the following.
 
 ```ts
-// before:
-const user = requireAuth();
-// after:
-const user = await auth.requireAuth(context);
+requireAuth();
+```
+
+and replace with the following:
+
+```ts
+await auth.requireAuth(context);
 ```
 
 Do this for all of them (`saveCharacter`, `getCharacter`, `createGame`, `getState`,
 `joinGame`, `startWithAi`, `takeAction`, `advanceBotTurn`, the channel getters,
-`getChatHistory`, `sendChat`). The bare `requireAuth();` calls (no user needed) become
-`await auth.requireAuth(context);`.
+`getChatHistory`, `sendChat`).
 
 > `user.username` is still the right key for `characterStore` — the real user object
 > exposes `username` just like the fake did.
