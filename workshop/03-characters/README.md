@@ -14,7 +14,7 @@ and your hero is still there.
 
 `DistributedTable` is the default data Block: structured items with a partition key
 (optionally a sort key) and secondary indexes. Locally it persists to JSON under
-`.bb-data/`; deployed it's DynamoDB — same API either way. You define the shape with a
+`.bb-data/`; deployed it's DynamoDB (a NoSQL database). You define the shape with a
 **Zod schema** (validated on every write) and read/write by key:
 
 ```ts
@@ -41,40 +41,45 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
      AuthBasic,
      DistributedTable,
    } from "@aws-blocks/blocks";
+
    import { z } from "zod";
-
-   const characterSchema = z.object({
-     userId: z.string(),
-     name: z.string(),
-     classKey: z.string(),
-     spriteId: z.string(),
-     sprite: z.string(),
-   });
-
-   const characters = new DistributedTable(scope, "characters", {
-     schema: characterSchema,
-     key: { partitionKey: "userId" },
-   });
    ```
 
-2. **Delete `const characterStore = new Map(...)`** from the persistence mock block
+2. Add the character schema and character table.
+
+```ts
+const characterSchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  classKey: z.string(),
+  spriteId: z.string(),
+  sprite: z.string(),
+});
+
+const characters = new DistributedTable(scope, "characters", {
+  schema: characterSchema,
+  key: { partitionKey: "userId" },
+});
+```
+
+3. Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block
    (leave `gameStore` / `gameStateStore` / `chatStore` — those are modules 04–05).
 
-3. **Derive the type from the schema** so there's one source of truth:
+4. Replace the `Character` current type, and **use the type from the schema** so there's one source of truth:
 
    ```ts
    type Character = z.infer<typeof characterSchema>;
    ```
 
-4. **Swap the call sites** (async now — tables return Promises):
+5. **Swap the call sites** (async now — tables return Promises):
 
-   | before (Map)                                                            | after (DistributedTable)                                    |
-   | ----------------------------------------------------------------------- | ----------------------------------------------------------- |
-   | `characterStore.set(user.username, character)`                          | `await characters.put(character)`                           |
-   | `characterStore.get(user.username) ?? null`                             | `(await characters.get({ userId: user.username })) ?? null` |
-   | `characterStore.get(user.username)` _(in createGame/joinGame/sendChat)_ | `await characters.get({ userId: user.username })`           |
+   | before (Map)                                                                         | after (DistributedTable)                                    |
+   | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+   | `characterStore.set(user.username, character)` - in saveCharacter function           | `await characters.put(character)`                           |
+   | `characterStore.get(user.username) ?? null` - in getCharacter function               | `(await characters.get({ userId: user.username })) ?? null` |
+   | `characterStore.get(user.username)` - in createGame, joinGame and sendChat functions | `await characters.get({ userId: user.username })`           |
 
-5. **Verify:**
+6. **Verify:**
 
    ```bash
    npm run typecheck
@@ -84,19 +89,21 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
    Play through character select, then confirm persistence directly:
 
    ```bash
-   ls app/.bb-data/tt-characters/    # your hero is now a file on disk
+   ls .bb-data/tt-characters/    # your hero is now a file on disk
    ```
 
-   Or read the hero back through the API. `getCharacter` now requires a session, so sign in
-   first (saving the cookie), then call it with that cookie:
+   You can read the character back through the API. `getCharacter` now requires a session, so sign in
+   first (saving the cookie):
 
    ```bash
-   # 1) sign in, saving the session cookie to cookies.txt
    curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
      -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+   ```
 
-   # 2) fetch the saved hero using the cookie
+   then call it with that cookie:
+
+   ```bash
    curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
      -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","method":"api.getCharacter","params":[],"id":1}'
