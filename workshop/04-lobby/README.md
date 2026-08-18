@@ -29,8 +29,7 @@ table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
 
 ## Steps
 
-1. **Add the `games` table** (schema + index) right after the `characters` table. The
-   schema adds two fields the Map version didn't need: `listKey` and `gameId`.
+1. Start by adding game schema after character schema. The schema adds two fields the Map version didn't need: `listKey` and `gameId`.
 
 ```ts
 // A game room in the lobby list.
@@ -49,7 +48,11 @@ const gameSchema = z.object({
   hostUserId: z.string(),
   createdAt: z.number(),
 });
+```
 
+2. **Add the `games` table** (schema + index) right after the `characters` table.
+
+```ts
 const games = new DistributedTable(scope, "games", {
   schema: gameSchema, // includes listKey + gameId
   key: { partitionKey: "listKey", sortKey: "gameId" },
@@ -57,57 +60,69 @@ const games = new DistributedTable(scope, "games", {
     byCreated: { partitionKey: "listKey", sortKey: "createdAt" },
   },
 });
-
-// list everything (query returns an async iterator):
-const existing = await Array.fromAsync(
-  games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
-);
 ```
 
-2. **Delete `const gameStore = new Map(...)`** from the persistence mock (keep
+3. **Delete `const gameStore = new Map<string, Game>();`** from the persistence mock (keep
    `gameStateStore` and `chatStore` — that's module 05).
 
-3. **Type from schema:** `type Game = z.infer<typeof gameSchema>;` (delete the hand-written
+4. **Type from schema:** `type Game = z.infer<typeof gameSchema>;` (delete the hand-written
    `Game` type). Note `Game` now includes `listKey`.
 
-4. **Swap every call site.** All become `async`, and every write must include
-   `listKey: "all"`:
+5. **Swap every call site.** All become `async`, and every write must include
+   `listKey: "all"`. When you are asked to query the item, paste the following:
 
-   | before (Map)                                        | after (table)                                                                                                                          |
-   | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-   | `gameStore.size > 0` (in `seedIfEmpty`)             | query the index; check `existing.length > 0`                                                                                           |
-   | `gameStore.set(id, {...})`                          | `await games.put({ listKey: "all", ...})`                                                                                              |
-   | `[...gameStore.values()]` (in `listGames`)          | `await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))` then `.reverse()` for newest-first |
-   | `gameStore.get(state.gameId)` (finalize/sync)       | `await games.get({ listKey: "all", gameId: state.gameId })`                                                                            |
-   | `[...gameStore.values()].find(...)` (`joinPrivate`) | query the index, then `.find(...)`                                                                                                     |
+   ```ts
+   // list everything (query returns an async iterator):
+   const existing = await Array.fromAsync(
+     games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
+   );
+   ```
+
+   | before (Map)                                                                                    | after (table)                                                                                                                    |
+   | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+   | `gameStore.size > 0` - in seedIfEmpty                                                           | query the existing and do the check `existing.length > 0`                                                                        |
+   | `gameStore.set(gameId, {...})` - in seedIfEmpty, finalizeIfExpired, syncLobbyStatus, createGame | `await games.put({ listKey: "all", ...})`                                                                                        |
+   | `[...gameStore.values()].sort(...)` - in listGames                                              | `(await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))).reverse()` for newest-first |
+   | `[...gameStore.values()].find(...)` - in joinPrivate                                            | query the existing and do the `.find(...)`                                                                                       |
+   | `gameStore.get(state.gameId)` - in finalizeIfExpired and syncLobbyStatus                        | `await games.get({ listKey: "all", gameId: state.gameId })` and remove the `listKey: "all"` from put calls                       |
 
    The completed version is in [`solution/index.ts`](solution/index.ts) — diff against yours.
 
-5. **Verify:**
+6. **Verify:**
 
    ```bash
    npm run typecheck
-   rm -rf app/.bb-data && npm run dev     # fresh state so the seed runs
+   rm -rf .bb-data && npm run dev     # fresh state so the seed runs
    ```
 
-   In the browser: the Guild Hall shows the 3 seeded games; **Launch New Adventure** adds
-   one; create a _private_ game with an access code, then use **Join Private Game** with
-   that code. Confirm on disk:
+   In the browser: the Guild Hall shows the 3 seeded games; **Launch New Adventure**
+   adds a public game to the Guild Hall. A private game persists on disk but does
+   not appear in the public listing; open it through **Join Private Game** using
+   its access code.
+   Confirm on disk:
 
    ```bash
-   cat app/.bb-data/tt-games/data.json    # your lobby rows, all with listKey:"all"
+   cat .bb-data/tt-games/data.json    # your lobby rows, all with listKey:"all"
    ```
 
    Or list them through the API. `listGames` requires a session, so sign in (saving the
-   cookie) and reuse it:
+   cookie):
 
    ```bash
-   # 1) sign in, saving the session cookie
    curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
      -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+   ```
 
-   # 2) list the lobby (newest first)
+   comment out the following to test out:
+
+   ```tsc
+   const publicGames = all.filter((g) => g.isPublic);
+   ```
+
+   and change the `publicGames` in the for loop to `all`. Do the call:
+
+   ```bash
    curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
      -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","method":"api.listGames","params":[],"id":1}'
@@ -131,7 +146,7 @@ Catch up from `workshop/app/`: `cp ../04-lobby/solution/index.ts aws-blocks/inde
 
 - [ ] `npm run typecheck` passes.
 - [ ] Seeded + created games list correctly (newest first) and persist to
-      `app/.bb-data/tt-games/`.
+      `.bb-data/tt-games/`.
 - [ ] Join-Private resolves a game by its access code.
 
 ## What you learned
@@ -149,7 +164,7 @@ Catch up from `workshop/app/`: `cp ../04-lobby/solution/index.ts aws-blocks/inde
 - **`Index 'all' not found` / `Index 'gameId' not found`** — you passed a field where an
   index name goes. Use `index: "byCreated"`.
 - **Lobby empty after the change** — the seed only runs when the query returns nothing;
-  `rm -rf app/.bb-data` and restart to re-seed cleanly.
+  `rm -rf .bb-data` and restart to re-seed cleanly.
 
 ---
 
