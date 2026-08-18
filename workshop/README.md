@@ -65,13 +65,13 @@ Work through them in order. Each is a runnable checkpoint.
 | --- | ----------------------------------------------- | ----------------------------------- | ------------------------ |
 | 01  | [Scaffold with create-blocks-app](01-scaffold/) | — (setup)                           | `Scope`, `ApiNamespace`  |
 | 02  | [Auth](02-auth/)                                | `fakeAuth`                          | `AuthBasic`              |
-| 03  | Characters                                      | `characterStore` Map                | `DistributedTable`       |
-| 04  | Guild Hall lobby                                | `gameStore` Map                     | `DistributedTable` + GSI |
-| 05  | Game state & chat (turn engine)                 | `gameStateStore` / `chatStore` Maps | `DistributedTable`       |
-| 06  | Realtime                                        | `fakeChannel` / `publish`           | `Realtime`               |
-| 07  | AI Dungeon Master                               | `narrate` / `nextScene`             | `Agent`                  |
-| 08  | AI companions                                   | `companionDecide`                   | `Agent` × party          |
-| 09  | Deploy                                          | —                                   | CDK `Hosting`            |
+| 03  | [Characters](03-characters/)                    | `characterStore` Map                | `DistributedTable`       |
+| 04  | [Guild Hall lobby](04-lobby/)                   | `gameStore` Map                     | `DistributedTable` + GSI |
+| 05  | [Game state & chat (turn engine)](05-state/)    | `gameStateStore` / `chatStore` Maps | `DistributedTable`       |
+| 06  | [Realtime](06-realtime/)                        | `fakeChannel` / `publish`           | `Realtime`               |
+| 07  | [AI Dungeon Master](07-ai-dm/)                  | `narrate` / `nextScene`             | `Agent`                  |
+| 08  | [AI companions](08-companions/)                 | `companionDecide`                   | `Agent` × party          |
+| 09  | [Deploy](09-deploy/)                            | —                                   | CDK `Hosting`            |
 
 ## Prerequisites
 
