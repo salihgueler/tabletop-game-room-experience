@@ -59,23 +59,57 @@ turns those subscriptions live — the "refresh to see the bot's turn" friction 
 
 ## Steps
 
-1. **Import `Realtime`** and construct it after the tables. Reuse `chatSchema` for the
-   `chat` namespace; define inline schemas for `state` and `thinking`. (See
-   [`solution/index.ts`](solution/index.ts).)
+1. **Import `Realtime`** Building Block:
 
-2. **Delete the realtime mock** — both `fakeChannel()` and the no-op `publish()` function.
+```ts
+import {
+  ApiNamespace,
+  Scope,
+  AuthBasic,
+  DistributedTable,
+  Realtime,
+} from "@aws-blocks/blocks";
+```
 
-3. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
+1.  Construct the data inside the building blocks and use the `chatSchema`.
+
+```ts
+const rt = new Realtime(scope, "rt", {
+  namespaces: {
+    // A version bump — the client refetches getState (server stays authoritative;
+    // we don't trust the pushed payload blindly).
+    state: Realtime.namespace(
+      z.object({ gameId: z.string(), version: z.number() }),
+    ),
+    // Every DM line, action, roll, and player message (same shape as the table).
+    chat: Realtime.namespace(chatSchema),
+    // Streamed AI reasoning tokens with start/delta/end phases (modules 07–08).
+    thinking: Realtime.namespace(
+      z.object({
+        gameId: z.string(),
+        who: z.string(),
+        color: z.string(),
+        phase: z.enum(["start", "delta", "end"]),
+        text: z.string(),
+      }),
+    ),
+  },
+});
+```
+
+2. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
    `await rt.publish("...", key, payload)` (in `saveAndBroadcast`, `transcribe`,
    `postBotChat`, `sendChat`). They're already inside `async` functions.
 
-4. **Return real channels** from the three getters:
+3. **Return real channels** from the three getters:
 
    ```ts
-   async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); }
-   async getChatChannel(gameId)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); }
-   async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); }
+   async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
+   async getChatChannel(gameId)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); },
+   async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
    ```
+
+4. **Delete the realtime mock** — both `fakeChannel()` implementation and the empty `publish()` function.
 
 5. **Verify:**
 
@@ -92,30 +126,34 @@ turns those subscriptions live — the "refresh to see the bot's turn" friction 
 
    The live channels are WebSocket (not something `curl` subscribes to), but you can confirm
    the transcript being broadcast is persisted with an HTTP call. Sign in (saving the
-   cookie), then read a game's chat with `getChatHistory`:
+   cookie):
 
    ```bash
    # 1) sign in, saving the session cookie
    curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
      -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
-
-   # 2) read the chat transcript for a gameId (from api.listGames)
-   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
-     -H 'Content-Type: application/json' \
-     -d '{"jsonrpc":"2.0","method":"api.getChatHistory","params":["REPLACE_WITH_GAME_ID"],"id":1}'
    ```
 
-   On Windows (cmd.exe), one line each with escaped quotes:
+then read a game's chat with `getChatHistory` and find the game id in your data:
 
-   ```cmd
-   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+```bash
+ # 2) read the chat transcript for a gameId (from api.listGames)
+ curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+   -H 'Content-Type: application/json' \
+   -d '{"jsonrpc":"2.0","method":"api.getChatHistory","params":["REPLACE_WITH_GAME_ID"],"id":1}'
+```
 
-   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getChatHistory\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
-   ```
+On Windows (cmd.exe), one line each with escaped quotes:
 
-   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
-   > PowerShell use `curl.exe`.
+```cmd
+curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getChatHistory\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
+```
+
+> Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
+> PowerShell use `curl.exe`.
 
 Catch up from `workshop/app/`: `cp ../06-realtime/solution/index.ts aws-blocks/index.ts`
 

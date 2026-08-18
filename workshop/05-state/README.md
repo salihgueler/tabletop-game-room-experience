@@ -63,14 +63,83 @@ d20 roll, the DC check, narration, and turn order end to end.
 
 ## Steps
 
-1. **Add the embedded schemas** (`playerSchema`, `rollSchema`, `logEntrySchema`) and the
-   two table schemas (`gameStateSchema`, `chatSchema`), then create `gameStates` and
+1. **Add the embedded schemas for players, rolls and log entries**
+
+```ts
+const playerSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  classKey: z.string(),
+  sprite: z.string(),
+  color: z.string(),
+  seat: z.enum(["human", "ai", "open"]),
+  isHuman: z.boolean(),
+  userId: z.string().nullable(),
+  hp: z.number(),
+  slot: z.number(),
+});
+const rollSchema = z
+  .object({
+    value: z.number(),
+    sprite: z.number(),
+    color: z.string(),
+    dc: z.number(),
+    success: z.boolean(),
+    actor: z.string(),
+    action: z.string(),
+  })
+  .nullable();
+const logEntrySchema = z.object({
+  kind: z.enum(["dm", "action", "roll", "system"]),
+  who: z.string(),
+  color: z.string().optional(),
+  text: z.string(),
+});
+```
+
+2. Add two tables (`gameStateSchema`, `chatSchema`), then create `gameStates` and
    `chatMessages` — right after the `games` table.
 
-2. **Delete both Maps** (`gameStateStore`, `chatStore`). The persistence mock block is now
+````ts
+const gameStateSchema = z.object({
+  gameId: z.string(),
+  scenario: z.string(),
+  dmName: z.string(),
+  players: z.array(playerSchema),
+  roomPhase: z.enum(["lobby", "live", "ended"]),
+  endsAt: z.number().nullable(),
+  turnIndex: z.number(),
+  round: z.number(),
+  phase: z.enum(["player", "resolving", "dm"]),
+  dc: z.number(),
+  lastRoll: rollSchema,
+  log: z.array(logEntrySchema),
+  inventory: z.array(z.string()),
+  options: z.array(z.string()),
+  version: z.number(),
+});
+const gameStates = new DistributedTable(scope, "gameStates", {
+  schema: gameStateSchema,
+  key: { partitionKey: "gameId" },
+});
+
+const chatSchema = z.object({
+  gameId: z.string(),
+  ts: z.number(),
+  who: z.string(),
+  color: z.string(),
+  text: z.string(),
+  kind: z.enum(["say", "dm", "action", "roll", "system"]).default("say"),
+});
+const chatMessages = new DistributedTable(scope, "chat", {
+  schema: chatSchema,
+  key: { partitionKey: "gameId", sortKey: "ts" },
+});
+```
+3. **Delete both Maps** (`gameStateStore`, `chatStore`). The persistence mock block is now
    empty — remove it; only the realtime and AI mocks remain.
 
-3. **Infer the types from the schemas:**
+4. Remove all the mock Game Types and **Infer the types from the schemas:**
 
    ```ts
    type Player = z.infer<typeof playerSchema>;
@@ -78,25 +147,37 @@ d20 roll, the DC check, narration, and turn order end to end.
    type LogEntry = z.infer<typeof logEntrySchema>;
    type ChatMsg = z.infer<typeof chatSchema>;
    type GameState = z.infer<typeof gameStateSchema>;
-   ```
+````
 
-4. **Swap the call sites** (all async now):
+5. **Swap the call sites** (all async now):
 
-   | before (Map)                                          | after (table)                                                                          |
-   | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-   | `gameStateStore.get(gameId)`                          | `await gameStates.get({ gameId })`                                                     |
-   | `gameStateStore.set(id, state)`                       | `await gameStates.put(state)`                                                          |
-   | `chatStore.get(id)` / push / `set`                    | `await chatMessages.put(msg)`                                                          |
-   | `[...chatStore.get(id)].sort(...)` (`getChatHistory`) | `await Array.fromAsync(chatMessages.query({ where: { gameId: { equals: gameId } } }))` |
+   | before (Map)                                                      | after (table)                                                                              |
+   | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+   | `gameStateStore.get(gameId)`                                      | `await gameStates.get({ gameId })`                                                         |
+   | `const st = gameStateStore.get(g.gameId);`                        | `const st = await gameStates.get({ gameId: g.gameId });`                                   |
+   | `gameStateStore.set(id, state)`                                   | `await gameStates.put(state)`                                                              |
+   | `gameStateStore.set(id, {<items>})`                               | `await gameStates.put({<items>})`                                                          |
+   | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
+   | `chatStore.get(id)` - remove set and bucket as well               | `await chatMessages.put(msg)`                                                              |
 
-   In `saveAndBroadcast`, build a new `next = { ...state, version: state.version + 1 }`,
-   `put` it, and return it. The full version is in [`solution/index.ts`](solution/index.ts).
+6. Update the `saveAndBroadcast` function like the following:
 
-5. **Verify:**
+```ts
+async function saveAndBroadcast(state: GameState) {
+  const next = { ...state, version: state.version + 1 };
+  await gameStates.put(next);
+  publish("state", next.gameId, { gameId: next.gameId, version: next.version });
+  return next;
+}
+```
+
+The full version is in [`solution/index.ts`](solution/index.ts).
+
+7. **Verify:**
 
    ```bash
    npm run typecheck
-   rm -rf app/.bb-data && npm run dev
+   rm -rf .bb-data && npm run dev
    ```
 
    Play a game: sign in, create an AI game, take a turn. Then **restart the dev server**
@@ -104,34 +185,39 @@ d20 roll, the DC check, narration, and turn order end to end.
    on disk:
 
    ```bash
-   ls app/.bb-data/    # tt-gameStates and tt-chat now exist alongside the rest
+   cat .bb-data/    # tt-gameStates and tt-chat now exist alongside the rest
+   cat .bb-data/tt-gameStates/data.json # Check the data
    ```
 
    Or read the authoritative state through the API. `getState` takes a `gameId` and needs a
-   session, so sign in (saving the cookie), grab a `gameId` from `listGames`, then fetch it:
+   session, so sign in:
 
    ```bash
    # 1) sign in, saving the session cookie
    curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
      -H 'Content-Type: application/json' \
      -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
-
-   # 2) find a gameId (from api.listGames), then fetch its state
-   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
-     -H 'Content-Type: application/json' \
-     -d '{"jsonrpc":"2.0","method":"api.getState","params":["REPLACE_WITH_GAME_ID"],"id":1}'
    ```
 
-   On Windows (cmd.exe), one line each with escaped quotes:
+   (saving the cookie), grab a `gameId` from `listGames`, then fetch it:
 
-   ```cmd
-   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+```bash
+  # 2) find a gameId (from api.listGames), then fetch its state
+  curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"api.getState","params":["REPLACE_WITH_GAME_ID"],"id":1}'
+```
 
-   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getState\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
-   ```
+On Windows (cmd.exe), one line each with escaped quotes:
 
-   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` from `api.listGames`, and use your own
-   > credentials. In PowerShell use `curl.exe`.
+```cmd
+curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
+
+curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getState\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
+```
+
+> Swap `REPLACE_WITH_GAME_ID` for a real `gameId` from `api.listGames`, and use your own
+> credentials. In PowerShell use `curl.exe`.
 
 Catch up from `workshop/app/`: `cp ../05-state/solution/index.ts aws-blocks/index.ts`
 
