@@ -47,18 +47,135 @@ spoken line is posted to chat via `postBotChat`.
 
 ## Steps
 
-1. **Replace the companion mock** (`COMPANION_LINES` + the random `companionDecide`) with:
-   - `COMPANION_PERSONAS` (one persona string per class),
-   - the `companions` agent map built in a `for (const cls of CORE_CLASSES)` loop,
-   - the real `companionDecide` that streams reasoning, parses JSON, validates the action
-     against `options`, and falls back on error.
+1. **Replace the mock `COMPANION_LINES`**
+2. Add`COMPANION_PERSONAS` (one persona string per class), and the `companions` agent map built in a `for (const cls of CORE_CLASSES)` loop.
 
-   Full implementation in [`solution/index.ts`](solution/index.ts).
+```ts
+const COMPANION_PERSONAS: Record<string, string> = {
+  paladin:
+    "a stalwart, honorable Paladin who shields allies and speaks with steady resolve",
+  sorcerer: "a brash, curious Sorcerer who loves flashy magic and dry wit",
+  rogue:
+    "a sly, cautious Rogue who trusts shadows and sarcasm over brute force",
+  ranger: "a calm, watchful Ranger attuned to danger, terse and practical",
+};
 
-2. **Nothing else changes.** `advanceBotTurn` already calls `companionDecide` and
+const companions: Record<string, Agent> = {};
+for (const cls of CORE_CLASSES) {
+  companions[cls] = new Agent(scope, `c-${cls}`, {
+    inferenceOnly: true,
+    model: {
+      deployed: BedrockModels.FAST, // companions can use a faster/cheaper model
+      local: OllamaModels.SMALL,
+    },
+    systemPrompt: [
+      `You role-play ${COMPANION_PERSONAS[cls]} in a 16-bit fantasy tabletop game.`,
+      "On your turn you MUST choose exactly one action from the list you are given.",
+      "First think out loud in one short sentence (your in-character reasoning),",
+      "then give a short spoken line (max 15 words).",
+      "Respond with ONLY compact JSON, no prose, no code fences:",
+      '{"reasoning":"<one sentence of why>","action":"<one exact action from the list>","line":"<your spoken line>"}',
+    ].join(" "),
+  });
+}
+```
+
+3. Update the `companianDecide` function
+
+```ts
+// Ask a companion agent to decide its move. Streams the agent's reasoning tokens
+// to the `thinking` channel as they arrive, then returns the validated action +
+// spoken line. Falls back to a random valid action if the model errors or returns
+// junk — so an AI turn never stalls the game.
+async function companionDecide(
+  gameId: string,
+  classKey: string,
+  name: string,
+  color: string,
+  scenario: string,
+  situation: string,
+  options: string[],
+): Promise<{ action: string; line: string; reasoning: string }> {
+  if (!options || options.length === 0)
+    options = CLASS_META[classKey]?.actions ?? ["Investigate"];
+  const fallback = {
+    action: options[Math.floor(Math.random() * options.length)],
+    line: "",
+    reasoning: "",
+  };
+  const agent = companions[classKey];
+  const emit = (phase: "start" | "delta" | "end", text: string) =>
+    rt.publish("thinking", gameId, { gameId, who: name, color, phase, text });
+
+  if (!agent) {
+    await emit("start", "");
+    await emit("end", "");
+    return fallback;
+  }
+
+  const message = [
+    `Scenario: ${scenario}.`,
+    `Situation: ${situation}`,
+    `You are ${name}. Choose ONE action from: ${options.join(", ")}.`,
+    "Reply with JSON only.",
+  ].join(" ");
+
+  await emit("start", "");
+  let raw = "";
+  try {
+    const result = await agent.stream(message);
+    try {
+      const channel = await result.channel;
+      const sub = channel.subscribe((chunk: any) => {
+        if (chunk.type === "text-delta" && chunk.text) {
+          raw += chunk.text;
+          void emit("delta", chunk.text);
+        }
+      });
+      await sub.established;
+    } catch {
+      // channel not available (some local mocks) — complete() still works
+    }
+    const done = await result.complete();
+    if (!raw) raw = done.text || "";
+    raw = raw.trim();
+
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]) as {
+        action?: string;
+        line?: string;
+        reasoning?: string;
+      };
+      const picked = options.find(
+        (o) =>
+          o.toLowerCase() === (parsed.action || "").toLowerCase() ||
+          (parsed.action || "").toLowerCase().includes(o.toLowerCase()) ||
+          o.toLowerCase().includes((parsed.action || "").toLowerCase()),
+      );
+      if (picked) {
+        await emit("end", (parsed.reasoning || "").toString().slice(0, 200));
+        return {
+          action: picked,
+          line: (parsed.line || "").toString().slice(0, 120),
+          reasoning: (parsed.reasoning || "").toString().slice(0, 200),
+        };
+      }
+    }
+  } catch {
+    // model unavailable / bad output — fall through
+  }
+  await emit("end", "");
+  return fallback;
+}
+```
+
+Full implementation in [`solution/index.ts`](solution/index.ts).
+
+1. **Nothing else changes.** `advanceBotTurn` already calls `companionDecide` and
    `postBotChat` — it doesn't care that the decision now comes from an LLM.
 
-3. **Verify:**
+2. **Verify:**
 
    ```bash
    npm run typecheck
