@@ -54,8 +54,8 @@ scaffolder's output (run from `app/`):
 
 ```bash
 cp ../01-scaffold/solution/index.ts          aws-blocks/index.ts          # the game (mock backend)
-cp ../01-scaffold/solution/index.handler.ts  aws-blocks/index.handler.ts  # see gotcha ①
-cp ../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts # see gotcha ②
+cp ../01-scaffold/solution/index.handler.ts  aws-blocks/index.handler.ts  # see problem ①
+cp ../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts # see problem ②
 ```
 
 > If you run `npm run dev` **before** these steps, you won't get a cryptic error — the
@@ -63,8 +63,7 @@ cp ../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts # see 
 > to run. (The starter already ships `dev`/`dev:server`/`tsx`, so those work the moment
 > `aws-blocks/scripts/server.ts` exists.)
 
-Three things that will trip you up if you skip them — all verified against
-`@aws-blocks/blocks@0.2.7`:
+Three problems might trip you up if you skip copying these files:
 
 - **① Lambda handler form.** The scaffolder emits `createLambdaHandler(backend)`, but the
   installed library expects the **lazy factory** `createLambdaHandler(() => import('./index.js'))`.
@@ -98,6 +97,7 @@ Open **`aws-blocks/index.ts`**. The top is already "real" AWS Blocks:
 
 ```ts
 import { ApiNamespace, Scope } from "@aws-blocks/blocks";
+
 const scope = new Scope("tt"); // namespaces every resource this app creates
 ```
 
@@ -222,7 +222,7 @@ curl ...            # hit the method to confirm the backend behaves
   handler; copy ours (gotcha ①, the lazy-factory form).
 - **Frontend loads on `:3000` but the API 404s / server is on `:3000`** — you kept the
   template's combined `server.ts`; copy ours (gotcha ②, `port: 3001`).
-- **`Cannot find package 'typescript'`** — `npm i -D typescript` (gotcha ③).
+- **`Cannot find package 'typescript'`** — `npm i -D typescript`
 
 ---
 
