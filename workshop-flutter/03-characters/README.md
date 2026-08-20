@@ -14,7 +14,7 @@ and your hero is still there — character select is skipped.
 
 `DistributedTable` is the default data Block: structured items with a partition key
 (optionally a sort key) and secondary indexes. Locally it persists to JSON under
-`.bb-data/`; deployed it's DynamoDB — same API either way. You define the shape with
+`.bb-data/`; deployed it's DynamoDB (a NoSQL database). You define the shape with
 a **Zod schema** (validated on every write) and read/write by key:
 
 ```ts
@@ -60,14 +60,52 @@ flutter test
 
 Open `app/backend/aws-blocks/index.ts` and compare with Module 02:
 
-- `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`.
-- A `characterSchema` defines the shape: `userId`, `name`, `classKey`, `spriteId`,
-  `sprite` — all strings.
-- The table is created with `key: { partitionKey: "userId" }`.
-- `const characterStore = new Map(...)` is deleted.
-- `characterStore.set(...)` → `await characters.put(character)`.
-- `characterStore.get(user.username)` → `await characters.get({ userId: user.username })`.
-- The type `Character` is derived via `z.infer<typeof characterSchema>`.
+1. `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`:
+
+   ```ts
+   import {
+     ApiNamespace,
+     Scope,
+     AuthBasic,
+     DistributedTable,
+   } from "@aws-blocks/blocks";
+
+   import { z } from "zod";
+   ```
+
+2. Add the character schema and table:
+
+   ```ts
+   const characterSchema = z.object({
+     userId: z.string(),
+     name: z.string(),
+     classKey: z.string(),
+     spriteId: z.string(),
+     sprite: z.string(),
+   });
+
+   const characters = new DistributedTable(scope, "characters", {
+     schema: characterSchema,
+     key: { partitionKey: "userId" },
+   });
+   ```
+
+3. Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block
+   (leave `gameStore` / `gameStateStore` / `chatStore` — those are modules 04–05).
+
+4. Replace the `Character` type and **use the type from the schema** so there's one source of truth:
+
+   ```ts
+   type Character = z.infer<typeof characterSchema>;
+   ```
+
+5. **Swap the call sites** (async now — tables return Promises):
+
+   | before (Map)                                                                         | after (DistributedTable)                                    |
+   | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+   | `characterStore.set(user.username, character)` - in saveCharacter function           | `await characters.put(character)`                           |
+   | `characterStore.get(user.username) ?? null` - in getCharacter function               | `(await characters.get({ userId: user.username })) ?? null` |
+   | `characterStore.get(user.username)` - in createGame, joinGame and sendChat functions | `await characters.get({ userId: user.username })`           |
 
 ### 4. Run and test
 
@@ -91,15 +129,18 @@ The real test: stop `npm run dev`, start it again, sign in as the **same** user 
 character select is skipped and your hero loads directly. In the starter it would
 have been wiped.
 
-Read the hero through the API (requires a session — sign in first):
+You can read the character back through the API. `getCharacter` now requires a session, so sign in
+first (saving the cookie):
 
 ```bash
-# 1) sign in, saving the session cookie
 curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+```
 
-# 2) fetch the saved hero
+then call it with that cookie:
+
+```bash
 curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"api.getCharacter","params":[],"id":1}'

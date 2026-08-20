@@ -23,17 +23,114 @@ Two more tables, each showing a different access pattern:
   means one `query({ where: { gameId: { equals } } })` returns a game's whole transcript
   already ordered — no in-memory sort, no separate index.
 
-```ts
-const gameStates = new DistributedTable(scope, "gameStates", {
-  schema: gameStateSchema,
-  key: { partitionKey: "gameId" },
-});
+### What changed in the backend
 
-const chatMessages = new DistributedTable(scope, "chat", {
-  schema: chatSchema,
-  key: { partitionKey: "gameId", sortKey: "ts" }, // sort key = chronological order
-});
-```
+1. **Embedded sub-schemas** for players, rolls, and log entries:
+
+   ```ts
+   const playerSchema = z.object({
+     id: z.string(),
+     name: z.string(),
+     classKey: z.string(),
+     sprite: z.string(),
+     color: z.string(),
+     seat: z.enum(["human", "ai", "open"]),
+     isHuman: z.boolean(),
+     userId: z.string().nullable(),
+     hp: z.number(),
+     slot: z.number(),
+   });
+   const rollSchema = z
+     .object({
+       value: z.number(),
+       sprite: z.number(),
+       color: z.string(),
+       dc: z.number(),
+       success: z.boolean(),
+       actor: z.string(),
+       action: z.string(),
+     })
+     .nullable();
+   const logEntrySchema = z.object({
+     kind: z.enum(["dm", "action", "roll", "system"]),
+     who: z.string(),
+     color: z.string().optional(),
+     text: z.string(),
+   });
+   ```
+
+2. **Table schemas and constructions** — `gameStates` keyed by `gameId`; `chatMessages`
+   keyed by `(gameId, ts)`:
+
+   ```ts
+   const gameStateSchema = z.object({
+     gameId: z.string(),
+     scenario: z.string(),
+     dmName: z.string(),
+     players: z.array(playerSchema),
+     roomPhase: z.enum(["lobby", "live", "ended"]),
+     endsAt: z.number().nullable(),
+     turnIndex: z.number(),
+     round: z.number(),
+     phase: z.enum(["player", "resolving", "dm"]),
+     dc: z.number(),
+     lastRoll: rollSchema,
+     log: z.array(logEntrySchema),
+     inventory: z.array(z.string()),
+     options: z.array(z.string()),
+     version: z.number(),
+   });
+   const gameStates = new DistributedTable(scope, "gameStates", {
+     schema: gameStateSchema,
+     key: { partitionKey: "gameId" },
+   });
+
+   const chatSchema = z.object({
+     gameId: z.string(),
+     ts: z.number(),
+     who: z.string(),
+     color: z.string(),
+     text: z.string(),
+     kind: z.enum(["say", "dm", "action", "roll", "system"]).default("say"),
+   });
+   const chatMessages = new DistributedTable(scope, "chat", {
+     schema: chatSchema,
+     key: { partitionKey: "gameId", sortKey: "ts" }, // sort key = chronological order
+   });
+   ```
+
+3. Both Maps (`gameStateStore`, `chatStore`) are deleted. The mock types are replaced with
+   inferred types:
+
+   ```ts
+   type Player = z.infer<typeof playerSchema>;
+   type Roll = z.infer<typeof rollSchema>;
+   type LogEntry = z.infer<typeof logEntrySchema>;
+   type ChatMsg = z.infer<typeof chatSchema>;
+   type GameState = z.infer<typeof gameStateSchema>;
+   ```
+
+4. **Call-site swap** (all async now):
+
+   | before (Map)                                                      | after (table)                                                                              |
+   | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+   | `gameStateStore.get(gameId)`                                      | `await gameStates.get({ gameId })`                                                         |
+   | `const st = gameStateStore.get(g.gameId);`                        | `const st = await gameStates.get({ gameId: g.gameId });`                                   |
+   | `gameStateStore.set(id, state)`                                   | `await gameStates.put(state)`                                                              |
+   | `gameStateStore.set(id, {<items>})`                               | `await gameStates.put({<items>})`                                                          |
+   | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
+   | `chatStore.get(id)` - remove set and bucket as well               | `await chatMessages.put(msg)`                                                              |
+
+5. **`saveAndBroadcast`** bumps the version and returns the new object:
+
+   ```ts
+   async function saveAndBroadcast(state: GameState) {
+     const next = { ...state, version: state.version + 1 };
+     await gameStates.put(next);
+     publish("state", next.gameId, { gameId: next.gameId, version: next.version });
+     return next;
+   }
+   ```
 
 ### Schema-first types with `z.infer`
 
@@ -44,17 +141,7 @@ validation and compile-time types can't drift apart.
 
 ### Why `saveAndBroadcast` returns a _new_ object
 
-With a real table you `put` the state and hand the **saved** object back to the client:
-
-```ts
-async function saveAndBroadcast(state: GameState) {
-  const next = { ...state, version: state.version + 1 };
-  await gameStates.put(next);
-  publish("state", next.gameId, { gameId: next.gameId, version: next.version });
-  return next; // callers return this to the frontend
-}
-```
-
+With a real table you `put` the state and hand the **saved** object back to the client.
 `publish()` is still the mock no-op — module 06 makes it a real Realtime push. Everything
 else in the turn engine is unchanged; it was already authoritative.
 

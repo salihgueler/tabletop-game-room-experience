@@ -13,13 +13,16 @@ reasoning and posts a distinct in-character chat line on its turn.
 ## Concept
 
 Module 07 gave you one DM agent. Now each of the four classes gets its own agent, built in
-a loop with a distinct persona system prompt:
+a loop with a distinct persona system prompt. The mock `COMPANION_LINES` map and the random
+`companionDecide` are replaced entirely:
 
 ```ts
 const COMPANION_PERSONAS: Record<string, string> = {
-  paladin: "a stalwart, honorable Paladin who shields allies and speaks with steady resolve",
+  paladin:
+    "a stalwart, honorable Paladin who shields allies and speaks with steady resolve",
   sorcerer: "a brash, curious Sorcerer who loves flashy magic and dry wit",
-  rogue: "a sly, cautious Rogue who trusts shadows and sarcasm over brute force",
+  rogue:
+    "a sly, cautious Rogue who trusts shadows and sarcasm over brute force",
   ranger: "a calm, watchful Ranger attuned to danger, terse and practical",
 };
 
@@ -27,9 +30,18 @@ const companions: Record<string, Agent> = {};
 for (const cls of CORE_CLASSES) {
   companions[cls] = new Agent(scope, `c-${cls}`, {
     inferenceOnly: true,
-    model: { deployed: BedrockModels.FAST, local: OllamaModels.SMALL },
-    systemPrompt: `You role-play ${COMPANION_PERSONAS[cls]} ...
-      respond with ONLY JSON {reasoning, action, line}`,
+    model: {
+      deployed: BedrockModels.FAST, // companions use a faster/cheaper model
+      local: OllamaModels.SMALL,
+    },
+    systemPrompt: [
+      `You role-play ${COMPANION_PERSONAS[cls]} in a 16-bit fantasy tabletop game.`,
+      "On your turn you MUST choose exactly one action from the list you are given.",
+      "First think out loud in one short sentence (your in-character reasoning),",
+      "then give a short spoken line (max 15 words).",
+      "Respond with ONLY compact JSON, no prose, no code fences:",
+      '{"reasoning":"<one sentence of why>","action":"<one exact action from the list>","line":"<your spoken line>"}',
+    ].join(" "),
   });
 }
 ```
@@ -53,6 +65,99 @@ Each companion streams `text-delta` chunks to the `thinking` Realtime channel (k
 the companion's name/color), so players watch each party member think in turn. The Flutter
 game view model subscribes to this channel and renders it in the thinking bar — the same
 mechanism as the DM's reasoning from module 07, just per-companion.
+
+### The `companionDecide` rewrite
+
+The previous module's `companionDecide` picked a random action from `COMPANION_LINES`.
+Now it streams the agent's reasoning tokens to the `thinking` channel, parses JSON,
+validates the action against `options` (fuzzy-matched), and falls back to a random
+valid action if the model errors or returns junk:
+
+```ts
+async function companionDecide(
+  gameId: string,
+  classKey: string,
+  name: string,
+  color: string,
+  scenario: string,
+  situation: string,
+  options: string[],
+): Promise<{ action: string; line: string; reasoning: string }> {
+  if (!options || options.length === 0)
+    options = CLASS_META[classKey]?.actions ?? ["Investigate"];
+  const fallback = {
+    action: options[Math.floor(Math.random() * options.length)],
+    line: "",
+    reasoning: "",
+  };
+  const agent = companions[classKey];
+  const emit = (phase: "start" | "delta" | "end", text: string) =>
+    rt.publish("thinking", gameId, { gameId, who: name, color, phase, text });
+
+  if (!agent) {
+    await emit("start", "");
+    await emit("end", "");
+    return fallback;
+  }
+
+  const message = [
+    `Scenario: ${scenario}.`,
+    `Situation: ${situation}`,
+    `You are ${name}. Choose ONE action from: ${options.join(", ")}.`,
+    "Reply with JSON only.",
+  ].join(" ");
+
+  await emit("start", "");
+  let raw = "";
+  try {
+    const result = await agent.stream(message);
+    try {
+      const channel = await result.channel;
+      const sub = channel.subscribe((chunk: any) => {
+        if (chunk.type === "text-delta" && chunk.text) {
+          raw += chunk.text;
+          void emit("delta", chunk.text);
+        }
+      });
+      await sub.established;
+    } catch {
+      // channel not available (some local mocks) — complete() still works
+    }
+    const done = await result.complete();
+    if (!raw) raw = done.text || "";
+    raw = raw.trim();
+
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]) as {
+        action?: string;
+        line?: string;
+        reasoning?: string;
+      };
+      const picked = options.find(
+        (o) =>
+          o.toLowerCase() === (parsed.action || "").toLowerCase() ||
+          (parsed.action || "").toLowerCase().includes(o.toLowerCase()) ||
+          o.toLowerCase().includes((parsed.action || "").toLowerCase()),
+      );
+      if (picked) {
+        await emit("end", (parsed.reasoning || "").toString().slice(0, 200));
+        return {
+          action: picked,
+          line: (parsed.line || "").toString().slice(0, 120),
+          reasoning: (parsed.reasoning || "").toString().slice(0, 200),
+        };
+      }
+    }
+  } catch {
+    // model unavailable / bad output — fall through
+  }
+  await emit("end", "");
+  return fallback;
+}
+```
+
+Full implementation in [`solution/index.ts`](solution/index.ts).
 
 ### Host-only `advanceBotTurn`
 

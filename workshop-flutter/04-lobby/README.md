@@ -32,6 +32,62 @@ table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
 The pattern is identical to the React workshop — the backend is the same `index.ts`, and
 the Flutter frontend consumes the same JSON-RPC responses through generated Dart bindings.
 
+### What changed in the backend
+
+1. The game schema adds two fields the Map version didn't need — `listKey` and `gameId`:
+
+   ```ts
+   // A game room in the lobby list.
+   const gameSchema = z.object({
+     listKey: z.string(), // constant "all" — the whole-collection partition
+     gameId: z.string(), // sort key — unique per game
+     name: z.string(),
+     theme: z.string(),
+     note: z.string(),
+     dmType: z.string(),
+     dmLevel: z.string(),
+     maxParty: z.number(),
+     status: z.string(),
+     isPublic: z.boolean(),
+     accessCode: z.string().nullable(),
+     hostUserId: z.string(),
+     createdAt: z.number(),
+   });
+   ```
+
+2. The `games` DistributedTable uses that schema with a `byCreated` index:
+
+   ```ts
+   const games = new DistributedTable(scope, "games", {
+     schema: gameSchema, // includes listKey + gameId
+     key: { partitionKey: "listKey", sortKey: "gameId" },
+     indexes: {
+       byCreated: { partitionKey: "listKey", sortKey: "createdAt" },
+     },
+   });
+   ```
+
+3. `const gameStore = new Map<string, Game>();` is deleted — the table replaces it.
+
+4. When you are asked to query the item, paste the following:
+
+   ```ts
+   // list everything (query returns an async iterator):
+   const existing = await Array.fromAsync(
+     games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
+   );
+   ```
+
+5. Every call site becomes `async`, and every write must include `listKey: "all"`:
+
+   | before (Map)                                                                                    | after (table)                                                                                                                    |
+   | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+   | `gameStore.size > 0` - in seedIfEmpty                                                           | query the existing and do the check `existing.length > 0`                                                                        |
+   | `gameStore.set(gameId, {...})` - in seedIfEmpty, finalizeIfExpired, syncLobbyStatus, createGame | `await games.put({ listKey: "all", ...})`                                                                                        |
+   | `[...gameStore.values()].sort(...)` - in listGames                                              | `(await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))).reverse()` for newest-first |
+   | `[...gameStore.values()].find(...)` - in joinPrivate                                            | query the existing and do the `.find(...)`                                                                                       |
+   | `gameStore.get(state.gameId)` - in finalizeIfExpired and syncLobbyStatus                        | `await games.get({ listKey: "all", gameId: state.gameId })`                                                                      |
+
 ## Steps
 
 1. **Copy the checkpoint and verify types:**

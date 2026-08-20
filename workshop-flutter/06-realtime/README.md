@@ -18,28 +18,64 @@ You `publish(namespace, key, payload)` on the server and hand the frontend a cha
 `gameId` — so each game is its own isolated channel. Locally it's a WebSocket server on
 the same port; deployed it's an API Gateway WebSocket API. Same code.
 
-```ts
-const rt = new Realtime(scope, "rt", {
-  namespaces: {
-    state: Realtime.namespace(
-      z.object({ gameId: z.string(), version: z.number() }),
-    ),
-    chat: Realtime.namespace(chatSchema),
-    thinking: Realtime.namespace(
-      z.object({ gameId: z.string(), who: z.string(), color: z.string(),
-                 phase: z.enum(["start", "delta", "end"]), text: z.string() }),
-    ),
-  },
-});
-
-await rt.publish("chat", gameId, msg);         // server broadcasts
-return rt.getChannel("chat", gameId);          // frontend subscribes to this
-```
-
 > **Short namespace names matter.** The full channel path is composed from your stack,
 > Scope id, Realtime id, and namespace name — long names make logs and URLs unwieldy.
 > That's why the scope is `"tt"` and the namespaces are `state` / `chat` / `thinking`,
 > not verbose descriptions.
+
+### What changed in the backend
+
+1. **Import `Realtime`** alongside the existing Building Blocks:
+
+   ```ts
+   import {
+     ApiNamespace,
+     Scope,
+     AuthBasic,
+     DistributedTable,
+     Realtime,
+   } from "@aws-blocks/blocks";
+   ```
+
+2. **Construct** the Realtime block after the tables, reusing `chatSchema`:
+
+   ```ts
+   const rt = new Realtime(scope, "rt", {
+     namespaces: {
+       // A version bump — the client refetches getState (server stays authoritative;
+       // we don't trust the pushed payload blindly).
+       state: Realtime.namespace(
+         z.object({ gameId: z.string(), version: z.number() }),
+       ),
+       // Every DM line, action, roll, and player message (same shape as the table).
+       chat: Realtime.namespace(chatSchema),
+       // Streamed AI reasoning tokens with start/delta/end phases (modules 07–08).
+       thinking: Realtime.namespace(
+         z.object({
+           gameId: z.string(),
+           who: z.string(),
+           color: z.string(),
+           phase: z.enum(["start", "delta", "end"]),
+           text: z.string(),
+         }),
+       ),
+     },
+   });
+   ```
+
+3. **Delete the realtime mock** — both `fakeChannel()` and the no-op `publish()` function.
+
+4. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
+   `await rt.publish("...", key, payload)` — in `saveAndBroadcast`, `transcribe`,
+   `postBotChat`, and `sendChat`. They're already inside `async` functions.
+
+5. **Return real channels** from the three getters:
+
+   ```ts
+   async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
+   async getChatChannel(gameId)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); },
+   async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
+   ```
 
 ### The three namespaces, and why `state` is just a version bump
 

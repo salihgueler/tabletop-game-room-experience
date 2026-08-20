@@ -49,6 +49,178 @@ the fixed class list.
 The chain is: **Bedrock (deployed) → Ollama (local) → canned provider (implicit final
 fallback)**. The canned provider is always appended automatically — you never declare it.
 
+## What changed in the backend
+
+Below is the actual code you're copying in this module's checkpoint, so you can
+read through what each piece does before moving on.
+
+### 1. Imports
+
+```ts
+import {
+  ApiNamespace,
+  Scope,
+  AuthBasic,
+  DistributedTable,
+  Realtime,
+  Agent,
+  BedrockModels,
+  OllamaModels,
+} from "@aws-blocks/blocks";
+```
+
+### 2. The `dm` Agent construction
+
+```ts
+const dm = new Agent(scope, "dm", {
+  inferenceOnly: true,
+  model: {
+    deployed: BedrockModels.BALANCED,
+    local: OllamaModels.SMALL,
+  },
+  systemPrompt: [
+    "You are a witty, atmospheric Dungeon Master for a 16-bit fantasy tabletop game.",
+    "Given a player action, their d20 roll, and whether it beat the difficulty class,",
+    "narrate the outcome in 1-2 vivid sentences. On a natural 20 add a triumphant flourish;",
+    "on a natural 1 add a comedic or costly fumble. Never break character, never mention",
+    "dice mechanics or numbers directly, and keep it under 45 words.",
+  ].join(" "),
+});
+```
+
+### 3. The `narrate` implementation
+
+Builds a prompt from the action + roll outcome, calls `dm.stream(...).complete()`,
+returns the text, and falls back to `cannedNarration` on any error:
+
+```ts
+async function narrate(
+  scenario: string,
+  action: string,
+  actor: string,
+  roll: number,
+  dc: number,
+): Promise<string> {
+  const outcome = roll >= dc ? "succeeds" : "fails";
+  const crit =
+    roll === 20 ? " (a natural 20!)" : roll === 1 ? " (a natural 1!)" : "";
+  const message = `Scenario: ${scenario}. ${actor} attempts "${action}" and ${outcome}${crit}. Narrate the outcome.`;
+  try {
+    const result = await dm.stream(message);
+    const done = await result.complete();
+    const text = (done.text || "").trim();
+    if (text) return text;
+  } catch {
+    // model unavailable — fall through to canned
+  }
+  return cannedNarration(action, actor, roll, dc);
+}
+```
+
+### 4. The `nextScene` implementation
+
+Streams the DM's reasoning to the `thinking` channel via `rt.publish(...)`, asks for
+a JSON scene + options, parses (with one retry), and falls back to the generic prompt +
+class actions if parsing fails:
+
+```ts
+async function nextScene(
+  gameId: string,
+  dmName: string,
+  scenario: string,
+  recent: string,
+  actorName: string,
+  actorClass: string,
+): Promise<{ prompt: string; options: string[] }> {
+  const className = CLASS_META[actorClass]?.name ?? "Adventurer";
+  const fallback = {
+    prompt: promptFor(actorName),
+    options: CLASS_META[actorClass]?.actions ?? ["Investigate"],
+  };
+  const emit = (phase: "start" | "delta" | "end", text: string) =>
+    rt.publish("thinking", gameId, {
+      gameId,
+      who: `DM ${dmName}`,
+      color: "var(--dm)",
+      phase,
+      text,
+    });
+  const message = [
+    `Scenario: ${scenario}.`,
+    `Recent events:\n${recent}`,
+    `It is now ${actorName} the ${className}'s turn.`,
+    `Address ${actorName} directly with a one-sentence prompt describing the immediate situation,`,
+    `then offer 3 to 4 SHORT, concrete action choices that fit THIS moment and a ${className}'s abilities`,
+    `(2-4 words each). Vary them by scene.`,
+    "Respond with ONLY compact JSON, no prose, no code fences:",
+    '{"prompt":"<one sentence to the player>","options":["...","...","..."]}',
+  ].join(" ");
+  const coerceOptions = (v: unknown): string[] => {
+    let arr: unknown[] = [];
+    if (Array.isArray(v)) arr = v;
+    else if (typeof v === "string") arr = v.split(/[\n,]/);
+    return arr
+      .map((o) =>
+        typeof o === "string"
+          ? o
+          : ((o as any)?.action ?? (o as any)?.label ?? ""),
+      )
+      .map((s) =>
+        String(s)
+          .replace(/^[\s"'\-*\d.)]+/, "")
+          .trim(),
+      )
+      .filter(Boolean)
+      .slice(0, 4);
+  };
+  await emit("start", "");
+  // Up to two attempts — small local models occasionally emit malformed JSON.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await dm.stream(message);
+      let raw = "";
+      try {
+        const channel = await result.channel;
+        const sub = channel.subscribe((chunk: any) => {
+          if (chunk.type === "text-delta" && chunk.text) {
+            raw += chunk.text;
+            void emit("delta", chunk.text);
+          }
+        });
+        await sub.established;
+      } catch {
+        /* no channel (some mocks) — complete() still works */
+      }
+      const done = await result.complete();
+      if (!raw) raw = done.text || "";
+      const match = raw.trim().match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]) as {
+          prompt?: string;
+          options?: unknown;
+        };
+        const opts = coerceOptions(parsed.options);
+        if (opts.length >= 2) {
+          const prompt = (parsed.prompt || fallback.prompt)
+            .toString()
+            .slice(0, 200);
+          await emit("end", prompt);
+          return { prompt, options: opts };
+        }
+      }
+    } catch {
+      // malformed output — retry once, then fall through to fallback
+    }
+  }
+  await emit("end", fallback.prompt);
+  return fallback;
+}
+```
+
+> `companionDecide` stays canned for now — that's module 08.
+
+---
+
 ## No Ollama? No problem — the canned provider
 
 You do **not** need Ollama (or any AWS/Bedrock access) to complete this module. If no local

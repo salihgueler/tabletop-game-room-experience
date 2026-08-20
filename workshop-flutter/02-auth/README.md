@@ -61,12 +61,67 @@ flutter test
 
 Open `app/backend/aws-blocks/index.ts` and compare with Module 01's version:
 
-- `AuthBasic` is created with `passwordPolicy: { minLength: 8 }`.
-- `auth.createApi()` replaces the hand-rolled `authApi` namespace.
-- Every method that called the fake `requireAuth()` now awaits
-  `auth.requireAuth(context)`.
-- `crossDomain` is set from `BLOCKS_SANDBOX` — when `true`, the session cookie
-  works across origins (deployed sandbox, mobile on device network).
+#### Import update
+
+The blocks import now includes `AuthBasic`:
+
+```ts
+import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
+```
+
+#### AuthBasic construction
+
+Right after `const scope = new Scope("tt")`, the auth block is created:
+
+```ts
+const auth = new AuthBasic(scope, "auth", {
+  passwordPolicy: { minLength: 8 },
+  crossDomain: process.env.BLOCKS_SANDBOX === "true",
+});
+```
+
+#### Replace the hand-rolled auth namespace
+
+Replace the below hand-rolled auth namespace:
+
+```ts
+export const authApi = new ApiNamespace(
+  scope,
+  "authApi",
+  (context) => fakeAuthApi,
+);
+```
+
+with the following:
+
+```ts
+export const authApi = auth.createApi();
+```
+
+#### Use real auth in every method
+
+Every method that called the fake `requireAuth()` now awaits the real one. The fake
+was synchronous and took no args; the real one is `async` and needs `context`. Search
+for the following:
+
+```ts
+requireAuth();
+```
+
+and replace with the following:
+
+```ts
+await auth.requireAuth(context);
+```
+
+Do this in `saveCharacter`, `getCharacter`, `createGame`, `getState`, `joinGame`,
+`startWithAi`, `takeAction`, `advanceBotTurn`, the channel getters, `getChatHistory`,
+`sendChat`.
+
+#### Cross-domain note
+
+`crossDomain` is set from `BLOCKS_SANDBOX` — when `true`, the session cookie
+works across origins (deployed sandbox, mobile on device network).
 
 The generated Dart types `SignInInput`, `SignUpInput`, and `SignOutInput` are sealed
 variants consumed in `lib/data/repositories/game_repository.dart`. The Dart runtime

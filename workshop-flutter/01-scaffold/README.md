@@ -56,7 +56,7 @@ cp ../../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts
 npm install
 ```
 
-Three gotchas (all verified against `@aws-blocks/blocks@0.2.7`):
+Three problems might trip you up if you skip copying these files:
 
 - **① Lambda handler form.** The scaffolder emits `createLambdaHandler(backend)`, but
   the library expects the lazy factory
@@ -177,7 +177,7 @@ flutter test       # all tests pass
   `:3001`. Stop it before running this one; the two apps do not share data.
 - **Android can't reach backend** — the emulator maps `10.0.2.2` to your host's
   `localhost`. Physical devices need `--dart-define=BLOCKS_API_URL=http://LAN_IP:3001/aws-blocks/api`.
-- **`Cannot find package 'typescript'`** — `npm i -D typescript` (gotcha ③).
+- **`Cannot find package 'typescript'`** — `npm i -D typescript`.
 - **Stale generated types / missing methods** — regenerate:
   ```bash
   cd backend
