@@ -4,7 +4,9 @@
 of an in-memory Map — so it survives a server restart.
 
 **Block introduced:** `DistributedTable`
+
 **You edit:** `app/backend/aws-blocks/index.ts`
+
 **You'll know you're done when:** you save a hero, restart the backend, sign back in,
 and your hero is still there — character select is skipped.
 
@@ -38,30 +40,10 @@ the repository constructs the domain model from those fields.
 
 ## Steps
 
-### 1. Copy the checkpoint
 
-```bash
-cd app/backend
-cp ../../03-characters/solution/index.ts aws-blocks/index.ts
-npm run typecheck
-```
+### 1. Update the imports
 
-### 2. Regenerate the Dart client
-
-```bash
-cd app/backend   # the blocks-generate-spec binary lives here
-npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-cd ..
-dart run build_runner build --delete-conflicting-outputs
-flutter analyze
-flutter test
-```
-
-### 3. What changed in the backend
-
-Open `app/backend/aws-blocks/index.ts` and compare with Module 02:
-
-1. `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`:
+Open `app/backend/aws-blocks/index.ts` and make sure `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`:
 
    ```ts
    import {
@@ -73,8 +55,9 @@ Open `app/backend/aws-blocks/index.ts` and compare with Module 02:
 
    import { z } from "zod";
    ```
+### 2. Add the Database Schema and table
 
-2. Add the character schema and table:
+Add the character schema and table:
 
    ```ts
    const characterSchema = z.object({
@@ -91,16 +74,17 @@ Open `app/backend/aws-blocks/index.ts` and compare with Module 02:
    });
    ```
 
-3. Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block
-   (leave `gameStore` / `gameStateStore` / `chatStore` — those are modules 04–05).
-
-4. Replace the `Character` type and **use the type from the schema** so there's one source of truth:
-
+### 3. Use the Character type from Schema
+Replace the `Character` type and **use the type from the schema** so there's one source of truth:
    ```ts
    type Character = z.infer<typeof characterSchema>;
    ```
 
-5. **Swap the call sites** (async now — tables return Promises):
+### 4. Use the async data operations instead of mock operations.
+
+Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block.
+
+**Swap the call sites** (async now — tables return Promises):
 
    | before (Map)                                                                         | after (DistributedTable)                                    |
    | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
@@ -108,20 +92,40 @@ Open `app/backend/aws-blocks/index.ts` and compare with Module 02:
    | `characterStore.get(user.username) ?? null` - in getCharacter function               | `(await characters.get({ userId: user.username })) ?? null` |
    | `characterStore.get(user.username)` - in createGame, joinGame and sendChat functions | `await characters.get({ userId: user.username })`           |
 
-### 4. Run and test
+
+
+#### Copy the solution if something is missing
+
+```bash
+cd backend # Make sure you are at backend folder
+cp ../../03-characters/solution/index.ts aws-blocks/index.ts
+npm run typecheck
+```
+
+### 6. Regenerate the Dart client
+
+```bash
+cd backend   # the blocks-generate-spec binary lives here
+npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
+cd ..
+dart run build_runner build --delete-conflicting-outputs
+flutter analyze
+```
+
+### 7. Run and test
 
 ```bash
 # Terminal 1
-cd app/backend && npm run dev
+cd backend && npm run dev
 
 # Terminal 2
-cd app && flutter run -d macos
+cd .. && flutter run -d chrome
 ```
 
 Pick a hero, save it. Then confirm persistence:
 
 ```bash
-ls app/backend/.bb-data/tt-characters/    # your hero is now a file on disk
+ls backend/.bb-data/tt-characters/    # your hero is now a file on disk
 ```
 
 ## Verify
