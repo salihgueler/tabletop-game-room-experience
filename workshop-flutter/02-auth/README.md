@@ -4,7 +4,9 @@
 sessions, and route protection — without touching the Flutter frontend.
 
 **Block introduced:** `AuthBasic`
+
 **You edit:** `app/backend/aws-blocks/index.ts`
+
 **You'll know you're done when:** signing out and hitting the API returns **401**, and
 a fresh account can sign up, save a character, and stay signed in across app restarts.
 
@@ -39,38 +41,15 @@ real Block.
 
 ## Steps
 
-### 1. Copy the checkpoint
+### 1. Import the AuthBasic
 
-```bash
-cd app/backend
-cp ../../02-auth/solution/index.ts aws-blocks/index.ts
-npm run typecheck
-```
-
-### 2. Regenerate the Dart client
-
-```bash
-cd app/backend   # the blocks-generate-spec binary lives here
-npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-cd ..
-dart run build_runner build --delete-conflicting-outputs
-flutter analyze
-flutter test
-```
-
-### 3. What changed in the backend
-
-Open `app/backend/aws-blocks/index.ts` and compare with Module 01's version:
-
-#### Import update
-
-The blocks import now includes `AuthBasic`:
+Add the `AuthBasic` to the import in `backend/aws-blocks/index.ts`:
 
 ```ts
 import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
 ```
 
-#### AuthBasic construction
+### 2. Add the AuthBasic Building Block
 
 Right after `const scope = new Scope("tt")`, the auth block is created:
 
@@ -81,7 +60,7 @@ const auth = new AuthBasic(scope, "auth", {
 });
 ```
 
-#### Replace the hand-rolled auth namespace
+### 3. Replace the hand-rolled auth namespace
 
 Replace the below hand-rolled auth namespace:
 
@@ -99,7 +78,9 @@ with the following:
 export const authApi = auth.createApi();
 ```
 
-#### Use real auth in every method
+
+
+### 4. Use real auth in every method
 
 Every method that called the fake `requireAuth()` now awaits the real one. The fake
 was synchronous and took no args; the real one is `async` and needs `context`. Search
@@ -117,7 +98,25 @@ await auth.requireAuth(context);
 
 Do this in `saveCharacter`, `getCharacter`, `createGame`, `getState`, `joinGame`,
 `startWithAi`, `takeAction`, `advanceBotTurn`, the channel getters, `getChatHistory`,
-`sendChat`.
+`sendChat`. Afterwards, remove `requireAuth()` function.
+
+### 5. Regenerate the Dart client
+
+```bash
+cd backend   # the blocks-generate-spec binary lives here
+npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
+cd ..
+dart run build_runner build --delete-conflicting-outputs
+flutter analyze
+```
+
+#### Copy the solution if something is missing
+
+```bash
+cd backend
+cp ../../02-auth/solution/index.ts aws-blocks/index.ts
+npm run typecheck
+```
 
 #### Cross-domain note
 
@@ -135,10 +134,10 @@ Start both processes:
 
 ```bash
 # Terminal 1
-cd app/backend && npm run dev
+npm run dev
 
 # Terminal 2
-cd app && flutter run -d macos
+cd .. && flutter run -d macos
 ```
 
 ## Verify
