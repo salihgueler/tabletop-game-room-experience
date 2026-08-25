@@ -1,29 +1,23 @@
 # Build a Multiplayer AI Game with Flutter and AWS Blocks — Workshop
 
-Turn a **mock-backed** tabletop RPG into a real cloud application — one AWS
-[Building Block](https://github.com/aws) at a time. The Flutter client uses
+In this workshop you will build A 16-bit pixel-art game room: sign in, forge a hero, gather a party in a lobby, and play a turn-based dungeon crawl narrated by an **AI Dungeon Master** with **AI companions** — server-authoritative, real-time-synced across players, running on Flutter (macOS, web, Android, iOS).
+
+Turn a **mock-backed** tabletop RPG into a real cloud application — one [AWS
+Blocks](https://github.com/aws-devtools-labs/aws-blocks) at a time. The Flutter client uses
 **generated Dart bindings** while all game rules, persistence, auth, realtime,
 and AI stay in the TypeScript backend.
 
-You start with [`app/`](app/): the **Adventurer's Guild Hall** game — a complete
-Flutter frontend wired to typed RPC stubs. In Module 01 you scaffold a separate
-`backend/` directory, drop in the mock game server, and generate your first Dart
-client. Each subsequent module replaces one mock with a real AWS Block until the
-whole thing runs on Auth, DynamoDB, WebSockets, Bedrock, and CloudFront — with
-**no servers, containers, or IAM policies to hand-write**.
+You start with [`app/`](app/): the **Adventurer's Guild Hall** game — a complete Flutter frontend wired to typed RPC stubs. 
 
-The finished standalone Flutter app lives in
-[`../tabletop-flutter/`](../tabletop-flutter/).
+You start with scaffolding your backend and adding features like, auth, database, web sockets and AI agents without touching anything related to AWS. This means **No servers, containers, or policies to hand-write**.
+
+> The finished standalone Flutter app lives in [`../tabletop-flutter/`](../tabletop-flutter/).
 
 ---
 
 ## The model: one app, nine steps
 
-**You work in a single project — [`app/`](app/) — the whole way through.** Set it
-up once (Module 01: scaffold `backend/`, `npm install`, generate Dart). After that,
-each module copies a new `solution/index.ts` into `app/backend/aws-blocks/`,
-regenerates the contract, and rebuilds the typed Dart client. The Flutter UI never
-changes — it already calls the methods; only the backend behind them evolves.
+**You work in a single project — [`app/`](app/) — the whole way through.** 
 
 ```text
 workshop-flutter/
@@ -51,21 +45,8 @@ regenerate the Dart client, and keep going.
 The backend you scaffold in Module 01 is a single file where auth, data, real-time,
 and AI are faked in-memory. That's deliberate:
 
-- **It runs instantly** — no AWS account, no API keys, no model downloads. Once
-  scaffolded and generated, `npm run dev` + `flutter run` and you're playing a full
-  game (solo, vs. canned AI companions).
-- **The seams are the syllabus.** Each mock is clearly labelled with the module that
-  replaces it (`// MOCK: auth (Module 02 → AuthBasic)`). Your job each module is to
-  delete one mock and wire in the real Block behind the _same_ function shape — so
-  the Flutter frontend never changes and you see exactly what a Block gives you over
-  a hand-roll.
-
-## What you'll build
-
-A 16-bit pixel-art game room: sign in, forge a hero, gather a party in a lobby, and
-play a turn-based dungeon crawl narrated by an **AI Dungeon Master** with **AI
-companions** — server-authoritative, real-time-synced across players, running on
-Flutter (macOS, web, Android, iOS).
+- **It runs instantly** — no AWS account, no API keys, no model downloads. Once scaffolded and generated, `npm run dev` + `flutter run` and you're playing a full game (solo, vs. canned AI companions).
+- **The seams are the syllabus.** Each mock is clearly labelled with the module that replaces it (`// MOCK: auth (Module 02 → AuthBasic)`). Your job each module is to delete one mock and wire in the real Block behind the _same_ function shape — so the Flutter frontend never changes and you see exactly what a Block gives you over a hand-roll.
 
 ## Modules
 
