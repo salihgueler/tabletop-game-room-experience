@@ -180,6 +180,7 @@ host player.
 2. **Regenerate the Dart client and rebuild:**
 
    ```bash
+   cd app/backend   # the blocks-generate-spec binary lives here
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs

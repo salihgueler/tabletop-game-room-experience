@@ -5,9 +5,10 @@ backend, generate the first typed Dart client, run the game, and learn the map o
 mocks you'll replace over the next modules.
 
 **Block introduced:** `Scope`, `ApiNamespace`
+
 **You edit:** `app/backend/aws-blocks/index.ts` (created this module)
-**You'll know you're done when:** you've played a full turn against the mocks on
-Flutter and the `curl` to `api.getConstants` returns scenarios, DM types, and class
+
+**You'll know you're done when:** you've played a full turn against the mocks on Flutter and the `curl` to `api.getConstants` returns scenarios, DM types, and class
 metadata.
 
 ---
@@ -16,17 +17,15 @@ metadata.
 
 An AWS Blocks backend is **one TypeScript file whose `export`s define a typed API** —
 no routes, no controllers. `Scope` namespaces every resource; `ApiNamespace` publishes
-methods the client can call. The native-client toolchain turns these exports into an
-OpenRPC spec, then into type-safe Dart — `Blocks.api.getConstants()`,
-`Blocks.authApi.setAuthState(...)`, etc. — with zero manual wiring.
+methods the client can call. 
+
+The mobile side's toolchain turns these exports into an
+OpenRPC spec, then into type-safe Dart with zero manual wiring.
 
 Two primitives worth understanding now:
 
-- **`Scope("tt")`** — prefixes every resource name. Short ids keep Realtime channel
-  paths, logs, and URLs readable.
-- **`ApiNamespace`** — wraps an object of async functions into an API surface. Every
-  top-level `export` of an `ApiNamespace` becomes a callable method on the generated
-  client.
+- **`Scope("tt")`** — prefixes every resource name. Short ids keep Realtime channel paths, logs, and URLs readable.
+- **`ApiNamespace`** — wraps an object of async functions into an API surface. Every top-level `export` of an `ApiNamespace` becomes a callable method on the generated client.
 
 ## Steps
 
@@ -53,10 +52,11 @@ Replace it with this module's checkpoint (run from `app/backend/`):
 cp ../../01-scaffold/solution/index.ts          aws-blocks/index.ts
 cp ../../01-scaffold/solution/index.handler.ts  aws-blocks/index.handler.ts
 cp ../../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts
+rm test/e2e.test.ts                             # see problem ④
 npm install
 ```
 
-Three problems might trip you up if you skip copying these files:
+Four problems might trip you up if you skip copying these files:
 
 - **① Lambda handler form.** The scaffolder emits `createLambdaHandler(backend)`, but
   the library expects the lazy factory
@@ -67,16 +67,25 @@ Three problems might trip you up if you skip copying these files:
   API origin and there is no Vite proxy. Our `server.ts` sets `port: 3001`.
 - **③ `typescript` must be a dependency.** The dev server needs it at runtime. If you
   ever see `Cannot find package 'typescript'`, run `npm i -D typescript`.
+- **④ Delete the template's demo test.** The `backend` template ships
+  `test/e2e.test.ts`, which calls a `greet()` method that only exists in the template
+  — and its `tsconfig.json` includes `test/**/*`. Leave it in place and
+  `npm run typecheck` fails with `Property 'greet' does not exist` in **every** module,
+  even though your backend is fine.
 
 ### 3. Generate the Flutter API
 
+Run from `app/backend/` (that is where `npm install` put the `blocks-generate-spec`
+binary — from another directory `npx` can't find it locally and tries to download a
+package by that name from npm, which does not exist):
+
 ```bash
+cd app/backend   # skip if you are already here from step 2
 npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-cd ..
+cd ..            # now in app/
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 flutter analyze
-flutter test
 ```
 
 Inspect `lib/blocks.blocks.dart`: you'll see `Blocks.api` and `Blocks.authApi` with

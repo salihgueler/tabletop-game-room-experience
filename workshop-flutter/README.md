@@ -84,7 +84,6 @@ npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
 cd ..
 dart run build_runner build --delete-conflicting-outputs
 flutter analyze
-flutter test
 ```
 
 Three rules:
@@ -106,22 +105,7 @@ isolated — you can run all three simultaneously (just not on the same port).
 
 ## Get started
 
-Head straight to **[Module 01](01-scaffold/)** — it walks you through scaffolding
-the backend, generating the Dart client, and running your first turn:
-
-```bash
-cd app
-mkdir backend && cd backend
-npm create @aws-blocks/blocks-app@latest . -- --template backend
-# copy the game backend from ../../01-scaffold/ (see Module 01), then:
-npm install
-npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-cd ..
-flutter pub get
-dart run build_runner build --delete-conflicting-outputs
-# Terminal 1: cd backend && npm run dev
-# Terminal 2: flutter run -d macos
-```
+Head straight to **[Module 01](01-scaffold/)** — it walks you through scaffolding the backend, generating the Dart client, and running your first turn. 
 
 ## Conventions (true for every module)
 

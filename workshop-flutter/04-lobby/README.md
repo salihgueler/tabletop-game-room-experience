@@ -104,6 +104,7 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
    Zod schemas, and writes a JSON spec the Dart code-gen reads:
 
    ```bash
+   cd app/backend   # the blocks-generate-spec binary lives here
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs
