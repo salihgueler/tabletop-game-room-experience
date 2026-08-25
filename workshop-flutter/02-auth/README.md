@@ -100,6 +100,10 @@ Do this in `saveCharacter`, `getCharacter`, `createGame`, `getState`, `joinGame`
 `startWithAi`, `takeAction`, `advanceBotTurn`, the channel getters, `getChatHistory`,
 `sendChat`. Afterwards, remove `requireAuth()` function.
 
+### 5. Delete mocks related to auth
+
+Find the comments and implementation details about auth mocks and fake users and remove them.
+
 ### 5. Regenerate the Dart client
 
 ```bash
