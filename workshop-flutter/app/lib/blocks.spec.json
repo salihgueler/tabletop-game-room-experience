@@ -1311,6 +1311,9 @@
 				"schema": {
 					"type": "object",
 					"properties": {
+						"userId": {
+							"type": "string"
+						},
 						"name": {
 							"type": "string"
 						},
@@ -1322,17 +1325,14 @@
 						},
 						"sprite": {
 							"type": "string"
-						},
-						"userId": {
-							"type": "string"
 						}
 					},
 					"required": [
+						"userId",
 						"name",
 						"classKey",
 						"spriteId",
-						"sprite",
-						"userId"
+						"sprite"
 					]
 				}
 			}
@@ -2251,8 +2251,8 @@
 						"enum": [
 							"number",
 							"text",
-							"password",
 							"email",
+							"password",
 							"tel",
 							"hidden"
 						]
@@ -2279,11 +2279,5 @@
 				]
 			}
 		}
-	},
-	"servers": [
-		{
-			"name": "production",
-			"url": "https://zbyz47p3l0.execute-api.us-east-1.amazonaws.com/prod/aws-blocks/api"
-		}
-	]
+	}
 }

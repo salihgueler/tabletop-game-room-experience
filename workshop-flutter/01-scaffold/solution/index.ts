@@ -29,6 +29,16 @@
  * client.js are generated glue — never edit them by hand.
  */
 import { ApiNamespace, Scope } from "@aws-blocks/blocks";
+// Type-only imports: the mocks below are annotated with the SAME types the real
+// Blocks produce, so the generated Dart client is identical from Module 01 on.
+// These are erased at runtime — no Block is constructed here. AuthBasic arrives
+// in Module 02 and Realtime in Module 06; only their type shapes are borrowed.
+import type {
+  AuthActionInput,
+  AuthState,
+  AuthUser,
+  RealtimeChannel,
+} from "@aws-blocks/blocks";
 
 // Short scope id — some services cap namespace names at 50 chars. "tt" = tabletop.
 const scope = new Scope("tt");
@@ -101,23 +111,40 @@ const OPENERS: Record<string, string> = {
 type User = { username: string };
 let fakeUser: User | null = { username: "adventurer" };
 
+// The mock's SIGNATURES are the real ones (`AuthActionInput` in, `AuthState`
+// out) — that is what keeps the generated client stable across modules. Only the
+// body is fake. Module 02 deletes all of this and exports `auth.createApi()`,
+// whose contract is already what the Dart client was generated against.
+const authUser = (u: User): AuthUser => ({ userId: u.username, ...u }) as AuthUser;
+
+const signedInState = (): AuthState =>
+  fakeUser
+    ? {
+        state: "signedIn",
+        user: authUser(fakeUser),
+        actions: [{ name: "signOut", label: "Sign Out", fields: [] }],
+      }
+    : {
+        state: "signedOut",
+        actions: [
+          { name: "signIn", label: "Sign In", fields: [] },
+          { name: "signUp", label: "Register", fields: [] },
+        ],
+      };
+
 const fakeAuthApi = {
-  async getAuthState() {
-    return { user: fakeUser };
+  async getAuthState(): Promise<AuthState> {
+    return signedInState();
   },
-  async setAuthState(input: {
-    action: "signIn" | "signUp" | "signOut" | "autoSignIn";
-    username?: string;
-    password?: string;
-  }) {
+  async setAuthState(input: AuthActionInput): Promise<AuthState> {
     if (input.action === "signOut") {
       fakeUser = null;
-    } else if (input.username) {
+    } else if ("username" in input && input.username) {
       fakeUser = { username: input.username };
     } else if (!fakeUser) {
       fakeUser = { username: "adventurer" };
     }
-    return { user: fakeUser };
+    return signedInState();
   },
 };
 
@@ -143,7 +170,11 @@ const chatStore = new Map<string, ChatMsg[]>(); // key: gameId
 // subscription in try/catch and falls back to polling getState, so a channel
 // that never delivers is safe: the game still works, just via refetch. We return
 // a channel-shaped stub so `channel.subscribe(...)` doesn't blow up.
-function fakeChannel() {
+// Typed as the real `RealtimeChannel` so the generated client carries the same
+// channel type from Module 01 on. It serializes as a channel descriptor but no
+// server ever publishes to it, so clients fall back to polling — which is why the
+// game is fully playable before Module 06 makes it live.
+function fakeChannel(): RealtimeChannel<unknown> {
   return {
     subscribe(_handler: (msg: unknown) => void) {
       return {
@@ -151,7 +182,10 @@ function fakeChannel() {
         unsubscribe() {},
       };
     },
-  };
+    toJSON() {
+      return { __blocks: "realtime/channel" as const, channel: "mock" };
+    },
+  } as RealtimeChannel<unknown>;
 }
 // No-op publish — nothing is listening in the mock. Module 06 replaces this with
 // rt.publish(...) so other players (and the bot stepper) get live updates.
@@ -214,7 +248,10 @@ type ChatMsg = {
   who: string;
   color: string;
   text: string;
-  kind: "say" | "dm" | "action" | "roll" | "system";
+  // Optional to mirror Module 05's `z.enum([...]).default("say")` — a defaulted
+  // Zod field is optional on input, so the generated client types it nullable.
+  // Keeping the mock optional too keeps the Dart contract identical.
+  kind?: "say" | "dm" | "action" | "roll" | "system";
 };
 type GameState = {
   gameId: string;

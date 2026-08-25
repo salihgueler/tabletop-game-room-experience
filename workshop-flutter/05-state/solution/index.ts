@@ -24,6 +24,9 @@ import {
   AuthBasic,
   DistributedTable,
 } from "@aws-blocks/blocks";
+// Type-only: borrow the real channel type so the generated Dart client is
+// identical across modules. Realtime itself arrives in Module 06.
+import type { RealtimeChannel } from "@aws-blocks/blocks";
 import { z } from "zod";
 
 // Short scope id — some services cap namespace names at 50 chars. "tt" = tabletop.
@@ -222,7 +225,11 @@ const chatMessages = new DistributedTable(scope, "chat", {
 // subscription in try/catch and falls back to polling getState, so a channel
 // that never delivers is safe: the game still works, just via refetch. We return
 // a channel-shaped stub so `channel.subscribe(...)` doesn't blow up.
-function fakeChannel() {
+// Typed as the real `RealtimeChannel` so the generated client carries the same
+// channel type from Module 01 on. It serializes as a channel descriptor but no
+// server ever publishes to it, so clients fall back to polling — which is why the
+// game is fully playable before Module 06 makes it live.
+function fakeChannel(): RealtimeChannel<unknown> {
   return {
     subscribe(_handler: (msg: unknown) => void) {
       return {
@@ -230,7 +237,10 @@ function fakeChannel() {
         unsubscribe() {},
       };
     },
-  };
+    toJSON() {
+      return { __blocks: "realtime/channel" as const, channel: "mock" };
+    },
+  } as RealtimeChannel<unknown>;
 }
 // No-op publish — nothing is listening in the mock. Module 05 replaces this with
 // rt.publish(...) so other players (and the bot stepper) get live updates.
