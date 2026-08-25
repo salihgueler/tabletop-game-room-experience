@@ -80,7 +80,6 @@ binary — from another directory `npx` can't find it locally and tries to downl
 package by that name from npm, which does not exist):
 
 ```bash
-cd app/backend   # skip if you are already here from step 2
 npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
 cd ..            # now in app/
 flutter pub get
@@ -96,19 +95,18 @@ fully typed methods generated from the backend exports.
 Terminal one (backend):
 
 ```bash
-cd app/backend
+cd backend
 npm run dev
 ```
 
 Terminal two (Flutter):
 
 ```bash
-cd app
-flutter run -d macos
+cd .. # go to /app folder
+flutter run -d chrome
 ```
 
-Use `-d chrome` for web, or an Android emulator. The app maps Android localhost
-to `10.0.2.2` automatically (see `lib/data/services/blocks_api_url_io.dart`).
+> The app maps Android localhost to `10.0.2.2` automatically (see `lib/data/services/blocks_api_url_io.dart`).
 
 You're signed in automatically (mock auth), so you land on character select. Pick a
 hero → **Enter Guild Hall** → **Launch New Adventure** → take a turn. You just played
@@ -153,7 +151,6 @@ Flutter side:
 
 ```bash
 flutter analyze    # zero issues
-flutter test       # all tests pass
 ```
 
 ---
