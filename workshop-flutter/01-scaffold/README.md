@@ -95,14 +95,14 @@ fully typed methods generated from the backend exports.
 Terminal one (backend):
 
 ```bash
-cd backend
+cd backend # make sure you go to backend folder
 npm run dev
 ```
 
 Terminal two (Flutter):
 
 ```bash
-cd .. # go to /app folder
+cd app # make sure you go to app folder
 flutter run -d chrome
 ```
 
