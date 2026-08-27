@@ -82,9 +82,9 @@ Replace the `Character` type and **use the type from the schema** so there's one
 
 ### 4. Use the async data operations instead of mock operations.
 
-Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block.
+a. Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block.
 
-**Swap the call sites** (async now — tables return Promises):
+b. **Swap the call sites** (async now — tables return Promises):
 
    | before (Map)                                                                         | after (DistributedTable)                                    |
    | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
@@ -116,16 +116,18 @@ flutter analyze
 
 ```bash
 # Terminal 1
-cd backend && npm run dev
+cd backend # make sure you are at backend folder
+npm run dev
 
 # Terminal 2
-cd .. && flutter run -d chrome
+cd app # make sure you are at app folder
+flutter run -d chrome
 ```
 
 Pick a hero, save it. Then confirm persistence:
 
 ```bash
-ls backend/.bb-data/tt-characters/    # your hero is now a file on disk
+cat backend/.bb-data/tt-characters/data.json    # your hero is now a file on disk
 ```
 
 ## Verify
