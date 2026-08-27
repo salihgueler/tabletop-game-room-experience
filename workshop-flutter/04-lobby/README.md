@@ -4,7 +4,9 @@
 collection without a full-table scan.
 
 **Block introduced:** `DistributedTable` (with a secondary index / GSI)
+
 **You edit:** `app/backend/aws-blocks/index.ts`
+
 **You'll know you're done when:** the seeded games appear, a created game shows up in the
 list, and Join-Private resolves by access code — all surviving a restart. The Flutter hall
 renders correctly at both wide and narrow viewports (resize below 840 px for the compact
@@ -14,7 +16,7 @@ layout).
 
 ## Concept: list via a constant partition key + GSI
 
-Module 03 fetched one item by its key. The lobby is different: you need **every** game.
+Earlier one, you fetched one item by its key. The lobby is different: you need **every** game.
 `DistributedTable` does have a `scan()` (it walks the whole table), but a full-table scan
 is the wrong tool for a listing you run constantly — it's unindexed and gets slower as the
 table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
@@ -32,11 +34,14 @@ table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
 The pattern is identical to the React workshop — the backend is the same `index.ts`, and
 the Flutter frontend consumes the same JSON-RPC responses through generated Dart bindings.
 
-### What changed in the backend
 
-1. The game schema adds two fields the Map version didn't need — `listKey` and `gameId`:
+## Steps
 
-   ```ts
+### 1. Update the game schame
+
+Add game schema like below. This schema adds two new fields the Map version didn't need — `listKey` and `gameId`:
+
+ ```ts
    // A game room in the lobby list.
    const gameSchema = z.object({
      listKey: z.string(), // constant "all" — the whole-collection partition
@@ -55,7 +60,9 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
    });
    ```
 
-2. The `games` DistributedTable uses that schema with a `byCreated` index:
+### 2. Use `byCreated` index 
+
+The `games` DistributedTable uses that schema with a `byCreated` index:
 
    ```ts
    const games = new DistributedTable(scope, "games", {
@@ -67,18 +74,19 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
    });
    ```
 
-3. `const gameStore = new Map<string, Game>();` is deleted — the table replaces it.
+### 3. Remove the Mock and Use Real Implementation
 
-4. When you are asked to query the item, paste the following:
+1. Delete `const gameStore = new Map<string, Game>();`. 
 
-   ```ts
-   // list everything (query returns an async iterator):
-   const existing = await Array.fromAsync(
-     games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
-   );
-   ```
+2. Every call site becomes `async`, and every write must include `listKey: "all"`. When you are asked to query the item, paste the following:
+```ts
+// list everything (query returns an async iterator):
+const existing = await Array.fromAsync(
+  games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
+);
+```
 
-5. Every call site becomes `async`, and every write must include `listKey: "all"`:
+Now update the following: 
 
    | before (Map)                                                                                    | after (table)                                                                                                                    |
    | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -88,46 +96,40 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
    | `[...gameStore.values()].find(...)` - in joinPrivate                                            | query the existing and do the `.find(...)`                                                                                       |
    | `gameStore.get(state.gameId)` - in finalizeIfExpired and syncLobbyStatus                        | `await games.get({ listKey: "all", gameId: state.gameId })`                                                                      |
 
-## Steps
-
-1. **Copy the checkpoint and verify types:**
+#### Copy the solution if something is missing
 
    ```bash
-   cd app/backend
+   cd backend
    cp ../../04-lobby/solution/index.ts aws-blocks/index.ts
    npm run typecheck
    ```
 
-2. **Regenerate the Dart client bindings:**
+### 5. **Regenerate the Dart client bindings:**
 
    The spec generator reads `index.ts`, extracts every exported namespace's methods and
    Zod schemas, and writes a JSON spec the Dart code-gen reads:
 
    ```bash
-   cd app/backend   # the blocks-generate-spec binary lives here
+   cd backend   # the blocks-generate-spec binary lives here
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs
-   ```
-
-3. **Run static analysis on the Flutter project:**
-
-   ```bash
    flutter analyze
    ```
 
-   Fix any issues before continuing — most often they are type mismatches from the
-   regenerated bindings (new fields that your UI code hasn't adopted yet).
-
-4. **Run the app:**
+### 6. **Run the app:**
 
    ```bash
-   flutter run -d macos
+# Terminal 1
+npm run dev
+
+# Terminal 2
+   flutter run -d chrome
    ```
 
-   (Or `-d chrome` for web, `-d linux` for Linux desktop.)
+   (Or `-d macos` for macOS, `-d linux` for Linux desktop.)
 
-5. **Exercise the lobby:**
+**Exercise the lobby:**
 
    - The Guild Hall shows the 3 seeded games.
    - **Launch New Adventure** adds a game that appears at the top.
@@ -135,8 +137,7 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
      that code from a second account.
    - **Resize below 840 px** — the hall switches to the compact single-column layout.
      Verify game cards still render correctly.
-
-6. **Join from a second client** (two windows, two accounts) and confirm both see the
+   - **Join from a second client** (two windows, two accounts) and confirm both see the
    same lobby state after refresh.
 
 ## Verify
