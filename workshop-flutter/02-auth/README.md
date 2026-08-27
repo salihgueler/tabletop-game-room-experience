@@ -138,10 +138,12 @@ Start both processes:
 
 ```bash
 # Terminal 1
+cd backend # make sure you are at backend folder
 npm run dev
 
 # Terminal 2
-cd .. && flutter run -d macos
+cd app # make sure you are at app folder
+flutter run -d chrome
 ```
 
 ## Verify
