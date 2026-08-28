@@ -80,9 +80,13 @@ disappears.
    });
    ```
 
-### 3. **Delete the realtime mock** — both `fakeChannel()` and the no-op `publish()` function.
+### 3. **Delete the realtime mock** — 
 
-### 4. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
+Delete both `fakeChannel()` and the no-op `publish()` function.
+
+### 4. **Point `publish` calls at the block.** 
+Every `publish("...", key, payload)` becomes: 
+
    `await rt.publish("...", key, payload)` — in `saveAndBroadcast`, `transcribe`,
    `postBotChat`, and `sendChat`. They're already inside `async` functions.
 
