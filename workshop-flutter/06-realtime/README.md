@@ -4,7 +4,9 @@
 block so turns, chat, and (soon) AI reasoning broadcast to every player over WebSocket.
 
 **Block introduced:** `Realtime`
+
 **You edit:** `app/backend/aws-blocks/index.ts`
+
 **You'll know you're done when:** open the same game in two Flutter clients — a chat
 message or a turn taken in one appears in the other **without a manual refresh**.
 
