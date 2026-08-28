@@ -55,7 +55,7 @@ Flutter UI code doesn't change at all in this module.
 
 ## Steps
 
-1. **Embedd sub-schemas** for players, rolls, and log entries:
+### 1. **Embedd sub-schemas** for players, rolls, and log entries
 
    ```ts
    const playerSchema = z.object({
@@ -89,8 +89,8 @@ Flutter UI code doesn't change at all in this module.
    });
    ```
 
-2. **Table schemas and constructions** — `gameStates` keyed by `gameId`; `chatMessages`
-   keyed by `(gameId, ts)`:
+### 2. **Table schemas and constructions**
+Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
 
    ```ts
    const gameStateSchema = z.object({
@@ -129,8 +129,9 @@ Flutter UI code doesn't change at all in this module.
    });
    ```
 
-3. Both Maps (`gameStateStore`, `chatStore`) are deleted. The mock types are replaced with
-   inferred types:
+### 3. Delete `gameStateStore`, `chatStore` maps and add inferred types.
+
+   Add the inferred types by replacing the current types:
 
    ```ts
    type Player = z.infer<typeof playerSchema>;
@@ -140,7 +141,7 @@ Flutter UI code doesn't change at all in this module.
    type GameState = z.infer<typeof gameStateSchema>;
    ```
 
-4. **Call-site swap** (all async now):
+### 4. **Call-site swap** (all async now):
 
    | before (Map)                                                      | after (table)                                                                              |
    | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -151,7 +152,7 @@ Flutter UI code doesn't change at all in this module.
    | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
    | `chatStore.get(gameId)` - remove set and bucket related code around               | `await chatMessages.put(msg)`                                                              |
 
-5. Update the **`saveAndBroadcast`** to bump the version and return the new object:
+### 5. Update the **`saveAndBroadcast`** to bump the version and return the new object:
 
    ```ts
    async function saveAndBroadcast(state: GameState) {
@@ -162,14 +163,14 @@ Flutter UI code doesn't change at all in this module.
    }
    ```
 
-### If something is not working make sure you copy the solution
+#### If something is not working make sure you copy the solution
    ```bash
    cd app/backend
    cp ../../05-state/solution/index.ts aws-blocks/index.ts
    npm run typecheck
    ```
 
-6. **Regenerate the Dart client bindings:**
+### 6. **Regenerate the Dart client bindings:**
 
    ```bash
    cd backend   # the blocks-generate-spec binary lives here
@@ -182,7 +183,7 @@ Flutter UI code doesn't change at all in this module.
    The generated `blocks.blocks.dart` now carries the `GetStateResult` type with every
    field from `gameStateSchema` — players, phase, log, lastRoll, options, version.
 
-7. **Run the app and play a game:**
+### 7. **Run the app and play a game:**
 
    ```bash
    # Terminal 1
@@ -197,12 +198,12 @@ Flutter UI code doesn't change at all in this module.
    Sign in, create an AI-filled game, take an action. Observe the board update with
    dice, narration, and turn advance.
 
-8. **Restart the backend and reopen the game:**
+### 8. **Restart the backend and reopen the game:**
 
    Kill the dev server (`Ctrl-C`) and restart (`npm run dev`). Reopen the same game in
    Flutter — it's still live, mid-round, with the full chat log. That's persistence.
 
-9. **Inspect the data on disk:**
+### 9. **Inspect the data on disk:**
 
    ```bash
    ls app/backend/.bb-data/    # tt-gameStates and tt-chat now exist alongside tt-games
