@@ -80,7 +80,7 @@ disappears.
    });
    ```
 
-### 3. **Delete the realtime mock** — 
+### 3. **Delete the realtime mock** 
 
 Delete both `fakeChannel()` and the no-op `publish()` function.
 
@@ -98,6 +98,16 @@ Every `publish("...", key, payload)` becomes:
    async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
    ```
    
+### 6. **Regenerate the Dart client bindings:**
+
+   ```bash
+   cd backend   # Make sure you are at backend folder
+   npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
+   cd ..
+   dart run build_runner build --delete-conflicting-outputs
+   flutter analyze
+   ```
+
 #### Dart side: `RealtimeChannel<dynamic>` → domain streams
 
 The generated Dart bindings expose channel methods that return `RealtimeChannel<dynamic>`.
@@ -137,20 +147,16 @@ The UI subscribes to these domain streams. When the WebSocket drops, a **three-s
 polling fallback** kicks in — the game remains playable (state is refetched on a timer)
 until the socket reconnects.
 
-### 6. **Regenerate the Dart client bindings:**
-
-   ```bash
-   cd app/backend   # the blocks-generate-spec binary lives here
-   npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-   cd ..
-   dart run build_runner build --delete-conflicting-outputs
-   flutter analyze
-   ```
-
 ### 7. **Run the app with two clients:**
 
    ```bash
-   flutter run -d chrome
+# Terminal 1
+cd backend # Make sure you are at backend folder
+npm run dev
+
+# Terminal 2
+cd app # Make sure you are at app folder
+flutter run -d chrome
    ```
 
    Open **two instances** (two terminal windows running `flutter run`, or one desktop +
