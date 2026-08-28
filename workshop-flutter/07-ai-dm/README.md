@@ -5,7 +5,9 @@ narrates outcomes and generates contextual, scene-specific action choices — wh
 the canned logic as an offline fallback.
 
 **Block introduced:** `Agent`
+
 **You edit:** `app/backend/aws-blocks/index.ts`
+
 **You'll know you're done when:** action choices reflect the _current scene_ (e.g. "Examine
 the runes", "Push the door open") instead of the fixed class menu, and the DM's reasoning
 streams into the "thinking" bar as it sets the scene.
@@ -49,12 +51,12 @@ the fixed class list.
 The chain is: **Bedrock (deployed) → Ollama (local) → canned provider (implicit final
 fallback)**. The canned provider is always appended automatically — you never declare it.
 
-## What changed in the backend
+## Steps
 
 Below is the actual code you're copying in this module's checkpoint, so you can
 read through what each piece does before moving on.
 
-### 1. Imports
+### 1. Update the imports
 
 ```ts
 import {
@@ -69,7 +71,7 @@ import {
 } from "@aws-blocks/blocks";
 ```
 
-### 2. The `dm` Agent construction
+### 2. Add the `dm` Agent construction
 
 ```ts
 const dm = new Agent(scope, "dm", {
@@ -88,7 +90,7 @@ const dm = new Agent(scope, "dm", {
 });
 ```
 
-### 3. The `narrate` implementation
+### 3. Update the `narrate` implementation
 
 Builds a prompt from the action + roll outcome, calls `dm.stream(...).complete()`,
 returns the text, and falls back to `cannedNarration` on any error:
@@ -117,7 +119,7 @@ async function narrate(
 }
 ```
 
-### 4. The `nextScene` implementation
+### 4. Update the `nextScene` implementation
 
 Streams the DM's reasoning to the `thinking` channel via `rt.publish(...)`, asks for
 a JSON scene + options, parses (with one retry), and falls back to the generic prompt +
@@ -252,20 +254,10 @@ to canned** — so deployed narration goes generic while local (Ollama) looks fi
 happens, check the deployed Lambda logs for agent errors and pin an explicit, current
 inference-profile id instead of the preset.
 
-## Steps
-
-1. **Copy the checkpoint and typecheck:**
+### 5. **Regenerate the Dart client and rebuild:**
 
    ```bash
-   cd app/backend
-   cp ../../07-ai-dm/solution/index.ts aws-blocks/index.ts
-   npm run typecheck
-   ```
-
-2. **Regenerate the Dart client and rebuild:**
-
-   ```bash
-   cd app/backend   # the blocks-generate-spec binary lives here
+   cd backend   # make sure you are at the backend foldeer
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs
@@ -273,16 +265,16 @@ inference-profile id instead of the preset.
    flutter test
    ```
 
-3. **Run it (canned — no setup required):**
+### 6. **Run it (canned — no setup required):**
 
    ```bash
-   flutter run -d macos
+   flutter run -d chrome
    ```
 
    Play a turn. Even without a model, the fallback keeps it playable — canned narration
    and the fixed class menu. The thinking bar shows the fallback prompt text.
 
-4. **Run it (real AI — fully optional):** only if you _want_ live, improvised narration.
+### 7. **Run it (real AI — fully optional):** only if you _want_ live, improvised narration.
    Install and run [Ollama](https://ollama.com), then:
 
    ```bash
