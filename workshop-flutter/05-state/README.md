@@ -5,7 +5,9 @@ completing persistence — and take a proper look at the server-authoritative tu
 that Flutter renders but never drives.
 
 **Block introduced:** `DistributedTable` (two more tables; one with a sort key)
+
 **You edit:** `app/backend/aws-blocks/index.ts`
+
 **You'll know you're done when:** you start a game, take a turn, restart the dev server,
 and the game is still live with its full chat transcript intact.
 
