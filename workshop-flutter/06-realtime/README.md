@@ -23,9 +23,26 @@ the same port; deployed it's an API Gateway WebSocket API. Same code.
 > That's why the scope is `"tt"` and the namespaces are `state` / `chat` / `thinking`,
 > not verbose descriptions.
 
-### What changed in the backend
+### Why the Flutter UI needs no changes this module
 
-1. **Import `Realtime`** alongside the existing Building Blocks:
+The Flutter app already subscribes to all three channels via the repository and wraps each
+in error handling with the polling fallback. Flipping the backend stubs to a real Realtime
+block simply turns those subscriptions live — the "refresh to see the bot's turn" friction
+disappears.
+
+
+### The three namespaces, and why `state` is just a version bump
+
+- **`state`** — deliberately carries only `{ gameId, version }`. The client doesn't trust
+  a pushed state blindly; the bump just tells it to **refetch `getState`**, keeping the
+  server authoritative. This is the key pattern: _broadcast a signal, not the truth._
+- **`chat`** — the full payload of each message (mirrors the chat table row).
+- **`thinking`** — streamed AI reasoning tokens (`start`/`delta`/`end` phases). Barely
+  used until modules 07–08, but wired now.
+
+## Steps
+
+### 1. **Import `Realtime`** alongside the existing Building Blocks:
 
    ```ts
    import {
@@ -37,7 +54,7 @@ the same port; deployed it's an API Gateway WebSocket API. Same code.
    } from "@aws-blocks/blocks";
    ```
 
-2. **Construct** the Realtime block after the tables, reusing `chatSchema`:
+### 2. **Construct** the Realtime block after the tables, reusing `chatSchema`:
 
    ```ts
    const rt = new Realtime(scope, "rt", {
@@ -63,30 +80,21 @@ the same port; deployed it's an API Gateway WebSocket API. Same code.
    });
    ```
 
-3. **Delete the realtime mock** — both `fakeChannel()` and the no-op `publish()` function.
+### 3. **Delete the realtime mock** — both `fakeChannel()` and the no-op `publish()` function.
 
-4. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
+### 4. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
    `await rt.publish("...", key, payload)` — in `saveAndBroadcast`, `transcribe`,
    `postBotChat`, and `sendChat`. They're already inside `async` functions.
 
-5. **Return real channels** from the three getters:
+### 5. **Return real channels** from the three getters:
 
    ```ts
    async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
    async getChatChannel(gameId)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); },
    async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
    ```
-
-### The three namespaces, and why `state` is just a version bump
-
-- **`state`** — deliberately carries only `{ gameId, version }`. The client doesn't trust
-  a pushed state blindly; the bump just tells it to **refetch `getState`**, keeping the
-  server authoritative. This is the key pattern: _broadcast a signal, not the truth._
-- **`chat`** — the full payload of each message (mirrors the chat table row).
-- **`thinking`** — streamed AI reasoning tokens (`start`/`delta`/`end` phases). Barely
-  used until modules 07–08, but wired now.
-
-### Dart side: `RealtimeChannel<dynamic>` → domain streams
+   
+#### Dart side: `RealtimeChannel<dynamic>` → domain streams
 
 The generated Dart bindings expose channel methods that return `RealtimeChannel<dynamic>`.
 The repository (`game_repository.dart`) wraps these into typed domain streams:
@@ -125,24 +133,7 @@ The UI subscribes to these domain streams. When the WebSocket drops, a **three-s
 polling fallback** kicks in — the game remains playable (state is refetched on a timer)
 until the socket reconnects.
 
-### Why the Flutter UI needs no changes this module
-
-The Flutter app already subscribes to all three channels via the repository and wraps each
-in error handling with the polling fallback. Flipping the backend stubs to a real Realtime
-block simply turns those subscriptions live — the "refresh to see the bot's turn" friction
-disappears.
-
-## Steps
-
-1. **Copy the checkpoint and verify types:**
-
-   ```bash
-   cd app/backend
-   cp ../../06-realtime/solution/index.ts aws-blocks/index.ts
-   npm run typecheck
-   ```
-
-2. **Regenerate the Dart client bindings:**
+### 6. **Regenerate the Dart client bindings:**
 
    ```bash
    cd app/backend   # the blocks-generate-spec binary lives here
@@ -152,24 +143,24 @@ disappears.
    flutter analyze
    ```
 
-3. **Run the app with two clients:**
+### 7. **Run the app with two clients:**
 
    ```bash
-   flutter run -d macos
+   flutter run -d chrome
    ```
 
    Open **two instances** (two terminal windows running `flutter run`, or one desktop +
    one web via `flutter run -d chrome`). Register two accounts, have both join the same
    game (create one with "Wait for other players").
 
-4. **Test live updates:**
+### 8. **Test live updates:**
 
    - Send a chat message in one client → it appears in the other instantly.
    - Take a turn → both boards update live (dice, narration, turn advance).
    - In an AI-filled game, companion turns now stream in on their own instead of needing
      a manual refresh.
 
-5. **Test the polling fallback:**
+### 9. **Test the polling fallback:**
 
    Stop WebSocket connectivity (kill the backend briefly or disconnect the network) and
    confirm the three-second state polling fallback keeps the game table usable — the
