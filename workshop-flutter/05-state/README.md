@@ -23,9 +23,39 @@ Two more tables, each showing a different access pattern:
   means one `query({ where: { gameId: { equals } } })` returns a game's whole transcript
   already ordered — no in-memory sort, no separate index.
 
-### What changed in the backend
+Here are some explanations to the changes:
 
-1. **Embedded sub-schemas** for players, rolls, and log entries:
+
+### Schema-first types with `z.infer`
+
+Once state lives in a validated table, the Zod schema becomes the single source of truth
+for the _type_ too. The solution replaces the hand-written `Player` / `Roll` /
+`LogEntry` / `GameState` / `ChatMsg` types with `z.infer<typeof ...Schema>` so runtime
+validation and compile-time types can't drift apart.
+
+### Why `saveAndBroadcast` returns a _new_ object
+
+With a real table you `put` the state and hand the **saved** object back to the client.
+`publish()` is still the mock no-op — module 06 makes it a real Realtime push. Everything
+else in the turn engine is unchanged; it was already authoritative.
+
+### Server-authoritative engine — Flutter is a pure renderer
+
+The turn logic never trusted the client. Skim `resolveAction` → `advanceTurn` and notice
+the server owns the d20 roll, the DC check, narration, and turn order end to end. The
+Flutter app's role is narrow:
+
+- Render `GetStateResult` (board phase, players, log, options, dice).
+- Send commands (`takeAction`, `advanceBotTurn`) — never rolls dice or advances turns
+  locally.
+
+This means swapping storage under the engine changes nothing about correctness — and the
+Flutter UI code doesn't change at all in this module.
+
+
+## Steps
+
+1. **Embedd sub-schemas** for players, rolls, and log entries:
 
    ```ts
    const playerSchema = z.object({
@@ -116,12 +146,12 @@ Two more tables, each showing a different access pattern:
    | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
    | `gameStateStore.get(gameId)`                                      | `await gameStates.get({ gameId })`                                                         |
    | `const st = gameStateStore.get(g.gameId);`                        | `const st = await gameStates.get({ gameId: g.gameId });`                                   |
-   | `gameStateStore.set(id, state)`                                   | `await gameStates.put(state)`                                                              |
-   | `gameStateStore.set(id, {<items>})`                               | `await gameStates.put({<items>})`                                                          |
+   | `gameStateStore.set(gameId, state)`                                   | `await gameStates.put(state)`                                                              |
+   | `gameStateStore.set(state.gameId, {<items>})`                               | `await gameStates.put({<items>})`                                                          |
    | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
-   | `chatStore.get(id)` - remove set and bucket as well               | `await chatMessages.put(msg)`                                                              |
+   | `chatStore.get(gameId)` - remove set and bucket related code around               | `await chatMessages.put(msg)`                                                              |
 
-5. **`saveAndBroadcast`** bumps the version and returns the new object:
+5. Update the **`saveAndBroadcast`** to bump the version and return the new object:
 
    ```ts
    async function saveAndBroadcast(state: GameState) {
@@ -132,46 +162,17 @@ Two more tables, each showing a different access pattern:
    }
    ```
 
-### Schema-first types with `z.infer`
-
-Once state lives in a validated table, the Zod schema becomes the single source of truth
-for the _type_ too. The solution replaces the hand-written `Player` / `Roll` /
-`LogEntry` / `GameState` / `ChatMsg` types with `z.infer<typeof ...Schema>` so runtime
-validation and compile-time types can't drift apart.
-
-### Why `saveAndBroadcast` returns a _new_ object
-
-With a real table you `put` the state and hand the **saved** object back to the client.
-`publish()` is still the mock no-op — module 06 makes it a real Realtime push. Everything
-else in the turn engine is unchanged; it was already authoritative.
-
-### Server-authoritative engine — Flutter is a pure renderer
-
-The turn logic never trusted the client. Skim `resolveAction` → `advanceTurn` and notice
-the server owns the d20 roll, the DC check, narration, and turn order end to end. The
-Flutter app's role is narrow:
-
-- Render `GetStateResult` (board phase, players, log, options, dice).
-- Send commands (`takeAction`, `advanceBotTurn`) — never rolls dice or advances turns
-  locally.
-
-This means swapping storage under the engine changes nothing about correctness — and the
-Flutter UI code doesn't change at all in this module.
-
-## Steps
-
-1. **Copy the checkpoint and verify types:**
-
+### If something is not working make sure you copy the solution
    ```bash
    cd app/backend
    cp ../../05-state/solution/index.ts aws-blocks/index.ts
    npm run typecheck
    ```
 
-2. **Regenerate the Dart client bindings:**
+6. **Regenerate the Dart client bindings:**
 
    ```bash
-   cd app/backend   # the blocks-generate-spec binary lives here
+   cd backend   # the blocks-generate-spec binary lives here
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs
@@ -181,21 +182,27 @@ Flutter UI code doesn't change at all in this module.
    The generated `blocks.blocks.dart` now carries the `GetStateResult` type with every
    field from `gameStateSchema` — players, phase, log, lastRoll, options, version.
 
-3. **Run the app and play a game:**
+7. **Run the app and play a game:**
 
    ```bash
-   flutter run -d macos
+   # Terminal 1
+   cd backend # Make sure you are at backend folder
+   npm run dev
+   
+   # Terminal 2
+   cd app # Make sure you are at app folder
+   flutter run -d chrome
    ```
 
    Sign in, create an AI-filled game, take an action. Observe the board update with
    dice, narration, and turn advance.
 
-4. **Restart the backend and reopen the game:**
+8. **Restart the backend and reopen the game:**
 
    Kill the dev server (`Ctrl-C`) and restart (`npm run dev`). Reopen the same game in
    Flutter — it's still live, mid-round, with the full chat log. That's persistence.
 
-5. **Inspect the data on disk:**
+9. **Inspect the data on disk:**
 
    ```bash
    ls app/backend/.bb-data/    # tt-gameStates and tt-chat now exist alongside tt-games
@@ -228,9 +235,6 @@ curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
   intact.
 - Open a second account, join the same multiplayer game → both clients see consistent
   state after manual refresh.
-
-Catch up from `app/backend/`:
-`cp ../../05-state/solution/index.ts aws-blocks/index.ts`
 
 ---
 
