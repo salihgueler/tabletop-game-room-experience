@@ -92,8 +92,11 @@ await auth.requireAuth(context);
 ```
 
 Do this for all of them (`saveCharacter`, `getCharacter`, `createGame`, `getState`,
-`joinGame`, `startWithAi`, `takeAction`, `advanceBotTurn`, the channel getters,
-`getChatHistory`, `sendChat`).
+`joinGame`, `joinPrivate`, `startWithAi`, `takeAction`, `advanceBotTurn`, the three channel
+getters, `getChatHistory`, `sendChat`) — **14 call sites in total**. The reliable way to
+catch them all is to search for `requireAuth(` and convert every hit; if you miss one, `tsc`
+tells you immediately with `Cannot find name 'requireAuth'`, because you deleted the mock.
+(`getConstants` stays public — the sign-in screen needs it before anyone has a session.)
 
 > `user.username` is still the right key for `characterStore` — the real user object
 > exposes `username` just like the fake did.

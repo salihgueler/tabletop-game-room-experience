@@ -116,8 +116,8 @@ const games = new DistributedTable(scope, "games", {
 
    comment out the following to test out:
 
-   ```tsc
-   const publicGames = all.filter((g) => g.isPublic);
+   ```ts
+   const publicGames = all.filter((g) => g.isPublic).reverse();
    ```
 
    and change the `publicGames` in the for loop to `all`. Do the call:

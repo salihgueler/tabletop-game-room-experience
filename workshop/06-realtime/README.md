@@ -53,9 +53,19 @@ return rt.getChannel("chat", gameId); // frontend subscribes to this
 
 ### Why the frontend needs no changes
 
-`GameRoom.jsx` already subscribes to all three channels and wraps each in `try/catch` with
-a polling fallback (that's why the mock worked). Flipping the stubs to a real block simply
-turns those subscriptions live — the "refresh to see the bot's turn" friction disappears.
+`GameRoom.jsx` already subscribes to all three channels and wraps each in `try/catch`, so a
+channel that isn't there yet can't crash the app — that's why the mock worked. Flipping the
+stubs to a real block simply turns those subscriptions live — the "refresh to see the bot's
+turn" friction disappears.
+
+> **The fallback is narrower than it looks, and that matters for testing.** The 3-second
+> `setInterval` in `GameRoom.jsx` is gated on `state?.roomPhase !== 'lobby'` — it polls
+> **only while you're in the lobby**, so newly-joined seats appear without a refresh. Once
+> the game is `live` there is no periodic poll at all: a client updates from the state
+> channel, or from its own refetch after its own move. So if your subscription is broken
+> during a live game, a second tab that is only *watching* will never update. That is
+> inconvenient in production and useful to you right now — it makes the verification below
+> a real pass/fail instead of a guess.
 
 ## Steps
 
@@ -124,6 +134,18 @@ const rt = new Realtime(scope, "rt", {
    live. In an AI game, companion turns now stream in on their own instead of needing a
    refresh.
 
+   **Prove it's the socket, not a coincidence.** "It appeared" is weak evidence — you moved,
+   so your own tab refetched anyway. Use one of these instead:
+
+   - **Watch the socket.** DevTools → **Network → WS**. You should see one connection to
+     `/realtime` with status **101**, and clicking it → **Messages** should show frames
+     arriving the moment the other tab acts. No connection, or a connection with no frames,
+     means your channels aren't wired.
+   - **Watch someone else's turn.** In an AI-filled game, sit in a second tab and take **no
+     action at all**, then let a companion move. With the subscription working the board
+     updates within about a second. With it broken it never updates, because live games
+     don't poll (see the note above). This is the unambiguous test: nothing to misread.
+
    The live channels are WebSocket (not something `curl` subscribes to), but you can confirm
    the transcript being broadcast is persisted with an HTTP call. Sign in (saving the
    cookie):
@@ -175,9 +197,10 @@ Catch up from `workshop/app/`: `cp ../06-realtime/solution/index.ts aws-blocks/i
 
 ## Troubleshooting
 
-- **Nothing arrives live, but works after refresh** — the subscription failed and the
-  client fell back to polling. Check the browser console for a WS error and confirm you're
-  on `:3000` (the Vite proxy forwards `/realtime`).
+- **Nothing arrives live, but works after refresh** — the subscription failed, so you're
+  seeing only your own post-action refetches (and, in the lobby, the 3-second poll). Check
+  the browser console for a WS error and confirm you're on `:3000` (the Vite proxy forwards
+  `/realtime`); a direct `:3001` page load has no proxy and no socket.
 - **Channel names unwieldy in logs / connection errors on long names** — the full channel
   path includes stack + Scope + Realtime id + namespace. Keep them short
   (`state`/`chat`/`thinking` are safe).

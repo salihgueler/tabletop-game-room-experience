@@ -100,7 +100,7 @@ const logEntrySchema = z.object({
 2. Add two tables (`gameStateSchema`, `chatSchema`), then create `gameStates` and
    `chatMessages` — right after the `games` table.
 
-````ts
+```ts
 const gameStateSchema = z.object({
   gameId: z.string(),
   scenario: z.string(),
@@ -147,7 +147,7 @@ const chatMessages = new DistributedTable(scope, "chat", {
    type LogEntry = z.infer<typeof logEntrySchema>;
    type ChatMsg = z.infer<typeof chatSchema>;
    type GameState = z.infer<typeof gameStateSchema>;
-````
+   ```
 
 5. **Swap the call sites** (all async now):
 
@@ -185,7 +185,7 @@ The full version is in [`solution/index.ts`](solution/index.ts).
    on disk:
 
    ```bash
-   cat .bb-data/    # tt-gameStates and tt-chat now exist alongside the rest
+   ls .bb-data/    # tt-gameStates and tt-chat now exist alongside the rest
    cat .bb-data/tt-gameStates/data.json # Check the data
    ```
 
