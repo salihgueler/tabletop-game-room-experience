@@ -24,7 +24,7 @@ confusingly if missing:
 - **Bedrock model access enabled** for that region, in the Bedrock console. This is a hard
   requirement for the `Agent` blocks, not a post-deploy detail — without it your DM
   silently falls back to canned output (see the model-pinning gotcha below).
-- **A built Flutter web app** — step 2 covers this.
+- **A built Flutter web app** — step 3 covers this.
 
 > **Cost:** this provisions CloudFront, API Gateway, Lambda, DynamoDB and SQS. Idle cost is
 > small but not zero, and tearing a CloudFront distribution down takes 15–40 minutes
