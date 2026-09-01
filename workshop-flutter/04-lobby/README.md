@@ -44,7 +44,7 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
 > The `cd` lines are written so you can paste them in order from there.
 
-### 1. Update the game schame
+### 1. Update the game schema
 
 Add game schema like below. This schema adds two new fields the Map version didn't need — `listKey` and `gameId`:
 
@@ -102,7 +102,7 @@ Now update the following:
    | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
    | `gameStore.size > 0` - in seedIfEmpty                                                           | query the existing and do the check `existing.length > 0`                                                                        |
    | `gameStore.set(gameId, {...})` - in seedIfEmpty, finalizeIfExpired, syncLobbyStatus, createGame | `await games.put({ listKey: "all", ...})`                                                                                        |
-   | `[...gameStore.values()].sort(...)` - in listGames                                              | `(await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))).reverse()` for newest-first |
+   | `[...gameStore.values()].sort(...)` - in listGames                                              | `(await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))).filter((g) => g.isPublic).reverse()` — newest-first, and **public only**: the lobby must not list private games |
    | `[...gameStore.values()].find(...)` - in joinPrivate                                            | query the existing and do the `.find(...)`                                                                                       |
    | `gameStore.get(state.gameId)` - in finalizeIfExpired and syncLobbyStatus                        | `await games.get({ listKey: "all", gameId: state.gameId })`                                                                      |
 
@@ -114,7 +114,7 @@ Now update the following:
    npm run typecheck
    ```
 
-### 5. **Regenerate the Dart client bindings:**
+### 4. **Regenerate the Dart client bindings:**
 
    The spec generator reads `index.ts`, extracts every exported namespace's methods and
    Zod schemas, and writes a JSON spec the Dart code-gen reads:
@@ -127,7 +127,7 @@ Now update the following:
    flutter analyze
    ```
 
-### 6. **Run the app:**
+### 5. **Run the app:**
 
    ```bash
    # Terminal 1 — from workshop-flutter/app/

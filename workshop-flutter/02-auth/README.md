@@ -110,7 +110,7 @@ the sign-in screen needs before anyone has a session.)
 
 Find the comments and implementation details about auth mocks and fake users and remove them.
 
-### 5. Regenerate the Dart client
+### 6. Regenerate the Dart client
 
 ```bash
 cd backend   # the blocks-generate-spec binary lives here
@@ -138,7 +138,7 @@ variants consumed in `lib/data/repositories/game_repository.dart`. The Dart runt
 (`blocks_runtime`) automatically persists and resends the session cookie on
 subsequent RPC calls.
 
-### 4. Run and test
+### 7. Run and test
 
 Start both processes:
 

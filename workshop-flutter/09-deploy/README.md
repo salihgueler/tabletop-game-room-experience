@@ -163,7 +163,7 @@ Use the npm scripts — **do not run `cdk deploy` directly** (the scripts pass t
 context, project root, and removal policies the Blocks tooling expects). When it finishes
 you get a CloudFront URL serving the built Flutter web app, talking to the same-origin API.
 
-### 4. Post-deploy verification
+### 5. Post-deploy verification
 
 Open the CloudFront URL and confirm the full flow:
 
@@ -188,7 +188,7 @@ retired. Fixes:
 3. If a preset is stale, pin an explicit **current** inference-profile id on the `dm` (and
    companion) agents instead of the preset, then redeploy.
 
-### 5. Tear down
+### 6. Tear down
 
 ```bash
 npm run destroy

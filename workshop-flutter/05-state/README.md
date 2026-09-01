@@ -60,7 +60,7 @@ Flutter UI code doesn't change at all in this module.
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
 > The `cd` lines are written so you can paste them in order from there.
 
-### 1. **Embedd sub-schemas** for players, rolls, and log entries
+### 1. **Embed sub-schemas** for players, rolls, and log entries
 
    ```ts
    const playerSchema = z.object({

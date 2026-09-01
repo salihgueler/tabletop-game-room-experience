@@ -108,7 +108,7 @@ cp ../../03-characters/solution/index.ts aws-blocks/index.ts
 npm run typecheck
 ```
 
-### 6. Regenerate the Dart client
+### 5. Regenerate the Dart client
 
 ```bash
 cd backend   # the blocks-generate-spec binary lives here
@@ -118,7 +118,7 @@ dart run build_runner build --delete-conflicting-outputs
 flutter analyze
 ```
 
-### 7. Run and test
+### 6. Run and test
 
 ```bash
 # Terminal 1
