@@ -49,6 +49,11 @@ the repository constructs the domain model from those fields.
 
 ### 1. Update the imports
 
+You are pulling in the two pieces the rest of the module needs: `DistributedTable`, the data
+Block that will become the real store, and `z`, the Zod library you'll describe the row shape
+with. `DistributedTable` is what replaces the in-memory `Map` the starter uses — the same
+lookup-by-key idea, but backed by a table that survives a restart.
+
 Open `app/backend/aws-blocks/index.ts` and make sure `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`:
 
    ```ts
@@ -62,6 +67,18 @@ Open `app/backend/aws-blocks/index.ts` and make sure `DistributedTable` is impor
    import { z } from "zod";
    ```
 ### 2. Add the Database Schema and table
+
+A Zod schema is a runtime validator whose TypeScript type is *inferred from the same
+definition* — the closest Dart analogy is declaring a model class and its `fromJson`
+validator in one place, so the shape you check against and the type you program against can
+never drift apart. Here it lists the five fields a hero row holds. `partitionKey: "userId"`
+is the primary lookup key — one hero per account, always fetched by `userId`, the same role
+the key plays in a Dart `Map`.
+
+This one declaration is also what the generator reads: it becomes the Dart type that
+`_character()` in `game_repository.dart` maps field-for-field into the domain `Character`
+(around L240) — which is why these five fields line up exactly with `Character`'s
+`userId`, `name`, `classKey`, `spriteId`, `sprite` in `lib/domain/models.dart`.
 
 Add the character schema and table:
 
@@ -119,6 +136,11 @@ flutter analyze
 ```
 
 ### 6. Run and test
+
+You are proving the one thing the `Map` could never do: that a saved hero outlives the
+process. Run both sides, save a hero, then kill and restart the backend — if the hero is
+still there and character select is skipped, the write landed in the real table on disk, not
+in memory that vanishes on exit.
 
 ```bash
 # Terminal 1

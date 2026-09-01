@@ -62,6 +62,18 @@ Flutter UI code doesn't change at all in this module.
 
 ### 1. **Embed sub-schemas** for players, rolls, and log entries
 
+You are describing the *inside* of a game: who is at the table, the last dice roll, one line
+of the log. You have already met all three on the Dart side — `Player`, `DiceRoll` and
+`LogEntry` in `lib/domain/models.dart` are hand-written mirrors of exactly these shapes.
+
+Declaring them separately, before the table schema that embeds them, is the same move as
+defining small Dart classes before the one that holds a `List<Player>`. The difference is
+that this single declaration does three jobs: it validates every write at runtime, it gives
+TypeScript the type, and it is what the generator reads to emit your Dart types.
+
+Note `rollSchema` is `.nullable()` — no dice have been rolled when a game begins. That is
+exactly why `GameState.lastRoll` is a `DiceRoll?` and not a `DiceRoll` in Dart.
+
    ```ts
    const playerSchema = z.object({
      id: z.string(),
@@ -95,6 +107,17 @@ Flutter UI code doesn't change at all in this module.
    ```
 
 ### 2. **Table schemas and constructions**
+
+Now the rows that actually get stored. `gameStates` embeds the sub-schemas from step 1 via
+`z.array(playerSchema)`, so a single row holds the entire table state instead of spreading
+players across a table of their own. That is deliberate: a turn reads and writes the whole
+state at once, so keeping it in one row makes the read atomic and cheap.
+
+`chatMessages` is keyed by `(gameId, ts)` — a partition key plus a sort key — so messages
+for one game come back already ordered by time. That ordering is load-bearing on the client:
+`getChat()` in the repository maps the response straight through, and nothing in the Flutter
+chat panel sorts it. The order you see on screen is the order the database returned.
+
 Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
 
    ```ts
@@ -162,6 +185,13 @@ Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
 
 ### 5. Update the **`saveAndBroadcast`** to bump the version and return the new object:
 
+You are giving every saved state a monotonically increasing `version`, and that single
+`+ 1` is what makes the client's staleness check work. In `game_view_model.dart`,
+`refresh()` only adopts a fetched state when `fresh.version >= state!.version` — a response
+that raced in carrying an older version is silently dropped rather than clobbering newer
+truth. Bump it here and the Dart gate you'll read at the end of this module has something to
+compare against.
+
    ```ts
    async function saveAndBroadcast(state: GameState) {
      const next = { ...state, version: state.version + 1 };
@@ -212,6 +242,12 @@ Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
    Flutter — it's still live, mid-round, with the full chat log. That's persistence.
 
 ### 9. **Inspect the data on disk:**
+
+You are looking at the tables you just declared, now materialised as real JSON files. Where
+the old code held game state in an in-memory `Map` that vanished on restart, `DistributedTable`
+writes each row to disk — seeing `tt-gameStates` and `tt-chat` appear is the concrete proof
+that persistence is doing its job, and it's the same data your dev-server restart in step 8
+just read back.
 
    ```bash
    ls backend/.bb-data/    # tt-gameStates and tt-chat now exist alongside tt-games

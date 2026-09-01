@@ -61,6 +61,16 @@ disappears.
 
 ### 2. **Construct** the Realtime block after the tables, reusing `chatSchema`:
 
+You are declaring three named channels the client can subscribe to — `state`, `chat`, and
+`thinking` — each with its own payload schema. Note `chat` reuses the exact `chatSchema`
+you built in module 05, so a message you *publish* over the wire is validated against the
+same shape as a message you *stored* in the table; the two can't drift apart.
+
+Keep the key distinction from the Concept section in mind here: a channel broadcasts a
+*signal, not the truth*. The `state` namespace carries only `{ gameId, version }`, not the
+game itself — the client takes that as a nudge to refetch `getState` over RPC and stays
+server-authoritative. You are wiring notification, not replication.
+
    ```ts
    const rt = new Realtime(scope, "rt", {
      namespaces: {
@@ -104,6 +114,15 @@ Every `publish("...", key, payload)` becomes:
    ```
    
 ### 6. **Regenerate the Dart client bindings:**
+
+Regenerating gives you channel methods that return a raw `RealtimeChannel<dynamic>` — a
+handle to the socket, with no idea what your app wants to do with each event. Turning that
+into something the UI can actually consume is the repository's job, and unlike the schemas
+this part is hand-written: the generator knows a channel *exists*, but not that a `chat`
+frame should become a `ChatMessage` or that a `state` frame is a signal to throw away and
+refetch. That decoding lives in `game_repository.dart` — `stateEvents`, `chatEvents`, and
+`thinkingEvents` (around L146–176), each wrapping a channel into a typed Dart `Stream`
+(shown just below).
 
    ```bash
    cd backend   # Make sure you are at backend folder

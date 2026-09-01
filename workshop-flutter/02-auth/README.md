@@ -112,6 +112,13 @@ Find the comments and implementation details about auth mocks and fake users and
 
 ### 6. Regenerate the Dart client
 
+This is the loop that turns the backend edit you just made into Dart you can call.
+`blocks-generate-spec` reads `index.ts` and writes the OpenRPC contract; `build_runner`
+turns that contract into `blocks.blocks.dart`; `flutter analyze` proves your client still
+compiles against the new shape. Run it after *every* backend change — swapping the fake
+auth for the real Block changed method signatures, and until you regenerate, the Dart types
+in your app still describe the old backend.
+
 ```bash
 cd backend   # the blocks-generate-spec binary lives here
 npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
@@ -139,6 +146,11 @@ variants consumed in `lib/data/repositories/game_repository.dart`. The Dart runt
 subsequent RPC calls.
 
 ### 7. Run and test
+
+Clicking around the app can only show you what the UI *chooses* to show — it can't prove the
+guard is real. Running both processes and then hitting the API directly (the `curl` in Verify
+below) does: an unauthenticated call fails with a 401 no matter what the buttons do, because
+the check lives on the server, not in the Flutter code.
 
 Start both processes:
 

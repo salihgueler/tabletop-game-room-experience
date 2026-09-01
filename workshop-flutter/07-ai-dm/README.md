@@ -63,6 +63,12 @@ read through what each piece does before moving on.
 
 ### 1. Update the imports
 
+You are pulling in the pieces this module adds: `Agent`, the block itself, and two model
+presets that name which model runs where — `BedrockModels` for the deployed cloud model and
+`OllamaModels` for a local one. The other imports (`ApiNamespace`, `AuthBasic`,
+`DistributedTable`, `Realtime`, and friends) are the blocks you already built in earlier
+modules, unchanged.
+
 ```ts
 import {
   ApiNamespace,
@@ -77,6 +83,13 @@ import {
 ```
 
 ### 2. Add the `dm` Agent construction
+
+You are declaring the Dungeon Master: a `systemPrompt` that gives it a persona, and a `model`
+map that is really an ordered provider chain. `deployed` picks Bedrock when the app runs on
+AWS, `local` picks Ollama when a model is running on your machine, and the canned provider is
+appended implicitly as the last resort. That chain is the reason this whole module works with
+no AI setup at all — if neither a cloud nor a local model is reachable, the agent still
+resolves, it just answers with the deterministic canned text.
 
 ```ts
 const dm = new Agent(scope, "dm", {
@@ -315,6 +328,10 @@ rather than trusting a preset that can be retired underneath you.
    and the fixed class menu. The thinking bar shows the fallback prompt text.
 
 ### 7. **Run it (real AI — fully optional):** only if you _want_ live, improvised narration.
+   This step is entirely skippable — everything in this workshop, deploy included, works on
+   the canned fallback. Add a live model and the difference you'll actually see is that action
+   choices become scene-specific instead of the fixed class menu, and the thinking bar streams
+   real tokens instead of showing a static fallback line.
    Install and run [Ollama](https://ollama.com), then:
 
    ```bash

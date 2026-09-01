@@ -190,6 +190,13 @@ retired. Fixes:
 
 ### 6. Tear down
 
+This is the step people skip and then get billed for — the resources you deployed keep
+costing money until you remove them. Note the sandbox and the production stack come down with
+different commands: `npm run sandbox:destroy` (step 2) for the ephemeral sandbox,
+`npm run destroy` below for the full production stack. Deleting the CloudFront distribution is
+slow (roughly 15–40 minutes, as the cost note above warns), so a destroy that looks stuck part
+way through is almost always normal — let it finish rather than killing it.
+
 ```bash
 npm run destroy
 ```

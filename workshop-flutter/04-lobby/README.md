@@ -46,6 +46,14 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
 
 ### 1. Update the game schema
 
+The two new fields exist purely to make *listing* possible. In module 03 you always knew
+the one key you wanted, so you fetched a single item and were done. The lobby is the
+opposite: you want every game at once. `listKey` is a constant partition key — every game
+you write carries `"all"`, so they all land in the same partition and one query can read
+them back together. `gameId` is the sort key, keeping each row unique within that shared
+partition. This is the step that makes the `byCreated` GSI in step 2 possible; without a
+shared partition to index, there would be nothing to query.
+
 Add game schema like below. This schema adds two new fields the Map version didn't need — `listKey` and `gameId`:
 
  ```ts
@@ -128,6 +136,10 @@ Now update the following:
    ```
 
 ### 5. **Run the app:**
+
+You are starting the backend and the Flutter client together to confirm the table-backed
+lobby behaves end to end — that seeded games load, a game you create shows up, and the
+list survives a restart. The steps below tell you exactly what to click and resize.
 
    ```bash
    # Terminal 1 — from workshop-flutter/app/
