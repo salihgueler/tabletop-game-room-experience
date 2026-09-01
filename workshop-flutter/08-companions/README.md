@@ -106,6 +106,22 @@ Now it streams the agent's reasoning tokens to the `thinking` channel, parses JS
 validates the action against `options` (fuzzy-matched), and falls back to a random
 valid action if the model errors or returns junk:
 
+**Read this as a diff from module 07, not as new code.** The streaming / parse / fallback
+skeleton below is *identical* to `nextScene`: emit "start", stream the model, forward each
+`text-delta` chunk to the `thinking` channel, `complete()`, pull the `{...}` JSON out with
+the same regex, and fall back on any error. You've already read all of that — skim it.
+
+Only two ideas here are genuinely new, so spend your attention on them:
+
+- **One `Agent` per class, each with its own persona prompt** (built in the loop in step 1).
+  The `const agent = companions[classKey]` line picks the right persona-driven agent for
+  the companion whose turn it is.
+- **Fuzzy action-validation.** The `options.find((o) => ...)` block forces the model's
+  chosen `action` onto a *real* option from the server's `options` list — exact match, or
+  either string containing the other. If nothing matches, it falls back to a random valid
+  option. This is what guarantees a companion can never pick an action that doesn't exist
+  and stall the turn.
+
 ```ts
 async function companionDecide(
   gameId: string,

@@ -15,9 +15,12 @@ and your hero is still there — character select is skipped.
 ## Concept
 
 `DistributedTable` is the default data Block: structured items with a partition key
-(optionally a sort key) and secondary indexes. Locally it persists to JSON under
+(the primary lookup key for an item — think of it like the key you'd use in a Dart `Map`)
+and optionally a sort key and secondary indexes. Locally it persists to JSON under
 `.bb-data/`; deployed it's DynamoDB (a NoSQL database). You define the shape with
-a **Zod schema** (validated on every write) and read/write by key:
+a **Zod schema** — a runtime schema validator whose TypeScript type is *inferred* from
+the same definition, so one declaration both checks the data and types it — validated on
+every write, and read/write by key:
 
 ```ts
 const characters = new DistributedTable(scope, "characters", {
@@ -40,11 +43,11 @@ the repository constructs the domain model from those fields.
 
 ## Steps
 
-
-### 1. Update the imports
-
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
 > The `cd` lines are written so you can paste them in order from there.
+
+
+### 1. Update the imports
 
 Open `app/backend/aws-blocks/index.ts` and make sure `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`:
 
@@ -165,6 +168,56 @@ Flutter verify:
 3. Start `npm run dev` again.
 4. Hot-restart the Flutter app — you're taken straight to the Guild Hall (character
    already loaded).
+
+### The Flutter side
+
+Persisting the hero didn't change the wire type — `getCharacter` still returns the same
+`GetCharacterResult`. What's worth studying this module is the *seam* on the Flutter side:
+where that generated type stops and the app's own **domain model** begins. Open
+`app/lib/data/repositories/game_repository.dart`.
+
+**The mapping boundary.** Find `_character()` (around L240):
+
+```dart
+Character _character(GetCharacterResult value) => Character(
+      userId: value.userId,
+      name: value.name,
+      classKey: value.classKey,
+      spriteId: value.spriteId,
+      sprite: value.sprite,
+    );
+```
+
+`GetCharacterResult` is the generated wire type from `blocks.blocks.dart`; `Character`
+(in `app/lib/domain/models.dart`, around L107) is a hand-written immutable model the UI
+consumes. `_character()` is the one place a `GetCharacterResult` is allowed to exist — it
+is copied field-for-field into a `Character` and never seen again. `_state()` just below
+it (around L248) does the same, larger job: it maps `GetStateResult` into the domain
+`GameState`, and this is where all those `.toInt()` calls from Module 01 live
+(`hp: player.hp.toInt()`, `turnIndex: value.turnIndex.toInt()`) — the boundary is exactly
+where you convert the generated `num` into the `int` the domain model declares.
+
+**Why bother with a domain layer at all?** It would compile fine to hand `GetCharacterResult`
+straight to your widgets. The reason not to:
+
+- **The generated type is regenerated.** Rename a backend field, regenerate, and every
+  widget that read the old name breaks. With a domain layer, the break is contained to the
+  one mapper function — the UI keeps compiling against a stable `Character`.
+- **The domain model can carry behaviour the wire type can't.** `Character` has a computed
+  `String get asset` (it turns `sprite` into an asset path); `Player` and `GameState`
+  add getters like `me` and `narration`. Generated types are dumb data — no derived
+  fields, no domain logic.
+- **The UI stays decoupled from the wire format.** Widgets depend on `models.dart`, not on
+  `blocks.blocks.dart`. The backend can evolve behind the mapper.
+
+**The generated client is a compile-time contract for the client too — prove it (1 min):**
+in `_character()`, change one field read from `value.classKey` to `value.classKeys` (a
+name that doesn't exist) and run `flutter analyze`. The analyzer points at that exact line:
+*The getter 'classKeys' isn't defined for the type 'GetCharacterResult'.* You never ran the
+app, never hit the backend — the spec caught a rename statically, on the Dart side. Now
+revert it and confirm `flutter analyze` is clean again. That is the same safety the
+backend's Zod schema gives the server, extended all the way into your Flutter code: change
+the schema, regenerate, and the analyzer walks you to every read that needs updating.
 
 ---
 

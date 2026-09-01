@@ -157,6 +157,9 @@ Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
    | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
    | `chatStore.get(gameId)` - remove set and bucket related code around               | `await chatMessages.put(msg)`                                                              |
 
+> The `Array.fromAsync(...)` in the chat row drains `query`'s async iterator into a list —
+> the same move as calling `.toList()` on a Dart `Stream`.
+
 ### 5. Update the **`saveAndBroadcast`** to bump the version and return the new object:
 
    ```ts
@@ -241,6 +244,51 @@ curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
   intact.
 - Open a second account, join the same multiplayer game → both clients see consistent
   state after manual refresh.
+
+---
+
+### The Flutter side
+
+The Concept section made a claim — *"Flutter is a pure renderer, the server owns the
+dice."* Here's where that stops being a slogan and becomes a line of code you can point
+at.
+
+Open `app/lib/ui/features/game/game_view_model.dart` and read `refresh()` (around
+L45–54). It fetches the authoritative state and then applies it through a **version
+gate**:
+
+```dart
+final fresh = await _repository.getState(gameId);
+if (state == null || fresh.version >= state!.version) state = fresh;
+```
+
+That `version` field is the one you just added to `gameStateSchema` and bumped in
+`saveAndBroadcast`. The client keeps whichever state it holds unless the server's version
+is **at least as new** — a stale response that raced in behind a newer one is silently
+dropped. The client never invents state, never decrements a version, never rolls a die;
+it only ever *adopts* a fresher server truth. This is the code-level meaning of
+"server-authoritative": the backend owns `version`, and Flutter's job is to notice it
+went up and re-render.
+
+The rendering itself leans on three computed getters on `GameState` in
+`app/lib/domain/models.dart` (around L246–250) — no field on the wire, pure functions of
+the state the server sent:
+
+- `current` — the player whose turn it is, `players[turnIndex]` (bounds-checked). Drives
+  "whose turn" in the UI. `turnIndex` is server-owned; Flutter just indexes into it.
+- `me` — the player matching `viewerUserId`, or `null` if you're a spectator. Note the
+  view model derives *my turn* from these two together (`isMyTurn`, around L138–144:
+  `current?.userId == viewerUserId`) — the client asks "is the server's current player
+  me?", it does not decide the turn.
+- `isHost` — `players.first.userId == viewerUserId`. Only the host's client drives AI
+  turns (`_driveBotIfNeeded`), so this getter gates who nudges the bot forward — again, a
+  read off server state, not a client-side election.
+
+**The payoff:** because these are all *derived from* `GetStateResult`, swapping the
+backend's storage from a `Map` to a `DistributedTable` this module changed nothing in the
+Flutter code — the renderer can't tell where the state came from, only what version it's
+at. That's exactly why "works locally against a `Map`" and "works deployed against a real
+table" are the same behavior.
 
 ---
 

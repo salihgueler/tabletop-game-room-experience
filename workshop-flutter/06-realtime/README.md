@@ -232,6 +232,68 @@ Catch up from `app/backend/`:
 
 ---
 
+### The Flutter side
+
+Step 6 showed the repository turning raw channels into typed `stateEvents` / `chatEvents`
+/ `thinkingEvents` streams. That's the *producer* half. Now look at what **consumes**
+them — `app/lib/ui/features/game/game_view_model.dart`.
+
+`_subscribe()` (around L162) is called once from `start()` (around L27–43). It listens to
+all three streams and wires each to a UI effect:
+
+- `stateEvents` → `stream.listen((_) => unawaited(refresh()))`. The state channel carries
+  only a signal (remember: `{ gameId, version }`), so the handler ignores the payload and
+  calls `refresh()`, which refetches `getState` and runs it through the version gate from
+  module 05. Broadcast a signal, re-read the truth.
+- `chatEvents` → appends each incoming `ChatMessage`, with a dedupe check so a message you
+  sent optimistically (negative timestamp) isn't shown twice when it echoes back.
+- `thinkingEvents` → accumulates `start`/`delta`/`end` reasoning tokens into
+  `thinking` (this is what lights up in modules 07–08).
+
+Every one of those `listen` calls is wrapped so a subscription failure is swallowed rather
+than crashing the screen — because there's a safety net right below it.
+
+That net is the **3-second poll timer**, started in `start()` (around L35):
+
+```dart
+_pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+  unawaited(refresh());
+  unawaited(_loadChat());
+});
+```
+
+It runs *unconditionally*, alongside the live subscriptions. When the WebSocket is
+healthy, live pushes update the board instantly and the poll is redundant (the version
+gate drops the stale re-reads). When the socket drops, the poll is the only thing keeping
+the board fresh — the game degrades from "instant" to "up to 3 seconds behind" instead of
+freezing. This is the consumer-side twin of the fallback the Concept section described.
+
+**Exercise — prove the poll stands alone (~4 min):**
+
+1. In `_subscribe()`, comment out the body of the `stateEvents` block (the
+   `_subscriptions.add(stream.listen(...))` line for state) so no live state pushes
+   arrive.
+2. Run the app (`flutter run -d chrome`), take a turn in a second client, and watch the
+   board still update — just on the 3-second beat instead of instantly. That beat is the
+   poll timer doing the work alone.
+3. Restore the line, then run the test suite:
+
+   ```bash
+   # from workshop-flutter/app/
+   flutter test
+   ```
+
+   Watch `app/test/game_view_model_test.dart` stay green. That test builds a
+   `_ChatFallbackRepository` that **subclasses `GameRepository`** and overrides `getChat`
+   to `throw Exception('History transport unavailable')`, while `stateEvents` /
+   `chatEvents` / `thinkingEvents` return empty streams. It then asserts that after
+   `start()`, the view model still shows one message — the DM line — because when the chat
+   transport fails, `_loadChat()` falls back to `_messagesFromLog(state)`. This is the
+   module where `app/test/` finally means something: it pins the exact
+   degradation-survives-failure behavior you just exercised by hand.
+
+---
+
 ## Checklist
 
 - [ ] `npm run typecheck` passes.

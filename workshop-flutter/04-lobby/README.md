@@ -18,12 +18,16 @@ layout).
 
 Earlier one, you fetched one item by its key. The lobby is different: you need **every** game.
 `DistributedTable` does have a `scan()` (it walks the whole table), but a full-table scan
-is the wrong tool for a listing you run constantly — it's unindexed and gets slower as the
-table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
+(reads every row, and gets slower as the table grows — which is why we query an index
+instead) is the wrong tool for a listing you run constantly — it's unindexed and gets
+slower as the table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
 
-- Give every row the **same** partition key: `listKey: "all"`.
-- Use `gameId` as the **sort key** (unique per game).
-- Add a **secondary index** `byCreated` on `(listKey, createdAt)`.
+- Give every row the **same** partition key (the field the store shards and groups rows
+  by): `listKey: "all"`.
+- Use `gameId` as the **sort key** (the field rows are ordered by within a partition —
+  and here, unique per game).
+- Add a **secondary index** (a GSI, Global Secondary Index — a second way to look rows
+  up, on fields other than the primary key) `byCreated` on `(listKey, createdAt)`.
 - To list them all: `query({ index: "byCreated", where: { listKey: { equals: "all" } } })`
   — one partition, sorted by creation time.
 
@@ -88,6 +92,9 @@ const existing = await Array.fromAsync(
   games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }),
 );
 ```
+
+`Array.fromAsync` drains that async iterator into a plain array — the same idea as
+calling `.toList()` on a Dart `Stream` to collect every event before you work with it.
 
 Now update the following: 
 
@@ -179,6 +186,47 @@ cat backend/.bb-data/tt-games/data.json   # lobby rows, all with listKey:"all"
 
 Catch up from `app/backend/`:
 `cp ../../04-lobby/solution/index.ts aws-blocks/index.ts`
+
+---
+
+### The Flutter side
+
+The backend you just changed serves web, an Android emulator, a desktop build, and
+iOS — all from the **same** JSON-RPC endpoint. The one place that fact bites you is the
+base URL: a Chrome tab and an Android emulator can't both reach the dev server at
+`http://localhost:3001`. Dart solves this without an `if (kIsWeb)` scattered through
+your networking code — it picks a *different source file* at compile time.
+
+Open the conditional-export trio under `app/lib/data/services/`:
+
+- `blocks_api_url.dart` — the shim. It's a one-liner:
+  `export 'blocks_api_url_io.dart' if (dart.library.js_interop) 'blocks_api_url_web.dart';`.
+  When you compile for the web, `dart.library.js_interop` is available, so the `if`
+  clause wins and the web file is exported; for every non-web target (mobile, desktop)
+  the default `_io` file is exported. Callers just `import 'blocks_api_url.dart'` and
+  call `localBlocksApiUrl()` — they never know which one they got.
+- `blocks_api_url_io.dart` (around L1–5) — the native path. It imports `dart:io` and
+  returns `Platform.isAndroid ? '10.0.2.2' : 'localhost'`. `10.0.2.2` is the Android
+  emulator's alias for the host machine's loopback — the emulator is a separate virtual
+  machine, so its own `localhost` is the emulator, not your laptop.
+- `blocks_api_url_web.dart` (around L1) — the web path. Just `localhost`; the browser is
+  already on your machine. It **can't** import `dart:io` (there's no filesystem in a
+  browser), which is the whole reason the split exists.
+
+`http_client_factory.dart` uses the identical trick for the HTTP client itself. On the
+web, `http_client_factory_web.dart` (around L1–4) returns
+`BrowserClient()..withCredentials = true`. That `withCredentials` flag is what makes the
+browser attach the session cookie (the one module 02's auth set) on cross-origin XHRs —
+without it, `listGames` would come back unauthorized even after a successful sign-in. The
+native factory (`http_client_factory_io.dart`) needs no such flag; a Dart VM sends the
+cookie regardless.
+
+**Reason it through:** when you run `flutter run -d chrome`, which file compiles into the
+build — `blocks_api_url_io.dart` or `blocks_api_url_web.dart`? (The web one:
+`dart.library.js_interop` is present.) When you run against an Android emulator, which
+URL does the app hit? (`http://10.0.2.2:3001/...`, from the `_io` file's `Platform.isAndroid`
+branch.) Get this wrong and the symptom is always the same: the app builds fine but every
+request hangs or connection-refuses, because it's dialing the wrong host.
 
 ---
 

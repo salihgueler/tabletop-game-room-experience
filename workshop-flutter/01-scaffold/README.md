@@ -153,6 +153,67 @@ Flutter side:
 flutter analyze    # zero issues
 ```
 
+### The Flutter side
+
+You just ran `blocks-generate-spec` → `build_runner` and got `lib/blocks.blocks.dart`.
+That file is the whole point of this module for a Flutter developer, so open it now and
+read it — you never wrote a line of it, and you never will.
+
+Open `app/lib/blocks.blocks.dart`. The very first line is your warning label:
+
+```dart
+// Generator: blocks-codegen
+```
+
+and just below it `// GENERATED CODE — DO NOT MODIFY BY HAND`. **Never hand-edit this
+file.** Every backend change re-runs the generator and overwrites it; your edits vanish.
+The way you "change" this file is to change `aws-blocks/index.ts` and regenerate.
+
+Three things to find:
+
+1. **`class Blocks` (around L2836).** This is your entry point. It exposes exactly two
+   fields — one per top-level `export` namespace in the backend:
+
+   ```dart
+   late final ApiApi api;
+   late final AuthApiApi authApi;
+   ```
+
+   That is the rule to internalise: **every `ApiNamespace` you `export` from the backend
+   becomes one Api class on the Dart client.** `export const api = ...` → `Blocks.api`;
+   `export const authApi = ...` → `Blocks.authApi`. No routes, no URLs, no manual wiring —
+   the namespace name is the field name.
+
+2. **`class ApiApi` (around L2102).** Every backend method is a typed Dart method here.
+   Read `getCharacter`:
+
+   ```dart
+   Future<GetCharacterResult?> getCharacter() async { ... }
+   ```
+
+   The return type, the parameters, the nullability — all inferred from the TypeScript.
+   `getState({required String gameId})` forces you to pass a `gameId`; forget it and the
+   Dart analyzer stops you before the app ever runs. This is the payoff of the spec: the
+   backend contract is a compile-time contract on the client too.
+
+3. **A result type — `class GetCharacterResult` (around L1492).** One Dart class per
+   backend return shape, with `fromJson`/`toJson` written for you. Its fields
+   (`userId`, `name`, `classKey`, `spriteId`, `sprite`) are exactly the fields the backend
+   returns.
+
+**The `num` gotcha — the one thing that will bite you.** TypeScript has a single `number`
+type, so the generator cannot tell an `int` from a `double`. It plays it safe and emits
+**`num`**, not `int`. Look at `GetStateResult` (around L452): `hp`, `slot`, `turnIndex`,
+`version` are all `final num`. That is why the repository you'll meet next module is full
+of `.toInt()` calls — e.g. `hp: player.hp.toInt()` in `game_repository.dart`. Whenever a
+backend number needs to be a Dart `int` (a list index, a widget count, a
+`DateTime.fromMillisecondsSinceEpoch` argument), you call `.toInt()` yourself. Expect it;
+it is not a bug.
+
+You don't build a `Blocks` by hand — the app's service layer does — but knowing these
+three shapes (namespace → Api class, method → typed method, return → result class) means
+you can read any generated symbol the rest of the workshop throws at you.
+
 ---
 
 ## Checklist

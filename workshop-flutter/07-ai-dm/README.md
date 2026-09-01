@@ -49,15 +49,17 @@ that options become scene-specific; the tell that it's _failing_ is options reve
 the fixed class list.
 
 The chain is: **Bedrock (deployed) → Ollama (local) → canned provider (implicit final
-fallback)**. The canned provider is always appended automatically — you never declare it.
+fallback)**. The canned provider — the built-in offline provider that returns the
+deterministic, hand-written text instead of calling a model — is always appended
+automatically; you never declare it.
 
 ## Steps
 
-Below is the actual code you're copying in this module's checkpoint, so you can
-read through what each piece does before moving on.
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
 > The `cd` lines are written so you can paste them in order from there.
 
+Below is the actual code you're copying in this module's checkpoint, so you can
+read through what each piece does before moving on.
 
 ### 1. Update the imports
 
@@ -129,6 +131,23 @@ a JSON scene + options, parses (with one retry), and falls back to the generic p
 class actions if parsing fails:
 
 > `companionDecide` stays canned for now — that's module 08.
+
+**The shape, before the code.** The real block below is long, but the flow is small.
+Read this first so you can tell the lesson from the plumbing:
+
+```text
+emit "start" to the thinking channel
+for up to two attempts:
+    stream the model
+    forward each text-delta chunk to the thinking channel (live reasoning)
+    complete the stream and collect the full text
+    extract the JSON object from that text
+    if it has enough options -> emit "end" and return the scene
+otherwise -> fall back to the fixed per-class actions
+```
+
+Everything below is that same flow, hardened: the extra lines exist to survive small
+local models that stream oddly, wrap JSON in prose, or return malformed output.
 
 ```ts
 async function nextScene(
@@ -223,6 +242,22 @@ async function nextScene(
   return fallback;
 }
 ```
+
+**Reading notes.** Two things are worth knowing before you move on:
+
+- `coerceOptions` is **defensive-only** — safe to skip on a first read. It exists because
+  small local models don't always return a clean array: they hand back options as a comma
+  string, wrapped in `{action: ...}` / `{label: ...}` objects, or prefixed with bullets and
+  numbering. `coerceOptions` normalises all of that into a plain `string[]`. It changes no
+  logic — it only cleans input — so ignore it until you hit a model that misbehaves.
+- Two lines are **load-bearing**, so find them in the block:
+  - `void emit("delta", chunk.text)` — this is what makes "AI thinking" visible live. Each
+    `text-delta` chunk is republished to the `thinking` channel, which is what the Flutter
+    thinking bar renders token-by-token.
+  - `raw.trim().match(/\{[\s\S]*\}/)` — the regex that extracts the JSON object out of
+    whatever the model said. Models routinely wrap their JSON in prose or code fences, so
+    you can't `JSON.parse` the raw text; you pull the `{...}` span out first.
+
 ---
 
 ## No Ollama? No problem — the canned provider
@@ -254,7 +289,9 @@ Investigate") = the canned fallback. Both are correct.
 underlying model id. A retired id fails the agent's health check and **silently falls back
 to canned** — so deployed narration goes generic while local (Ollama) looks fine. If that
 happens, check the deployed Lambda logs for agent errors and pin an explicit, current
-inference-profile id instead of the preset.
+inference-profile id instead of the preset — an inference profile is Bedrock's stable,
+named handle for a specific model version, so pinning it means you name the exact model
+rather than trusting a preset that can be retired underneath you.
 
 ### 5. **Regenerate the Dart client and rebuild:**
 
@@ -299,6 +336,51 @@ inference-profile id instead of the preset.
   atmospheric.
 - With Ollama: options become scene-specific ("Examine the glowing runes"), reasoning
   streams token-by-token to the thinking bar.
+
+### The Flutter side
+
+You just made the backend emit `delta` chunks. This is the other half of that: what turns a
+stream of fragments into the thinking bar you watched fill up.
+
+Open `app/lib/ui/features/game/game_view_model.dart` and find the `thinkingEvents`
+subscription inside `_subscribe()` (around L196-214). It is a three-case state machine over
+the phases your `nextScene` emits:
+
+```dart
+if (event.phase == 'start') {
+  thinking = event;                       // open the bar
+} else if (event.phase == 'delta') {
+  thinking = ThinkingEvent(               // append — note: a NEW object
+    who: event.who,
+    phase: event.phase,
+    text: '${thinking?.text ?? ''}${event.text}',
+  );
+} else {
+  thinking = null;                        // close the bar
+}
+notifyListeners();
+```
+
+Two things here are worth more than the backend code you just wrote:
+
+- **Accumulation lives on the client.** The server sends only the new fragment, never the
+  full text so far. If you forgot the `'${thinking?.text ?? ''}'` prefix you would see each
+  token *replace* the last instead of extending it — a one-character bug that looks like a
+  backend streaming failure. When a stream renders wrong, check who is responsible for
+  accumulating before you go digging in the agent.
+- **It builds a new `ThinkingEvent` rather than mutating the old one**, then calls
+  `notifyListeners()`. This is a `ChangeNotifier`, so the rebuild is what you asked for
+  explicitly — nothing is reactive by magic.
+
+Note the whole block is wrapped in `try { … } catch (_) {}`. The thinking bar is
+deliberately non-essential: if the thinking channel fails, the game keeps playing and you
+simply lose the live reasoning display. Compare that with the state channel, where a failure
+falls back to polling because the board *must* stay current. Deciding which streams are
+load-bearing and which are decoration is a design choice you are making here, not an
+accident of the framework.
+
+**Exercise (2 min):** delete the `'${thinking?.text ?? ''}'` prefix, `flutter run`, and take
+a turn. The bar will flicker one token at a time instead of building a sentence. Put it back.
 
 ## Checklist
 

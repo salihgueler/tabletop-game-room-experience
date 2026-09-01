@@ -31,8 +31,9 @@ The `crossDomain` option matters for native clients: when the Flutter app runs o
 device (or in a web sandbox) at a **different origin** from the API, the session
 cookie needs `SameSite=None; Secure`. Setting
 `crossDomain: process.env.BLOCKS_SANDBOX === "true"` enables this only in deployed
-sandboxes. Locally, the Dart HTTP client and the backend share `localhost:3001`, so
-same-origin rules apply normally.
+sandboxes (`process.env` is Node's environment-variable map, the equivalent of Dart's
+`Platform.environment`). Locally, the Dart HTTP client and the backend share
+`localhost:3001`, so same-origin rules apply normally.
 
 The Flutter UI never changes: `GameRepository.authenticate()` already calls
 `authApi.setAuthState(...)` with the generated `SignInInput` / `SignUpInput` /
@@ -41,10 +42,10 @@ real Block.
 
 ## Steps
 
-### 1. Import the AuthBasic
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
 > The `cd` lines are written so you can paste them in order from there.
 
+### 1. Import the AuthBasic
 
 Add the `AuthBasic` to the import in `backend/aws-blocks/index.ts`:
 
@@ -172,6 +173,84 @@ Flutter check:
 4. Sign out → you're bounced back to the auth screen.
 5. Stop and re-run `flutter run` — sign in again → your session restores if the
    backend stayed up.
+
+### The Flutter side
+
+The backend swap you just made ("discriminated union of auth actions") shows up on the
+Dart side as something a Flutter developer already knows how to reason about: a **sealed
+class**. This is the module where the generated client earns its keep, so open it.
+
+**(a) The sealed input hierarchy.** In `app/lib/blocks.blocks.dart`, find
+`sealed class AuthApiSetAuthStateInput` (around L2287). On the backend, `setAuthState`
+takes a *discriminated union* — one object type per `action` (`"signIn"`, `"signUp"`,
+`"signOut"`, …), each carrying different fields. The generator maps that union to a Dart
+**sealed** base class with one concrete subclass per variant:
+
+```dart
+class SignInInput  extends AuthApiSetAuthStateInput { final String username, password; ... }
+class SignUpInput  extends AuthApiSetAuthStateInput { final String username, password; ... }
+class SignOutInput extends AuthApiSetAuthStateInput { ... }  // no fields
+```
+
+Each subclass carries only the fields its action actually uses — `SignOutInput` has none,
+`SignInInput` has `username`/`password` — so an impossible combination (a sign-out with a
+password) is simply unrepresentable. You can't construct one.
+
+Now see them built. Open `app/lib/data/repositories/game_repository.dart`, method
+`authenticate()` (around L20-38):
+
+```dart
+final input = createAccount
+    ? SignUpInput(username: username, password: password)
+    : SignInInput(username: username, password: password);
+final state = await _service.authApi.setAuthState(input: input);
+```
+
+and `signOut()` right below it constructs `const SignOutInput()`. Because
+`AuthApiSetAuthStateInput` is **sealed**, Dart knows the complete set of subclasses at
+compile time — so a `switch` over one is checked for **exhaustiveness**: leave a variant
+unhandled and it's a *compile error*, not a runtime surprise. That is the same guarantee
+the backend's discriminated union gives TypeScript, carried across the wire to Dart.
+
+**Try it (30 seconds):** paste a scratch switch anywhere in a Dart file —
+
+```dart
+String label(AuthApiSetAuthStateInput i) => switch (i) {
+      SignInInput()  => 'sign in',
+      SignUpInput()  => 'sign up',
+      SignOutInput() => 'sign out',
+      // delete one of these lines...
+    };
+```
+
+Delete one case, run `flutter analyze`, and read the error: it names the missing subtype
+and refuses to compile. Restore the case and it's clean. That exhaustiveness is the whole
+reason a sealed class beats a `String action` field.
+
+**(b) "The session cookie is persisted and resent automatically" — where that's true.**
+The module claims the Dart runtime persists and resends the session cookie for you. It
+does, and here is the actual code path so you trust it rather than take it on faith. It
+lives in the **`blocks_runtime`** package — the runtime `blocks.blocks.dart` imports and
+re-exports (see the `BlocksClient` export at the top of the generated file) — in its
+`BlocksClient`. On each request it attaches whatever cookie the session store holds:
+
+```dart
+final cookie = sessionStore.cookieHeader;
+if (cookie != null) headers['cookie'] = cookie;
+```
+
+and after every response it captures any `set-cookie` the backend sent back:
+
+```dart
+sessionStore.setCookies(response.headers['set-cookie']);
+```
+
+So when `AuthBasic` returns its `HttpOnly` session cookie on sign-in, `BlocksClient`
+stores it and replays it on every later RPC — no token handling in your repository, no
+header code in your widgets. Sign in once, and `getCharacter()` three calls later is
+already authenticated. (The store can be the default in-memory one or a persistent one;
+that's the knob that decides whether the session survives a full app restart vs. only a
+hot-restart.)
 
 ---
 
