@@ -35,6 +35,14 @@ migrate_working_dir/
 /.hosting/
 /coverage/
 
+# Generated from the backend's aws-blocks/index.ts by the regeneration loop in
+# every module. Deliberately NOT tracked: the two files are build outputs, and
+# their content legitimately differs per module (field order follows whichever
+# schema is live), so committing any one version means spurious churn in every
+# other module. You create them in module 01 and they never need reviewing.
+/lib/blocks.spec.json
+/lib/blocks.blocks.dart
+
 # Symbolication related
 app.*.symbols
 

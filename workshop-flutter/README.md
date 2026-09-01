@@ -24,8 +24,8 @@ workshop-flutter/
 ├─ README.md            ← you are here
 ├─ app/                 ← THE project: Flutter frontend + backend/ created in Module 01
 │  ├─ lib/              ← Flutter app (you rarely touch this)
-│  │  ├─ blocks.spec.json       ← generated OpenRPC contract
-│  │  └─ blocks.blocks.dart     ← generated typed Dart client
+│  │  ├─ blocks.spec.json       ← generated in Module 01 (gitignored)
+│  │  └─ blocks.blocks.dart     ← generated in Module 01 (gitignored)
 │  ├─ backend/          ← Node/TypeScript — created by Module 01's scaffold step
 │  │  └─ aws-blocks/index.ts    ← the ONE file you edit each module
 │  └─ pubspec.yaml
@@ -90,11 +90,21 @@ Three rules:
 
 1. **The spec is the contract.** `blocks.spec.json` is generated from the
    TypeScript backend's exports; it defines the RPC surface the Dart client sees.
-2. **Commit spec + generated Dart together.** `blocks.spec.json` and
-   `blocks.blocks.dart` are a pair. Never hand-edit `blocks.blocks.dart` — it's
-   regenerated from the spec by `build_runner`.
+2. **Neither generated file is tracked in git.** `blocks.spec.json` and
+   `blocks.blocks.dart` are build outputs, and they are gitignored on purpose.
+   Both are recreated in seconds by the regeneration loop, and their content
+   legitimately differs from module to module — field order follows whichever
+   schema is live — so committing any one version would show up as churn in every
+   other module. Treat a missing client as normal, not as breakage.
 3. **Never hand-edit `blocks.blocks.dart`.** If types look wrong, fix the
    backend, regenerate, and rebuild.
+
+> **The Flutter app does not compile until you finish Module 01.** `lib/` imports
+> `blocks.blocks.dart`, which does not exist in a fresh clone — you generate it in
+> Module 01, step 3. Until then your editor will show unresolved imports across the
+> app, and that is expected. It is also the point: watching 2,800 lines of typed
+> Dart appear from your own backend definitions is the thing this workshop is
+> about.
 
 ## Independence
 

@@ -75,6 +75,18 @@ Four problems might trip you up if you skip copying these files:
 
 ### 3. Generate the Flutter API
 
+Until you run this, the Flutter app **does not compile** — `lib/` imports
+`blocks.blocks.dart` and that file does not exist yet. Neither it nor
+`blocks.spec.json` is tracked in git; both are build outputs, generated from your
+backend. So this step is not a refresh, it is the moment the client comes into
+existence:
+
+- `blocks-generate-spec` reads your `aws-blocks/index.ts` and writes
+  `blocks.spec.json`, an OpenRPC document describing every exported method.
+- `build_runner` reads that spec and writes `blocks.blocks.dart` — roughly 2,800
+  lines of typed Dart, with a class per API namespace, a model per payload, and
+  `fromJson`/`toJson` for all of them. You wrote none of it and never will.
+
 Run from `app/backend/` (that is where `npm install` put the `blocks-generate-spec`
 binary — from another directory `npx` can't find it locally and tries to download a
 package by that name from npm, which does not exist):
