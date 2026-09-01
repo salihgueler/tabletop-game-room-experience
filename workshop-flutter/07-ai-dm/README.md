@@ -278,8 +278,10 @@ async function nextScene(
 You do **not** need Ollama (or any AWS/Bedrock access) to complete this module. If no local
 model is running, the `Agent`'s model list falls through to the **canned provider**, which
 is appended implicitly as the final fallback. On top of that, `narrate` and `nextScene`
-each wrap the agent call in `try/catch` and drop to the deterministic helpers you kept in
-step 2. So with zero AI setup:
+each wrap the agent call in `try/catch` and drop to the deterministic helpers that were
+already in the file — `cannedNarration` and the `CLASS_META` action lists came with the mock
+backend and you never deleted them; steps 3 and 4 are where you wire the fallback to them.
+So with zero AI setup:
 
 - **Narration** comes from `cannedNarration` — themed, roll-aware outcome text (attacks,
   spells, skills, crits/fumbles) that reads like a DM, just not improvised.

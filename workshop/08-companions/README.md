@@ -207,10 +207,10 @@ async function companionDecide(
 
 Full implementation in [`solution/index.ts`](solution/index.ts).
 
-1. **Nothing else changes.** `advanceBotTurn` already calls `companionDecide` and
+4. **Nothing else changes.** `advanceBotTurn` already calls `companionDecide` and
    `postBotChat` — it doesn't care that the decision now comes from an LLM.
 
-2. **Verify:**
+5. **Verify:**
    Typecheck proves the four agents compile. Whether a real model is answering is a separate
    question, and the Verify section below is where you settle it.
 

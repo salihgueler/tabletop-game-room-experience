@@ -89,7 +89,7 @@ import {
 } from "@aws-blocks/blocks";
 ```
 
-1.  Construct the data inside the building blocks and use the `chatSchema`.
+2.  Construct the data inside the building blocks and use the `chatSchema`.
 
 ```ts
 const rt = new Realtime(scope, "rt", {
@@ -115,11 +115,11 @@ const rt = new Realtime(scope, "rt", {
 });
 ```
 
-2. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
+3. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
    `await rt.publish("...", key, payload)` (in `saveAndBroadcast`, `transcribe`,
    `postBotChat`, `sendChat`). They're already inside `async` functions.
 
-3. **Return real channels** from the three getters:
+4. **Return real channels** from the three getters:
 
    ```ts
    async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
@@ -127,9 +127,9 @@ const rt = new Realtime(scope, "rt", {
    async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
    ```
 
-4. **Delete the realtime mock** — both `fakeChannel()` implementation and the empty `publish()` function.
+5. **Delete the realtime mock** — both `fakeChannel()` implementation and the empty `publish()` function.
 
-5. **Verify:**
+6. **Verify:**
    Typecheck and curl prove the channels exist and the transcript persists. They cannot prove
    the socket is live — that's what the two checks further down are for.
 
