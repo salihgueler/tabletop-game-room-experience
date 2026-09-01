@@ -13,9 +13,12 @@ and your hero is still there.
 ## Concept
 
 `DistributedTable` is the default data Block: structured items with a partition key
-(optionally a sort key) and secondary indexes. Locally it persists to JSON under
-`.bb-data/`; deployed it's DynamoDB (a NoSQL database). You define the shape with a
-**Zod schema** (validated on every write) and read/write by key:
+(the primary lookup key for an item — think of it like the key in a JavaScript `Map`, the
+one value you must supply to fetch a row) (optionally a sort key) and secondary indexes.
+Locally it persists to JSON under `.bb-data/`; deployed it's DynamoDB (a NoSQL database).
+You define the shape with a **Zod schema** (Zod is a runtime schema validator whose
+TypeScript type is inferred from the same definition, so one declaration both checks data
+at runtime and types it at compile time; validated on every write) and read/write by key:
 
 ```ts
 const characters = new DistributedTable(scope, "characters", {
@@ -33,6 +36,14 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
 ## Steps
 
 1. **Import the block and Zod**, and add the schema + table near the top:
+
+   These two imports are the whole toolkit for this module: `DistributedTable` is the
+   persistence Block, and `z` is Zod's builder. Reaching for a validation library the moment
+   you touch stored data will feel familiar — it's the server-side equivalent of validating a
+   form with Zod, Yup, or `io-ts` before you trust the payload. The payoff is that one Zod
+   object becomes both the runtime guard on every write *and* the TypeScript type you code
+   against (step 4), so the shape can't drift between "what the compiler thinks" and "what the
+   database accepts."
 
    ```ts
    import {
@@ -65,7 +76,7 @@ const characters = new DistributedTable(scope, "characters", {
 3. Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block
    (leave `gameStore` / `gameStateStore` / `chatStore` — those are modules 04–05).
 
-4. Replace the `Character` current type, and **use the type from the schema** so there's one source of truth:
+4. Replace the `Character` current type, and **use the type from the schema** so there's one source of truth (`z.infer<typeof schema>` extracts the static TypeScript type from a Zod schema, so you write the shape once and get the type for free):
 
    ```ts
    type Character = z.infer<typeof characterSchema>;
@@ -80,6 +91,9 @@ const characters = new DistributedTable(scope, "characters", {
    | `characterStore.get(user.username)` - in createGame, joinGame and sendChat functions | `await characters.get({ userId: user.username })`           |
 
 6. **Verify:**
+   You are proving the one thing a `Map` could never do: that a hero outlives the process.
+   Save one, restart the dev server, and sign in again — if it's still there, the write landed
+   in a real table on disk.
 
    ```bash
    npm run typecheck
@@ -128,6 +142,52 @@ Catch up / start clean by copying this folder's solution from `workshop/app/`:
 ```bash
 cp ../03-characters/solution/index.ts aws-blocks/index.ts
 ```
+
+---
+
+### The React side
+
+The schema you just wrote isn't arbitrary — it's the exact contract the character-select
+screen already sends. Open `app/src/screens/Login.jsx` and find the `enter` handler (around
+L23-28). On confirm it calls:
+
+```js
+const character = await api.saveCharacter({
+  name: name.trim(),
+  classKey: picked.classKey,
+  spriteId: picked.id,
+  sprite: picked.sprite,
+})
+```
+
+Now put that beside the schema from step 2:
+
+```ts
+const characterSchema = z.object({
+  userId: z.string(),   // ← added server-side from the session, NOT sent by the client
+  name: z.string(),
+  classKey: z.string(),
+  spriteId: z.string(),
+  sprite: z.string(),
+})
+```
+
+Four fields line up one-to-one: `name`, `classKey`, `spriteId`, `sprite`. The client sends
+exactly those; the schema validates exactly those. The fifth field, `userId`, is the
+partition key — the backend stamps it from `user.username` (that's why `saveCharacter`
+doesn't send it, and why one account owns exactly one hero). This is the contract made
+literal: if `Login.jsx` ever sent a field the schema didn't allow, `characters.put(...)`
+would throw at runtime instead of silently writing junk — the same guarantee you'd want
+from validating a form payload before a `fetch`, except here it guards the write itself.
+
+Where do `classKey`, `spriteId`, and `sprite` come from? `app/src/data/classes.js` defines
+the five classes and flattens them into `ALL_CHARACTERS` — 20 pickable sprites, each an
+`{ id, classKey, sprite, label }` record. `Login.jsx` renders that array as the picker
+grid; the selected entry (`picked`) is what supplies `classKey`, `spriteId: picked.id`, and
+`sprite`. So the journey of one hero is: a static record in `classes.js` → the player's
+click sets `picked` in React state → `api.saveCharacter` ships four of its fields → your Zod
+schema validates them → `DistributedTable.put` writes a `.bb-data/tt-characters/` file that
+survives the restart you tested above.
 
 ---
 

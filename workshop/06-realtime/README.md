@@ -14,7 +14,9 @@ or a turn taken in one appears in the other **without a manual refresh**.
 
 `Realtime` is typed pub/sub organized into **namespaces**, each with its own Zod schema.
 You `publish(namespace, key, payload)` on the server and hand the frontend a channel via
-`getChannel(namespace, key)` to `subscribe()` to. The `key` is per-room — here, the
+`getChannel(namespace, key)` to `subscribe()` to (the subscribe handshake — the client
+awaits `sub.established` once the WebSocket connection is confirmed open before trusting the
+feed). The `key` is per-room — here, the
 `gameId` — so each game is its own isolated channel. Locally it's a WebSocket server on
 the same port; deployed it's an API Gateway WebSocket API. Same code.
 
@@ -71,6 +73,12 @@ turn" friction disappears.
 
 1. **Import `Realtime`** Building Block:
 
+   You're pulling one more block into the same import you've been editing since module 02.
+   Nothing runs yet — this is the JS-module equivalent of adding an import at the top of a
+   React file before you use the component further down. The payoff is two steps away: once
+   `Realtime` is constructed and the getters return real channels, the frontend's existing
+   `subscribe` calls start receiving live pushes with no client change.
+
 ```ts
 import {
   ApiNamespace,
@@ -122,6 +130,8 @@ const rt = new Realtime(scope, "rt", {
 4. **Delete the realtime mock** — both `fakeChannel()` implementation and the empty `publish()` function.
 
 5. **Verify:**
+   Typecheck and curl prove the channels exist and the transcript persists. They cannot prove
+   the socket is live — that's what the two checks further down are for.
 
    ```bash
    npm run typecheck
@@ -166,18 +176,64 @@ then read a game's chat with `getChatHistory` and find the game id in your data:
    -d '{"jsonrpc":"2.0","method":"api.getChatHistory","params":["REPLACE_WITH_GAME_ID"],"id":1}'
 ```
 
-On Windows (cmd.exe), one line each with escaped quotes:
-
-```cmd
-curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
-
-curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getChatHistory\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
-```
-
-> Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
-> PowerShell use `curl.exe`.
+On Windows / PowerShell, translate the quoting as shown in
+[the curl reference](../README.md#reference-curl-windows-quoting-and-resetting-state)
+— the JSON body is identical. Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use
+your own credentials.
 
 Catch up from `workshop/app/`: `cp ../06-realtime/solution/index.ts aws-blocks/index.ts`
+
+### The React side
+
+`app/src/screens/GameRoom.jsx` is the client half of everything you just wired. It
+subscribes to all three of your namespaces in three separate `useEffect`s, each in its own
+`try/catch` so a channel that isn't live yet can't crash the room. Each one closes over
+`gameId` and returns `() => sub?.unsubscribe()` so switching rooms tears the socket down.
+
+The **chat** subscription (~L71–78) appends incoming messages, but guards with a timestamp
+de-dupe:
+
+```jsx
+sub = channel.subscribe((msg) =>
+  setChat((c) => (c.some((m) => m.ts === msg.ts && m.who === msg.who) ? c : [...c, msg])),
+)
+```
+
+That guard exists because of React 18 **StrictMode**. In development, StrictMode
+deliberately mounts every component, runs its effects, tears them down, and mounts again —
+a double-invoke designed to surface effects that aren't cleanup-safe. Here it means the
+subscribe effect can run twice before the first unsubscribe lands, so the same message can
+arrive on two live subscriptions. Rather than fight the double-mount, the reducer simply
+refuses to add a message whose `ts`+`who` it already holds — idempotent appends make the
+duplicate a no-op. (The cleanup return is still correct; the de-dupe just makes the dev-only
+overlap harmless.)
+
+The **state** subscription (~L91–92) is the payoff of your "broadcast a signal, not the
+truth" design. The handler ignores the pushed body entirely and just refetches:
+
+```jsx
+sub = channel.subscribe(() => { refreshState() })
+```
+
+Your server publishes only `{ gameId, version }`; the client treats that as "something
+changed, go re-read the authoritative state" and calls the `refreshState` you met in module
+05 (version guard included). Note this is the *only* live-game update path — the 3-second
+`setInterval` above is gated on `roomPhase !== 'lobby'`, so it runs only in the lobby; a
+live game moves purely on these channel-driven refetches (and a client's own post-action
+result). There is no periodic poll during play.
+
+The **thinking** subscription (~L105–113) drives a small start/delta/end reducer for
+streamed AI reasoning:
+
+```jsx
+if (ev.phase === 'start') setThinking({ who: ev.who, color: ev.color, text: '' })
+else if (ev.phase === 'delta') setThinking((t) => t && t.who === ev.who ? { ...t, text: t.text + ev.text } : { who: ev.who, color: ev.color, text: ev.text })
+else if (ev.phase === 'end') setThinking((t) => t && ev.text ? { ...t, text: ev.text } : t)
+```
+
+`start` opens a fresh bubble, each `delta` concatenates a token onto it, and `end` settles
+the final text — the client-side accumulation of the streaming feed you'll fill with a real
+Agent in modules 07–08.
 
 ---
 

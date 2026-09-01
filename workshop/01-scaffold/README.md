@@ -153,7 +153,11 @@ curl -s -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: applicati
 
 You get back the scenarios, DM types, and class metadata. **All RPC — both `api.*` and
 `authApi.*` — POSTs to the single `/aws-blocks/api` endpoint;** the namespace is the part
-of the method name before the dot.
+of the method name before the dot. The wire format is JSON-RPC — a tiny convention where
+every request is a JSON object naming a `method` and its `params` and gets a matching
+response by `id`, so there's one URL and one verb instead of REST's many routes. You never
+hand-write this in the app: the generated client turns `api.getConstants()` into exactly
+the body shown above.
 
 ## 5. The map of mocks
 
@@ -190,6 +194,40 @@ curl ...            # hit the method to confirm the backend behaves
 ```
 
 **Backend must typecheck clean before you touch the frontend.**
+
+---
+
+### The React side
+
+This module keeps asserting that "the frontend already tolerates missing realtime" — go see
+the exact lines that make it true, because that tolerance is the whole reason a no-op mock
+backend yields a playable game. Open `app/src/screens/GameRoom.jsx` and find the state-feed
+effect (around L90-98):
+
+```jsx
+try {
+  const channel = await api.getStateChannel(gameId)
+  sub = channel.subscribe(() => { refreshState() })
+  await sub.established
+} catch { /* realtime unavailable — fall back to per-action refetch */ }
+```
+
+Every `channel.subscribe(...)` in this file — the state feed here, the chat feed just above
+it (around L70-88), and the "thinking" feed below — is wrapped in exactly this shape:
+`try` to subscribe, `catch` and quietly move on. The comment says it out loud: *realtime
+unavailable — fall back to per-action refetch.* That's not defensive boilerplate; it's the
+contract with the mock. In module 01 the backend's `fakeChannel()` never pushes anything, so
+`subscribe` either does nothing or throws, and either way this component doesn't care — it
+already refetches state after every action (see `refreshState` and the `act` handler). Live
+push is a *bonus* the UI opportunistically uses if it's there.
+
+If you've written a React data component that treats websockets as an enhancement over a
+`fetch`-on-interval baseline — render from the fetch, upgrade to live updates when the socket
+connects, degrade silently when it doesn't — this is that exact pattern. The concrete payoff:
+because the render path only ever depends on `refreshState`, module 06 can drop in a real
+`Realtime` block and light up live updates without changing a single line of `GameRoom.jsx`.
+The mock and the real backend present the same `channel.subscribe` shape; this `try/catch` is
+what lets one component work unchanged against both.
 
 ---
 

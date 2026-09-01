@@ -10,7 +10,7 @@
  *
  * Still mocked (later modules replace these):
  *   - persistence .. in-memory Maps            (Modules 03–04 → DistributedTable)
- *   - realtime ..... stubbed channels          (Module 05 → Realtime)
+ *   - realtime ..... stubbed channels          (Module 06 → Realtime)
  *   - AI ........... canned narration          (Modules 07–08 → Agent)
  *
  * Only edit THIS file for backend logic. index.cdk.ts / index.handler.ts /
@@ -100,7 +100,7 @@ const gameStore = new Map<string, Game>(); // key: gameId
 const gameStateStore = new Map<string, GameState>(); // key: gameId
 const chatStore = new Map<string, ChatMsg[]>(); // key: gameId
 
-// ─── MOCK: realtime (Module 05 → Realtime) ──────────────────────────────────────
+// ─── MOCK: realtime (Module 06 → Realtime) ──────────────────────────────────────
 // Real Realtime pushes live updates over WebSocket. The frontend wraps every
 // subscription in try/catch and falls back to polling getState, so a channel
 // that never delivers is safe: the game still works, just via refetch. We return

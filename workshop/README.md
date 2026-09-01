@@ -69,7 +69,7 @@ Work through them in order. Each is a runnable checkpoint.
 | 04  | [Guild Hall lobby](04-lobby/)                   | `gameStore` Map                     | `DistributedTable` + GSI |
 | 05  | [Game state & chat (turn engine)](05-state/)    | `gameStateStore` / `chatStore` Maps | `DistributedTable`       |
 | 06  | [Realtime](06-realtime/)                        | `fakeChannel` / `publish`           | `Realtime`               |
-| 07  | [AI Dungeon Master](07-ai-dm/)                  | `narrate` / `nextScene`             | `Agent`                  |
+| 07  | [AI Dungeon Master](07-ai-dm/)                  | `cannedNarration` / `nextScene`      | `Agent`                  |
 | 08  | [AI companions](08-companions/)                 | `companionDecide`                   | `Agent` × party          |
 | 09  | [Deploy](09-deploy/)                            | —                                   | CDK `Hosting`            |
 
@@ -109,3 +109,34 @@ npm run dev        # client → http://localhost:3000, backend → http://localh
   `curl` the method → then use the UI.
 - **Reset local state** any time with `rm -rf app/.bb-data` (real Blocks persist there
   locally from module 03 on).
+
+## Reference: curl, Windows quoting, and resetting state
+
+The modules reuse a few conventions when you verify a method from the terminal.
+They're stated once here so each module can link back instead of repeating them.
+
+**Signed-in API calls (cookie jar).** Protected methods need a session. Sign in
+once with `-c` to save the cookie jar, then reuse it with `-b` on every following
+call:
+
+```bash
+# sign in, saving the session cookie (swap in your own account)
+curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"authApi.setAuthState","params":[{"action":"signIn","username":"aldric","password":"password123"}],"id":1}'
+# then call any protected method with -b cookies.txt
+```
+
+**Windows quoting.** On Windows `cmd.exe`, put the whole request on one line and
+escape the inner quotes, e.g. `-d "{\"jsonrpc\":\"2.0\", ...}"`. In **PowerShell**
+use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`). Every
+`curl` block in the modules translates this way — the JSON body is identical,
+only the quoting changes.
+
+**Reset local state.** Real Blocks persist to `app/.bb-data/` locally (from
+module 03 on). Wipe it any time to start clean — required before a module whose
+seed only runs on an empty table:
+
+```bash
+rm -rf app/.bb-data
+```

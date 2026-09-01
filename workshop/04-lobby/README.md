@@ -1,9 +1,10 @@
 # Module 04 — Guild Hall lobby (`gameStore` Map → `DistributedTable` + GSI)
 
 **Goal:** persist lobby rows in a real table and learn the pattern for listing a whole
-collection without a full-table scan.
+collection without a full-table scan (reading every row to find the ones you want).
 
-**Block introduced:** `DistributedTable` (with a secondary index / GSI)
+**Block introduced:** `DistributedTable` (with a secondary index / GSI — Global Secondary
+Index, a second way to look rows up besides the table's own key)
 **You edit:** `app/aws-blocks/index.ts`
 **You'll know you're done when:** the seeded games appear, a created game shows up in the
 list, and Join-Private resolves by access code — all surviving a restart.
@@ -17,8 +18,10 @@ Module 03 fetched one item by its key. The lobby is different: you need **every*
 is the wrong tool for a listing you run constantly — it's unindexed and gets slower as the
 table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
 
-- Give every row the **same** partition key: `listKey: "all"`.
-- Use `gameId` as the **sort key** (unique per game).
+- Give every row the **same** partition key (the field the table shards and groups by):
+  `listKey: "all"`.
+- Use `gameId` as the **sort key** (the field that orders rows within one partition — here,
+  unique per game).
 - Add a **secondary index** `byCreated` on `(listKey, createdAt)`.
 - To list them all: `query({ index: "byCreated", where: { listKey: { equals: "all" } } })`
   — one partition, sorted by creation time.
@@ -66,7 +69,8 @@ const games = new DistributedTable(scope, "games", {
    `gameStateStore` and `chatStore` — that's module 05).
 
 4. **Type from schema:** `type Game = z.infer<typeof gameSchema>;` (delete the hand-written
-   `Game` type). Note `Game` now includes `listKey`.
+   `Game` type). `z.infer` reads the static TypeScript type back out of a Zod schema, so the
+   runtime validator and the compile-time type stay one definition. Note `Game` now includes `listKey`.
 
 5. **Swap every call site.** All become `async`, and every write must include
    `listKey: "all"`. When you are asked to query the item, paste the following:
@@ -89,6 +93,14 @@ const games = new DistributedTable(scope, "games", {
    The completed version is in [`solution/index.ts`](solution/index.ts) — diff against yours.
 
 6. **Verify:**
+
+   These two commands are your smoke test. `npm run typecheck` is the same `tsc`
+   gate you would wire into a CI step — it proves your `z.infer` types and the
+   table config still line up before anything runs. Deleting `.bb-data` wipes the
+   local table files so the seed path runs on a clean slate, the way clearing
+   `localStorage` forces a first-run flow in a React app. What you are really
+   confirming is that the rows survive the process boundary: start, look, restart,
+   look again.
 
    ```bash
    npm run typecheck
@@ -128,17 +140,42 @@ const games = new DistributedTable(scope, "games", {
      -d '{"jsonrpc":"2.0","method":"api.listGames","params":[],"id":1}'
    ```
 
-   On Windows (cmd.exe), one line each with escaped quotes:
-
-   ```cmd
-   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
-
-   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.listGames\",\"params\":[],\"id\":1}"
-   ```
-
-   > Replace `aldric` / `password123` with your account. In PowerShell use `curl.exe`.
+   On Windows / PowerShell, translate the quoting as shown in
+   [the curl reference](../README.md#reference-curl-windows-quoting-and-resetting-state)
+   — the JSON body is identical. Replace `aldric` / `password123` with your account.
 
 Catch up from `workshop/app/`: `cp ../04-lobby/solution/index.ts aws-blocks/index.ts`
+
+### The React side
+
+The listing you just built is consumed by `app/src/screens/GuildHall.jsx`. Open it and
+trace one value all the way through. Near the top the screen holds the list in local state:
+
+```jsx
+const [games, setGames] = useState([])
+```
+
+`refresh` (a `useCallback`, ~L26) does the whole job in one line — `setGames(await
+api.listGames())`. Whatever array your server-side `listGames` returns becomes the `games`
+state verbatim; there is no client-side reshaping. It runs once on mount from the
+`useEffect` (~L37) and again whenever the host clicks the ⟳ "Refresh games" rail button.
+
+The render maps that state straight onto cards (~L120):
+
+```jsx
+games.map((g) => <GameCard key={g.id} game={g} onJoin={() => onOpenGame(g.id)} />)
+```
+
+`key={g.id}` is the `id` field you set from `g.gameId` server-side — the same value passed
+back to `onOpenGame` when a card's Join button is clicked, closing the loop from the row in
+the table to the game the user opens. Inside `GameCard` you can see exactly which fields of
+your assembled shape the UI reads: `game.name` and `game.note` for the heading,
+`game.party`/`game.maxParty` for "seats filled", `game.dmLevel`, `game.partyClasses` for the
+class sprites, and `game.members` for the expandable roster. Note one honest detail: your
+server also returns `theme` and a precomputed `status` string, but the card doesn't use them
+directly — it derives its own status text from the `finished` and `full` booleans instead
+(`statusText`, ~L262). So the query you wrote is the single source of the list, but the
+component still owns its own presentation of it.
 
 ---
 
@@ -154,7 +191,8 @@ Catch up from `workshop/app/`: `cp ../04-lobby/solution/index.ts aws-blocks/inde
 - Listing a collection in Blocks = **constant partition key + a GSI + query** — a targeted
   index read, not a full-table `scan()`.
 - `query()` takes an optional **index name** (from `indexes`) and returns an async iterator
-  — `Array.fromAsync(...)` collects it. Omit `index` to query the base table by its
+  — `Array.fromAsync(...)` collects it (draining a stream into an array, the way you'd call
+  `.toList()` on one). Omit `index` to query the base table by its
   primary key (that's how module 05 reads a game's chat by `gameId`).
 - A sort key (`gameId`) makes each row unique within the shared partition; the index sort
   key (`createdAt`) gives you ordering.

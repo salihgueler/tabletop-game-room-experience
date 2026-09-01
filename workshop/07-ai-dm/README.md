@@ -30,6 +30,10 @@ const dm = new Agent(scope, "dm", {
 });
 ```
 
+The `systemPrompt` is the agent's standing instruction — set once at construction and
+applied to every call — as opposed to the per-call `message` you pass to `dm.stream(...)`,
+which carries the specifics of this one turn (the action, the roll, the scene).
+
 Two call shapes you'll use:
 
 - **Simple completion** (`narrate`): `await dm.stream(msg)` → `await result.complete()` →
@@ -76,11 +80,19 @@ Investigate") = the canned fallback. Both are correct.
 underlying model id. A retired id fails the agent's health check and **silently falls back
 to canned** — so deployed narration goes generic while local (Ollama) looks fine. If that
 happens, check the deployed Lambda logs for agent errors and pin an explicit, current
-inference-profile id instead of the preset.
+inference-profile id instead of the preset. (An inference profile is Bedrock's stable,
+region-aware handle for a specific model version; pinning its id means you name the exact
+model rather than a preset alias that Bedrock can silently re-point.)
 
 ## Steps
 
 1. **Import** `Agent`, `BedrockModels`, `OllamaModels` and
+
+   These three names are all you add to the existing import. `Agent` is the LLM
+   block itself; `BedrockModels` and `OllamaModels` are enums of ready-made model
+   presets you'll hand to the agent's `model` field in step 2 — `BALANCED` for the
+   deployed Bedrock path, `SMALL` for the local Ollama path. Everything else in the
+   list is already there from earlier modules; just append these to the block.
 
 ```ts
 import {
@@ -150,6 +162,37 @@ const dm = new Agent(scope, "dm", {
    stream `text-delta` chunks to the `thinking` channel via `rt.publish("thinking", ...)`,
    parse the JSON (with a coercion helper + one retry), and fall back to the generic
    prompt + class actions if parsing fails.
+
+   **The shape, before the code.** The block below is long, but the flow is small.
+   In pseudocode:
+
+   ```text
+   emit "start" to the thinking channel
+   for up to two attempts:
+     stream the model
+     forward each text-delta chunk to the thinking channel   ← moves the bar
+     complete the call
+     pull the first {...} JSON object out of the reply text
+     if it parses and has >= 2 options: emit "end", return { prompt, options }
+   otherwise: emit "end", fall back to the fixed class menu
+   ```
+
+   The real block below is the hardened version of exactly that — the extra lines
+   are guards against the messy JSON small local models emit. A `text-delta` is one
+   streamed fragment of the model's reply (token streaming: the model sends its
+   answer in pieces as it generates, rather than all at once).
+
+   A couple of reading hints:
+
+   - `coerceOptions` is **defensive-only** — it normalizes the ways a small model
+     mangles the `options` field (a comma-separated string, objects wrapped as
+     `{action}`/`{label}`, bullet/quote prefixes). Safe to skip on a first read;
+     it never runs its interesting branches when the model behaves.
+   - Two lines are load-bearing. The `void emit("delta", chunk.text)` is what makes
+     the "thinking" bar visibly move — drop it and inference still works but the bar
+     stays empty. And `raw.trim().match(/\{[\s\S]*\}/)` is the regex that extracts
+     the JSON object out of any surrounding prose, so a model that says "Sure! {...}"
+     still parses.
 
    ```ts
    // Ask the DM to set the scene for the NEXT actor and emit 3–4 concrete, situation-
@@ -290,18 +333,61 @@ Play a turn. Even without a model, the fallback keeps it playable.
      -d '{"jsonrpc":"2.0","method":"api.getState","params":["REPLACE_WITH_GAME_ID"],"id":1}'
    ```
 
-   On Windows (cmd.exe), one line each with escaped quotes:
-
-   ```cmd
-   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
-
-   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getState\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
-   ```
-
-   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
-   > PowerShell use `curl.exe`.
+   On Windows / PowerShell, translate the quoting as shown in
+   [the curl reference](../README.md#reference-curl-windows-quoting-and-resetting-state)
+   — the JSON body is identical. Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use
+   your own credentials.
 
 Catch up from `workshop/app/`: `cp ../07-ai-dm/solution/index.ts aws-blocks/index.ts`
+
+### The React side
+
+The backend streams the DM's reasoning as `text-delta` chunks, and each chunk is only the
+**new fragment** — the server does not resend the growing string. So the accumulation is the
+**client's** job: the React app has to concatenate every fragment as it arrives. The workshop
+only had you build the emitting half; here's the receiving half so the whole streaming loop
+makes sense.
+
+Look at `app/src/screens/GameRoom.jsx`. A `thinking` state holds the live banner:
+
+```jsx
+// ~L23
+const [thinking, setThinking] = useState(null) // { who, color, text } live agent reasoning
+```
+
+A subscription to `getThinkingChannel` reduces the three phases into that state (~L99–113):
+
+```jsx
+const channel = await api.getThinkingChannel(gameId)
+sub = channel.subscribe((ev) => {
+  if (ev.phase === 'start') setThinking({ who: ev.who, color: ev.color, text: '' })
+  else if (ev.phase === 'delta') setThinking((t) => t && t.who === ev.who
+    ? { ...t, text: t.text + ev.text }        // ← accumulate: OLD text + new fragment
+    : { who: ev.who, color: ev.color, text: ev.text })
+  else if (ev.phase === 'end') setThinking((t) => t && ev.text ? { ...t, text: ev.text } : t)
+})
+```
+
+The one line that matters is `text: t.text + ev.text`. That `+` is the accumulation: each
+`delta` appends the incoming fragment to what's already there. The banner then renders
+`thinking.text` with a blinking cursor (~L331–344):
+
+```jsx
+<span style={{ color: 'var(--text)' }}>{thinking.text || '…'}</span>
+<span style={{ color: thinking.color }}>▋</span>
+```
+
+The trap: if you wrote `text: ev.text` instead of `text: t.text + ev.text`, each token would
+**replace** the previous one, so the banner would flicker one word at a time and never build
+a sentence — which looks exactly like a broken backend, even though the server is doing the
+right thing. Note there is nothing framework-magical here: it's a plain `useState` reducer
+where the updater reads the previous value `t` and returns the next one.
+
+**Exercise:** temporarily change the `delta` branch from `text: t.text + ev.text` to
+`text: ev.text`, run `npm run dev` with Ollama, and watch a turn. The thinking bar will jump
+between single fragments instead of growing a sentence. Put the `+` back and it accumulates
+again. That one character is the entire difference between "streaming reasoning" and "the
+backend looks broken."
 
 ---
 

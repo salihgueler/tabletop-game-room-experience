@@ -95,6 +95,19 @@ you get a CloudFront URL serving the built front end, talking to the same-origin
 npm run destroy          # tear down the production stack
 ```
 
+> **Two things to know before you deploy, not after.**
+>
+> **This costs money.** You are provisioning CloudFront, API Gateway, Lambda, DynamoDB and
+> SQS. Idle cost is small but not zero, and it accrues until you tear it down.
+>
+> **`destroy` is slower and less complete than `sandbox:destroy`.** The relaxed removal
+> policies you read about above apply in **sandbox** mode — a production stack may keep
+> DynamoDB tables and S3 buckets after `destroy` (that is the point of a retain policy), so
+> check the CloudFormation stack and your bucket list rather than assuming the account is
+> clean. Deleting the CloudFront distribution alone takes roughly **15–40 minutes** —
+> CloudFront must disable and propagate before it will delete, so a `destroy` that appears
+> to hang part-way through is almost always normal. Let it finish.
+
 ### 3. Confirm AI is healthy
 
 After deploy, play a turn: contextual (scene-specific) action options mean Bedrock is
@@ -110,14 +123,12 @@ curl -s -X POST https://YOUR_CLOUDFRONT_DOMAIN/aws-blocks/api \
   -d '{"jsonrpc":"2.0","method":"api.getConstants","params":[],"id":1}'
 ```
 
-On Windows (cmd.exe), one line with escaped quotes:
+On Windows / PowerShell, translate the quoting as shown in
+[the curl reference](../README.md#reference-curl-windows-quoting-and-resetting-state)
+— the JSON body is identical.
 
-```cmd
-curl -s -X POST https://YOUR_CLOUDFRONT_DOMAIN/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getConstants\",\"params\":[],\"id\":1}"
-```
-
-> Replace `YOUR_CLOUDFRONT_DOMAIN` with the URL printed by `npm run deploy`. In PowerShell
-> use `curl.exe`. Protected methods (`getCharacter`, `listGames`, `getState`, …) still need
+> Replace `YOUR_CLOUDFRONT_DOMAIN` with the URL printed by `npm run deploy`. Protected
+> methods (`getCharacter`, `listGames`, `getState`, …) still need
 > a session — sign in first with `authApi.setAuthState` and reuse the cookie (`-c`/`-b`),
 > exactly as in modules 03–08.
 

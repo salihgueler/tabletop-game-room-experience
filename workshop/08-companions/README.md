@@ -47,8 +47,34 @@ spoken line is posted to chat via `postBotChat`.
 
 ## Steps
 
+**Read this as a diff from module 07.** Most of what follows is not new. The `Agent`
+construction and the entire streaming-parse-fallback skeleton inside `companionDecide` are
+duplicated from module 07's `nextScene` almost verbatim — same `emit` helper, same
+`text-delta` subscription (each streamed fragment of the model's reply; token streaming),
+same `raw.match(/\{[\s\S]*\}/)` JSON extraction, same "on error, fall back" structure. The
+README even says "Nothing else changes" below, and means it. So skim that skeleton — you've
+read it once already.
+
+Only **two ideas** are genuinely new in this module:
+
+- **(a) One agent per class, each with its own persona `systemPrompt`** — built in the
+  `for (const cls of CORE_CLASSES)` loop, so the four companions reason and speak in
+  distinct voices. (`systemPrompt` is the standing per-agent instruction, set once at
+  construction; the per-call `message` still carries the turn's specifics.)
+- **(b) Fuzzy action-validation** — `companionDecide` forces the model's chosen `action`
+  onto a real entry from the server's `options` list before accepting it. That's the block
+  around L597–603 of `solution/index.ts`: exact case-insensitive match, or either string
+  containing the other, else the random valid fallback. Read those two things closely; skim
+  the rest.
+
 1. **Replace the mock `COMPANION_LINES`**
 2. Add`COMPANION_PERSONAS` (one persona string per class), and the `companions` agent map built in a `for (const cls of CORE_CLASSES)` loop.
+
+   This step drops in two things: the `COMPANION_PERSONAS` map (a one-line personality
+   string per class) and the `companions` object — one `Agent` per class, each stamped with
+   that class's persona in its `systemPrompt`. The loop over `CORE_CLASSES` is why a game can
+   spin up several personas from one block of code; the agent construction itself is the same
+   `Agent` you built for the DM in module 07, just repeated per class with a faster model.
 
 ```ts
 const COMPANION_PERSONAS: Record<string, string> = {
@@ -80,7 +106,16 @@ for (const cls of CORE_CLASSES) {
 }
 ```
 
-3. Update the `companianDecide` function
+3. Update the `companionDecide` function
+
+   The streaming/parse/fallback body of this function is the same skeleton as module 07's
+   `nextScene` — the `emit` helper, the `text-delta` subscription, the `raw.match(/\{[\s\S]*\}/)`
+   JSON pull, and the try/catch-to-fallback shape are all carried over, so you can read them
+   fast. The one part to slow down on is the **fuzzy action-validation** in the middle:
+   `options.find(...)` accepts the model's `action` only if it exactly matches (case-
+   insensitive) an offered option, or one string contains the other; anything else falls
+   through to a random valid action. That guard is what makes an AI turn incapable of
+   stalling the game.
 
 ```ts
 // Ask a companion agent to decide its move. Streams the agent's reasoning tokens
@@ -176,6 +211,8 @@ Full implementation in [`solution/index.ts`](solution/index.ts).
    `postBotChat` — it doesn't care that the decision now comes from an LLM.
 
 2. **Verify:**
+   Typecheck proves the four agents compile. Whether a real model is answering is a separate
+   question, and the Verify section below is where you settle it.
 
    ```bash
    npm run typecheck
@@ -202,16 +239,10 @@ Full implementation in [`solution/index.ts`](solution/index.ts).
      -d '{"jsonrpc":"2.0","method":"api.getChatHistory","params":["REPLACE_WITH_GAME_ID"],"id":1}'
    ```
 
-   On Windows (cmd.exe), one line each with escaped quotes:
-
-   ```cmd
-   curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
-
-   curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getChatHistory\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
-   ```
-
-   > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials. In
-   > PowerShell use `curl.exe`.
+   On Windows / PowerShell, translate the quoting as shown in
+   [the curl reference](../README.md#reference-curl-windows-quoting-and-resetting-state)
+   — the JSON body is identical. Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use
+   your own credentials.
 
 **You've now rebuilt the entire backend.** Module 08's `index.ts` uses the same set of
 Blocks and exports as the reference app in [`../../tabletop-app/`](../../tabletop-app/):
@@ -221,6 +252,35 @@ Blocks and exports as the reference app in [`../../tabletop-app/`](../../tableto
 Catch up from `workshop/app/`: `cp ../08-companions/solution/index.ts aws-blocks/index.ts`
 
 ---
+
+## Verify
+
+Start an AI-filled game and take a turn, then let the companions act. Each should stream its
+own reasoning into the thinking bar and post a short line in chat.
+
+**How to tell a real model from the canned fallback.** This matters more here than anywhere
+else in the workshop, because the fallback is designed to be invisible: if the model is
+unreachable, the `Agent` block quietly answers from the canned provider and **nothing
+throws**. There is no error in your terminal, no failed request, no clue in the response.
+
+The reliable tell is the same one module 07 gave you — **look at the action options**, not at
+the chat:
+
+- **Scene-specific options** ("Pry open the rune door") mean a model answered.
+- **Options that exactly match the acting character's class menu** — the `actions` array in
+  `getConstants().classMeta[classKey]` — mean you are on canned output.
+
+```bash
+# whose turn is it, and what are their options?
+curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"api.getState","params":["GAME_ID"],"id":1}'
+```
+
+**Do not use the companion's chat line as your test.** On fallback `companionDecide` returns
+`line: ""`, so no line is posted — but a working model is also allowed to return an empty
+line, and the Troubleshooting section below covers exactly that case. Absence proves nothing
+in either direction.
 
 ## Checklist
 

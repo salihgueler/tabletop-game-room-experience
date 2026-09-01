@@ -19,8 +19,9 @@ Two more tables, each showing a different access pattern:
   like `characters`. The catch: the item is large and nested (players, log, rolls), so
   the schema is built from **embedded sub-schemas** (`playerSchema`, `rollSchema`,
   `logEntrySchema`).
-- **`chatMessages`** — an append-only log keyed by `(gameId, ts)`. A **sort key** (`ts`)
-  means one `query({ where: { gameId: { equals } } })` returns a game's whole transcript
+- **`chatMessages`** — an append-only log keyed by `(gameId, ts)`. A **sort key** (`ts`) —
+  the field rows are ordered by within a partition — means one
+  `query({ where: { gameId: { equals } } })` returns a game's whole transcript
   already ordered — no in-memory sort, no separate index.
 
 ```ts
@@ -37,10 +38,11 @@ const chatMessages = new DistributedTable(scope, "chat", {
 
 ### Schema-first types
 
-Once state lives in a validated table, the Zod schema becomes the single source of truth
-for the _type_ too. Replace the hand-written `Player` / `Roll` / `LogEntry` / `GameState`
-/ `ChatMsg` types with `z.infer<...>` so runtime validation and compile-time types can't
-drift apart.
+Once state lives in a validated table, the Zod schema (Zod is a runtime schema/validation
+library) becomes the single source of truth for the _type_ too. Replace the hand-written
+`Player` / `Roll` / `LogEntry` / `GameState` / `ChatMsg` types with `z.infer<...>` — which
+derives the static TypeScript type straight from a schema — so runtime validation and
+compile-time types can't drift apart.
 
 ### Why `saveAndBroadcast` returns a _new_ object
 
@@ -64,6 +66,15 @@ d20 roll, the DC check, narration, and turn order end to end.
 ## Steps
 
 1. **Add the embedded schemas for players, rolls and log entries**
+
+   These three schemas describe the pieces a game state is built out of — one player, one
+   dice roll, one log line. They exist on their own so the big `gameStateSchema` in the next
+   step can reference them (`z.array(playerSchema)`, `lastRoll: rollSchema`) instead of
+   inlining everything. If you've split a large React prop type into smaller interfaces and
+   composed them, this is the same move, except each schema also validates the data at
+   runtime, not just at compile time. Note `rollSchema` is `.nullable()` — a turn may have no
+   roll yet — which is exactly the `lastRoll` you'll read on the client to decide whether to
+   animate the dice tray.
 
 ```ts
 const playerSchema = z.object({
@@ -174,6 +185,9 @@ async function saveAndBroadcast(state: GameState) {
 The full version is in [`solution/index.ts`](solution/index.ts).
 
 7. **Verify:**
+   Same idea as module 03, one level up: the whole game — players, rolls, log, chat — now
+   survives a restart. The turn engine was already authoritative; you only changed where it
+   keeps its state.
 
    ```bash
    npm run typecheck
@@ -208,18 +222,48 @@ The full version is in [`solution/index.ts`](solution/index.ts).
     -d '{"jsonrpc":"2.0","method":"api.getState","params":["REPLACE_WITH_GAME_ID"],"id":1}'
 ```
 
-On Windows (cmd.exe), one line each with escaped quotes:
-
-```cmd
-curl -s -c cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"authApi.setAuthState\",\"params\":[{\"action\":\"signIn\",\"username\":\"aldric\",\"password\":\"password123\"}],\"id\":1}"
-
-curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"api.getState\",\"params\":[\"REPLACE_WITH_GAME_ID\"],\"id\":1}"
-```
-
-> Swap `REPLACE_WITH_GAME_ID` for a real `gameId` from `api.listGames`, and use your own
-> credentials. In PowerShell use `curl.exe`.
+On Windows / PowerShell, translate the quoting as shown in
+[the curl reference](../README.md#reference-curl-windows-quoting-and-resetting-state)
+— the JSON body is identical. Swap `REPLACE_WITH_GAME_ID` for a real `gameId` from
+`api.listGames`, and use your own credentials.
 
 Catch up from `workshop/app/`: `cp ../05-state/solution/index.ts aws-blocks/index.ts`
+
+### The React side
+
+Two client files put this module's storage to work. The chat transcript you now persist is
+rendered by `app/src/components/Chat.jsx`, a plain presentational component: it takes a
+`messages` array and paints each line, styling it by `m.kind` (`dm` / `roll` / `action` /
+`system` / `say`). Its one bit of behaviour is scroll-follow — a `useRef` on the scroll
+container plus a `useEffect` keyed on `messages` that pins the view to the bottom whenever
+the list grows:
+
+```jsx
+const scrollRef = useRef(null)
+useEffect(() => {
+  const el = scrollRef.current
+  if (el) el.scrollTop = el.scrollHeight
+}, [messages])
+```
+
+The `ts` sort key you leaned on server-side is why those messages arrive already ordered;
+the component never sorts them.
+
+The more important half is the **version guard** in `app/src/screens/GameRoom.jsx`. Your
+`saveAndBroadcast` increments `state.version` on every write — that number is the whole
+point of the client's `refreshState` `useCallback` (~L38–45):
+
+```jsx
+const fresh = await api.getState(gameId)
+setState((prev) => (prev && fresh.version < prev.version ? prev : fresh))
+```
+
+Instead of blindly replacing state with whatever the fetch returned, it keeps the state it
+already holds when the fetched `version` is *older*. That's what stops a slow in-flight
+`getState` from clobbering a newer state the client already applied (for example, your own
+optimistic result racing a refetch triggered elsewhere). The server-side version bump you
+wrote and this client-side comparison are two halves of one mechanism: the server stamps
+monotonically increasing versions, and the client refuses to move backwards.
 
 ---
 
