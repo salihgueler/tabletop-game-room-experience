@@ -107,6 +107,7 @@ Every `publish("...", key, payload)` becomes:
 
    ```bash
    cd backend   # Make sure you are at backend folder
+   npm run typecheck
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs
@@ -227,8 +228,7 @@ survive.
 - AI companion turns appear live during an AI-filled game.
 - Kill WebSocket → three-second polling keeps the board updating (delayed but functional).
 
-Catch up from `app/backend/`:
-`cp ../../06-realtime/solution/index.ts aws-blocks/index.ts`
+Catch up (from `backend/`): `cp ../../06-realtime/solution/index.ts aws-blocks/index.ts`
 
 ---
 

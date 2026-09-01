@@ -90,6 +90,14 @@ flutter analyze
 Inspect `lib/blocks.blocks.dart`: you'll see `Blocks.api` and `Blocks.authApi` with
 fully typed methods generated from the backend exports.
 
+> **Don't use `npm run spec`.** The scaffolder writes that script as bare
+> `blocks-generate-spec`, with no arguments. It finds `aws-blocks/index.ts` correctly, but
+> writes the spec to `backend/aws-blocks/blocks.spec.json` — a stray file next to your
+> backend code that the Flutter app never reads. It leaves `app/lib/blocks.spec.json`
+> untouched, so `build_runner` regenerates from the old spec and your Dart client silently
+> stays stale. Always pass the two paths explicitly, as above: the spec has to land in
+> `app/lib/`, next to the Dart code that consumes it.
+
 ### 4. Run
 
 Terminal one (backend):
@@ -245,13 +253,7 @@ you can read any generated symbol the rest of the workshop throws at you.
 - **Android can't reach backend** — the emulator maps `10.0.2.2` to your host's
   `localhost`. Physical devices need `--dart-define=BLOCKS_API_URL=http://LAN_IP:3001/aws-blocks/api`.
 - **`Cannot find package 'typescript'`** — `npm i -D typescript`.
-- **Stale generated types / missing methods** — regenerate:
-  ```bash
-  cd backend
-  npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-  cd ..
-  dart run build_runner build --delete-conflicting-outputs
-  ```
+- **Stale generated types / missing methods** — re-run the regeneration loop in step 3.
 
 ---
 

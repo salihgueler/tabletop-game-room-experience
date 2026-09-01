@@ -282,13 +282,7 @@ hot-restart.)
   reference. Search for `requireAuth(` and ensure each is
   `await auth.requireAuth(context)`.
 - **Port 3001 clash** — stop the React workshop backend; both use `:3001`.
-- **Stale generated types** — regenerate:
-  ```bash
-  cd backend
-  npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-  cd ..
-  dart run build_runner build --delete-conflicting-outputs
-  ```
+- **Stale generated types** — re-run the regeneration loop in step 6.
 
 ---
 

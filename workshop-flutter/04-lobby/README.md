@@ -184,9 +184,6 @@ cat backend/.bb-data/tt-games/data.json   # lobby rows, all with listKey:"all"
   Private → confirm the game loads.
 - Resize the window below 840 px → responsive hall layout renders correctly.
 
-Catch up from `app/backend/`:
-`cp ../../04-lobby/solution/index.ts aws-blocks/index.ts`
-
 ---
 
 ### The Flutter side
@@ -258,8 +255,7 @@ request hangs or connection-refuses, because it's dialing the wrong host.
 - **Lobby empty after the change** — the seed only runs when the query returns nothing;
   delete `backend/.bb-data` and restart to re-seed cleanly.
 - **`flutter analyze` errors about missing members** — you need to regenerate bindings.
-  Re-run `npx blocks-generate-spec ...` and `dart run build_runner build
-  --delete-conflicting-outputs`.
+  Re-run the regeneration loop in step 4.
 - **`build_runner` fails with conflicting outputs** — always pass
   `--delete-conflicting-outputs` to let it overwrite stale generated files.
 - **Responsive layout not switching** — ensure you're resizing the *window*, not just the

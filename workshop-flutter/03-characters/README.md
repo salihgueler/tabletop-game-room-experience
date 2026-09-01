@@ -242,13 +242,7 @@ the schema, regenerate, and the analyzer walks you to every read that needs upda
 
 ## Troubleshooting
 
-- **Stale generated types / missing fields** — regenerate:
-  ```bash
-  cd backend
-  npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
-  cd ..
-  dart run build_runner build --delete-conflicting-outputs
-  ```
+- **Stale generated types / missing fields** — re-run the regeneration loop in step 5.
 - **Old hero keeps loading / stale data** — `rm -rf backend/.bb-data` to reset
   local tables, then restart the backend.
 - **Android emulator can't reach backend** — confirm `10.0.2.2` mapping in

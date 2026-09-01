@@ -297,6 +297,7 @@ rather than trusting a preset that can be retired underneath you.
 
    ```bash
    cd backend   # make sure you are at the backend folder
+   npm run typecheck
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs
