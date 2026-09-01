@@ -106,11 +106,23 @@ calling `.toList()` on a Dart `Stream` to collect every event before you work wi
 
 Now update the following: 
 
+   Also **infer `Game` from the schema**, the same move you made for `Character` in module 03 —
+   delete the hand-written `type Game = { ... }` and replace it with:
+
+   ```ts
+   type Game = z.infer<typeof gameSchema>;
+   ```
+
+   This one is easy to skip because nothing breaks if you don't: rows are written through
+   `games.put()`, which validates against `gameSchema` rather than against `type Game`, so a
+   stale hand-written type still compiles. It just stops being true — it won't have `listKey`,
+   and the schema is supposed to be the single source of truth.
+
    | before (Map)                                                                                    | after (table)                                                                                                                    |
    | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
    | `gameStore.size > 0` - in seedIfEmpty                                                           | query the existing and do the check `existing.length > 0`                                                                        |
    | `gameStore.set(gameId, {...})` - in seedIfEmpty, finalizeIfExpired, syncLobbyStatus, createGame | `await games.put({ listKey: "all", ...})`                                                                                        |
-   | `[...gameStore.values()].sort(...)` - in listGames                                              | `(await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))).filter((g) => g.isPublic).reverse()` — newest-first, and **public only**: the lobby must not list private games |
+   | `[...gameStore.values()].sort(...)` - in listGames                                              | `(await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))).filter((g) => g.isPublic).reverse()` — newest-first, and **public only**: the lobby must not list private games. This replaces the existing `const publicGames = all.filter((g) => g.isPublic);` line too — the filter moves into the expression, so delete that line rather than keeping both |
    | `[...gameStore.values()].find(...)` - in joinPrivate                                            | query the existing and do the `.find(...)`                                                                                       |
    | `gameStore.get(state.gameId)` - in finalizeIfExpired and syncLobbyStatus                        | `await games.get({ listKey: "all", gameId: state.gameId })`                                                                      |
 

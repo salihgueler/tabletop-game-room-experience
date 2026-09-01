@@ -267,11 +267,11 @@ const dm = new Agent(scope, "dm", {
            });
            await sub.established;
          } catch {
-           /_ no channel (some mocks) — complete() still works _/;
+           /* no channel (some mocks) — complete() still works */
          }
          const done = await result.complete();
          if (!raw) raw = done.text || "";
-         const match = raw.trim().match(/\{[\s\S]\*\}/);
+         const match = raw.trim().match(/\{[\s\S]*\}/);
          if (match) {
            const parsed = JSON.parse(match[0]) as {
              prompt?: string;

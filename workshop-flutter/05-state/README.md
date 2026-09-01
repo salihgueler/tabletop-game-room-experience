@@ -178,7 +178,7 @@ Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
    | `gameStateStore.set(gameId, state)`                                   | `await gameStates.put(state)`                                                              |
    | `gameStateStore.set(state.gameId, {<items>})`                               | `await gameStates.put({<items>})`                                                          |
    | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
-   | `chatStore.get(gameId)` - remove set and bucket related code around               | `await chatMessages.put(msg)`                                                              |
+   | `chatStore.get(gameId)` - delete all three bucket lines: the `const bucket = chatStore.get(gameId) ?? []`, the `bucket.push(msg)`, and the `chatStore.set(...)`. One `put` replaces the whole read-modify-write | `await chatMessages.put(msg)`                                                              |
 
 > The `Array.fromAsync(...)` in the chat row drains `query`'s async iterator into a list —
 > the same move as calling `.toList()` on a Dart `Stream`.

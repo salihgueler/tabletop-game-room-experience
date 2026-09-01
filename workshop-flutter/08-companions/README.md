@@ -214,7 +214,30 @@ async function companionDecide(
    npm run typecheck
    ```
 
-### 3. **Regenerate the Dart client and rebuild:**
+### 3. Add the host guard to `advanceBotTurn`
+
+This is the change the Concept section above argues for, and it is the one thing in this
+module that no local check can catch: `flutter test` drives a single client, so duplicate
+companion turns only show up with two people in the same game.
+
+In `advanceBotTurn`, capture the authenticated user and reject anyone who is not the host —
+the same shape `startWithAi` already uses:
+
+```ts
+async advanceBotTurn(gameId: string) {
+  const user = await auth.requireAuth(context);   // was: await auth.requireAuth(context);
+  const state = await loadState(gameId);
+  const host = state.players.find((p) => p.slot === 0);
+  if (host?.userId !== user.username)
+    throw new Error("Only the host can advance a companion turn");
+  // ... rest of the method unchanged
+```
+
+Two details worth noticing: you have to *bind* the result of `requireAuth` (the mock line
+threw it away), and the guard goes before any state mutation so a rejected call changes
+nothing.
+
+### 4. **Regenerate the Dart client and rebuild:**
 
    ```bash
    cd backend   # the blocks-generate-spec binary lives here
@@ -225,7 +248,7 @@ async function companionDecide(
    flutter test
    ```
 
-### 4. **Launch and verify:**
+### 5. **Launch and verify:**
 
    ```bash
    flutter run -d chrome

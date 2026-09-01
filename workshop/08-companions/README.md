@@ -69,6 +69,13 @@ Only **two ideas** are genuinely new in this module:
 
 ### 1. Replace the mock COMPANION_LINES
 
+Delete the `COMPANION_LINES` const — the canned bank of per-class quips the mock picked from
+at random. Nothing replaces it one-for-one: the companions now speak because a model writes
+their line, so the persona strings you add in step 2 take over the job of *sounding* like a
+paladin, and the `line` field returned by the rewritten `companionDecide` in step 3 supplies
+the words. Delete the mock `companionDecide` alongside it; steps 2 and 3 drop their
+replacements into the same place.
+
 ### 2. Add the personas and the companions agent map
 
 Add`COMPANION_PERSONAS` (one persona string per class), and the `companions` agent map built in a `for (const cls of CORE_CLASSES)` loop.
