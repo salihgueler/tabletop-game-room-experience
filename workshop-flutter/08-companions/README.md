@@ -4,7 +4,9 @@
 choose contextual actions, and speak in character — a true multi-agent session.
 
 **Block introduced:** `Agent` (one per class — multi-agent orchestration)
+
 **You edit:** `app/backend/aws-blocks/index.ts`
+
 **You'll know you're done when:** in an AI-filled game, each companion streams its own
 reasoning and posts a distinct in-character chat line on its turn.
 
@@ -13,7 +15,42 @@ reasoning and posts a distinct in-character chat line on its turn.
 ## Concept
 
 Module 07 gave you one DM agent. Now each of the four classes gets its own agent, built in
-a loop with a distinct persona system prompt. The mock `COMPANION_LINES` map and the random
+a loop with a distinct persona system prompt. 
+
+A live game therefore runs **one DM agent + up to three companion agents**, each stateless
+(`inferenceOnly`) and isolated per game — so many games run concurrently without crosstalk.
+Companions use a **faster model** (`BedrockModels.FAST`) than the DM: they make quick
+tactical picks, not rich prose.
+
+### Structured output + validation
+
+Each companion must pick a _real_ option, so the prompt demands strict JSON
+(`{reasoning, action, line}`), and `companionDecide` **validates** the chosen action
+against the server-provided `options` (fuzzy-matched) before accepting it. Anything
+malformed → fall back to a random valid action with an empty line. That guard is why an AI
+turn can never stall the game, even when a small local model returns junk.
+
+### Streaming reasoning to the Flutter game view model
+
+Each companion streams `text-delta` chunks to the `thinking` Realtime channel (keyed by
+the companion's name/color), so players watch each party member think in turn. The Flutter
+game view model subscribes to this channel and renders it in the thinking bar — the same
+mechanism as the DM's reasoning from module 07, just per-companion.
+
+
+### Host-only `advanceBotTurn`
+
+Only the host client may call `advanceBotTurn`. Why? Without this guard, every connected
+client races to advance bot turns when the turn order reaches an AI seat — resulting in
+duplicate calls to `companionDecide` and double-posted actions. The backend enforces this:
+non-host calls are rejected. The Flutter UI only shows the "advance bot" button to the
+host player.
+
+## Steps
+
+### 1. Update the `companionDecide` function
+
+The mock `COMPANION_LINES` map and the random
 `companionDecide` are replaced entirely:
 
 ```ts
@@ -46,27 +83,7 @@ for (const cls of CORE_CLASSES) {
 }
 ```
 
-A live game therefore runs **one DM agent + up to three companion agents**, each stateless
-(`inferenceOnly`) and isolated per game — so many games run concurrently without crosstalk.
-Companions use a **faster model** (`BedrockModels.FAST`) than the DM: they make quick
-tactical picks, not rich prose.
-
-### Structured output + validation
-
-Each companion must pick a _real_ option, so the prompt demands strict JSON
-(`{reasoning, action, line}`), and `companionDecide` **validates** the chosen action
-against the server-provided `options` (fuzzy-matched) before accepting it. Anything
-malformed → fall back to a random valid action with an empty line. That guard is why an AI
-turn can never stall the game, even when a small local model returns junk.
-
-### Streaming reasoning to the Flutter game view model
-
-Each companion streams `text-delta` chunks to the `thinking` Realtime channel (keyed by
-the companion's name/color), so players watch each party member think in turn. The Flutter
-game view model subscribes to this channel and renders it in the thinking bar — the same
-mechanism as the DM's reasoning from module 07, just per-companion.
-
-### The `companionDecide` rewrite
+### 2. Rewrite `companionDecide` function
 
 The previous module's `companionDecide` picked a random action from `COMPANION_LINES`.
 Now it streams the agent's reasoning tokens to the `thinking` channel, parses JSON,
@@ -157,19 +174,7 @@ async function companionDecide(
 }
 ```
 
-Full implementation in [`solution/index.ts`](solution/index.ts).
-
-### Host-only `advanceBotTurn`
-
-Only the host client may call `advanceBotTurn`. Why? Without this guard, every connected
-client races to advance bot turns when the turn order reaches an AI seat — resulting in
-duplicate calls to `companionDecide` and double-posted actions. The backend enforces this:
-non-host calls are rejected. The Flutter UI only shows the "advance bot" button to the
-host player.
-
-## Steps
-
-1. **Copy the checkpoint and typecheck:**
+#### If something is not working make sure you copy the solution
 
    ```bash
    cd app/backend
@@ -177,7 +182,7 @@ host player.
    npm run typecheck
    ```
 
-2. **Regenerate the Dart client and rebuild:**
+### 3. **Regenerate the Dart client and rebuild:**
 
    ```bash
    cd app/backend   # the blocks-generate-spec binary lives here
@@ -188,10 +193,10 @@ host player.
    flutter test
    ```
 
-3. **Launch and verify:**
+### 4. **Launch and verify:**
 
    ```bash
-   flutter run -d macos
+   flutter run -d chrome
    ```
 
    Create an AI-filled game (fill all seats with AI companions) and watch a full round.
