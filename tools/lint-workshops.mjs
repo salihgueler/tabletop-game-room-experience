@@ -34,6 +34,9 @@ const VALID_LANGS = new Set([
 const EXPECTED_ABSENT = new Set(["app/test/e2e.test.ts"]);
 
 const findings = [];
+/** Coverage for the `indent` check. A check that silently matches nothing passes
+ *  vacuously, so these numbers are printed with the result rather than assumed. */
+const stats = { fences: 0, checked: 0, matched: 0 };
 const note = (file, line, check, msg) =>
   findings.push({ file, line, check, msg });
 
@@ -195,6 +198,57 @@ for (const ws of WORKSHOPS) {
       }
     }
 
+    // --- fence indentation vs the module's checkpoint ---------------------
+    // A README snippet is often an excerpt lifted from a different nesting level
+    // than the solution file, so its absolute indentation legitimately differs.
+    // What must NOT differ is the offset: every matched line in one fence should
+    // sit the same distance from where it sits in the checkpoint. A VARYING offset
+    // means the snippet's internal indentation drifted — which is how a bulk
+    // re-indent silently flattens a function body while leaving its braces put.
+    const mod = rel.match(/\/(\d\d-[\w-]+)\/README\.md$/)?.[1];
+    const solPath = mod ? join(ROOT, ws, mod, "solution", "index.ts") : null;
+    if (solPath && existsSync(solPath)) {
+      const solIndent = new Map();
+      for (const sl of readFileSync(solPath, "utf8").split("\n")) {
+        const t = sl.trim();
+        if (t.length < 12) continue; // too short to identify a line uniquely
+        solIndent.set(t, solIndent.has(t) ? null : sl.length - sl.trimStart().length);
+      }
+      let block = null;
+      for (const l of lines) {
+        if (l.fenceOpen !== undefined) {
+          block = /^(ts|tsx|js|jsx)\b/.test(l.lang) ? [] : null;
+          continue;
+        }
+        if (l.fenceClose !== undefined) {
+          if (block && block.length > 2) {
+            const indents = block.filter((b) => b.text.trim()).map((b) => b.indent);
+            const base = indents.length ? Math.min(...indents) : 0;
+            const offsets = [];
+            for (const b of block) {
+              const want = solIndent.get(b.text.trim());
+              if (want === null || want === undefined) continue;
+              offsets.push({ off: b.indent - base - want, n: b.n, t: b.text.trim() });
+            }
+            stats.fences++;
+            if (offsets.length >= 2) stats.checked++;
+            stats.matched += offsets.length;
+            const distinct = [...new Set(offsets.map((o) => o.off))];
+            if (offsets.length >= 2 && distinct.length > 1) {
+              const odd = offsets.find((o) => o.off !== offsets[0].off);
+              note(rel, odd.n, "indent",
+                `indentation in this snippet does not match the checkpoint consistently ` +
+                `(offsets ${distinct.join(", ")}) — "${odd.t.slice(0, 40)}" is out by ` +
+                `${odd.off - offsets[0].off}`);
+            }
+          }
+          block = null;
+          continue;
+        }
+        if (block) block.push({ text: l.text, indent: l.text.length - l.text.trimStart().length, n: l.n });
+      }
+    }
+
     // --- internal links --------------------------------------------------
     for (const l of lines) {
       for (const m of l.text.matchAll(/\]\((\.\.\/)?README\.md#([\w-]+)\)/g)) {
@@ -228,8 +282,12 @@ for (const ws of WORKSHOPS) {
 
 // --- report ---------------------------------------------------------------
 const quiet = process.argv.includes("--quiet");
+const coverage =
+  `indent check: ${stats.checked}/${stats.fences} code fences compared against a ` +
+  `checkpoint (${stats.matched} lines matched)`;
 if (!findings.length) {
   console.log("✅ workshops lint clean");
+  console.log(`   ${coverage}`);
   process.exit(0);
 }
 const byCheck = {};
@@ -239,4 +297,5 @@ for (const [check, list] of Object.entries(byCheck).sort()) {
   for (const f of list) console.log(`  ${f.file}:${f.line}  ${f.msg}`);
 }
 console.log(`\n${findings.length} finding(s)`);
+console.log(coverage);
 process.exit(quiet ? 0 : 1);
