@@ -110,6 +110,15 @@ and replace with the following:
 await auth.requireAuth(context);
 ```
 
+Most call sites keep the result, so the majority of your edits look like this instead — same
+change, with the binding left in place:
+
+```ts
+const user = await auth.requireAuth(context);
+```
+
+The real user object exposes `username`, so every `user.username` downstream keeps working.
+
 Do this for all of them (`saveCharacter`, `getCharacter`, `createGame`, `getState`,
 `joinGame`, `joinPrivate`, `startWithAi`, `takeAction`, `advanceBotTurn`, the three channel
 getters, `getChatHistory`, `sendChat`) — **14 call sites in total**. The reliable way to

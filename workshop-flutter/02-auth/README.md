@@ -110,6 +110,20 @@ the sign-in screen needs before anyone has a session.)
 
 Find the comments and implementation details about auth mocks and fake users and remove them.
 
+Then trim the type-only import at the top of the file. Module 01 borrowed four names from
+`@aws-blocks/blocks` so the mock could match the real shapes; three of them —
+`AuthActionInput`, `AuthState` and `AuthUser` — described the fake auth API you just deleted,
+so only one is still used:
+
+```ts
+import type { RealtimeChannel } from "@aws-blocks/blocks";
+```
+
+Keep `RealtimeChannel`. It is still borrowed by the realtime mock until module 06, and it is
+what keeps the generated Dart client identical from module to module. `tsc` will not complain
+about the other three — nothing here enables `noUnusedLocals` — so this is tidiness rather
+than a build fix.
+
 ### 6. Regenerate the Dart client
 
 This is the loop that turns the backend edit you just made into Dart you can call.

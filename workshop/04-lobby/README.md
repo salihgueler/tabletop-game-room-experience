@@ -94,7 +94,7 @@ const games = new DistributedTable(scope, "games", {
    | `gameStore.set(gameId, {...})` - in seedIfEmpty, finalizeIfExpired, syncLobbyStatus, createGame | `await games.put({ listKey: "all", ...})`                                                                                        |
    | `[...gameStore.values()].sort(...)` - in listGames                                              | `(await Array.fromAsync(games.query({ index: "byCreated", where: { listKey: { equals: "all" } } }))).reverse()` for newest-first |
    | `[...gameStore.values()].find(...)` - in joinPrivate                                            | query the existing and do the `.find(...)`                                                                                       |
-   | `gameStore.get(state.gameId)` - in finalizeIfExpired and syncLobbyStatus                        | `await games.get({ listKey: "all", gameId: state.gameId })` and remove the `listKey: "all"` from put calls                       |
+   | `gameStore.get(state.gameId)` - in finalizeIfExpired and syncLobbyStatus                        | `await games.get({ listKey: "all", gameId: state.gameId })`. In these two methods the following `put` spreads the row you just fetched (`{ ...g, ... }`), which already carries `listKey` — so don't add it again there. Only the fresh writes in `seedIfEmpty` and `createGame` need it spelled out |
 
    The completed version is in [`solution/index.ts`](solution/index.ts) — diff against yours.
 
