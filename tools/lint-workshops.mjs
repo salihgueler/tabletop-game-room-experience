@@ -29,9 +29,16 @@ const VALID_LANGS = new Set([
   "ts", "tsx", "js", "jsx", "json", "dart", "bash", "sh", "shell",
   "cmd", "powershell", "yaml", "yml", "diff", "text", "console", "html", "css", "",
 ]);
-/** Files the guides mention precisely because they should NOT exist by the end:
- *  the scaffolder's demo test, which module 01 tells you to delete. */
-const EXPECTED_ABSENT = new Set(["app/test/e2e.test.ts"]);
+/** Files the guides mention precisely because they should NOT exist in a clone:
+ *  the scaffolder's demo test, which module 01 tells you to delete, and the two
+ *  generated client artifacts, which are gitignored and only appear once a
+ *  participant runs the regeneration loop. Without these the linter reports 16
+ *  false findings on a fresh checkout — the exact state a contributor is in. */
+const EXPECTED_ABSENT = new Set([
+  "app/test/e2e.test.ts",
+  "app/lib/blocks.blocks.dart",
+  "app/lib/blocks.spec.json",
+]);
 
 const findings = [];
 /** Coverage for the `indent` check. A check that silently matches nothing passes
