@@ -44,6 +44,9 @@ disappears.
 
 ## Steps
 
+> **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
+> The `cd` lines are written so you can paste them in order from there.
+
 ### 1. **Import `Realtime`** alongside the existing Building Blocks:
 
    ```ts
@@ -196,6 +199,27 @@ curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
 ```
 
 > Swap `REPLACE_WITH_GAME_ID` for a real `gameId` and use your own credentials.
+
+### Prove it's actually *live* — not the fallback
+
+This is the one verification that matters in this module, because the polling fallback is
+designed to hide exactly the failure you're testing for. A broken subscription still shows
+chat arriving — just up to three seconds later. "It appeared" proves nothing.
+
+Two ways to tell them apart, easiest first:
+
+1. **Watch the socket.** In Chrome devtools open **Network → WS**. You should see one
+   WebSocket connection to `/realtime` in the list, and clicking it → **Messages** should
+   show frames arriving the instant the other client acts. No WS entry, or an entry with no
+   frames, means you are on the fallback and the channel wiring is wrong.
+2. **Time it.** Send a chat message from client A and watch client B. Live push lands in
+   well under a second; the fallback lands on the next 3-second poll tick. If every update
+   feels like it arrives "on a beat", that beat is the timer, not your channel.
+
+To see the failure deliberately (worth doing once — it's what your users will hit on a bad
+network): stop the backend mid-game, act in one client, and watch the board go stale; restart
+it and the poll catches up. That is the degradation path the Flutter app is written to
+survive.
 
 **Flutter UI steps:**
 

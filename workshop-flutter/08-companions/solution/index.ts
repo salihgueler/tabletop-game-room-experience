@@ -1256,8 +1256,15 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   },
 
   async advanceBotTurn(gameId: string) {
-    await auth.requireAuth(context);
+    const user = await auth.requireAuth(context);
     const state = await loadState(gameId);
+    // Host-only: every connected client polls, so without this guard each one
+    // would race to advance the same companion turn and the bot would act
+    // several times. The Flutter UI also hides the button for non-hosts, but
+    // the server is what makes it correct — a client guard is only cosmetic.
+    const host = state.players.find((p) => p.slot === 0);
+    if (host?.userId !== user.username)
+      throw new Error("Only the host can advance a companion turn");
     if (await finalizeIfExpired(state)) {
       const saved = await saveAndBroadcast(state);
       return { state: saved, botActed: false, botTurnPending: false };

@@ -43,6 +43,9 @@ the repository constructs the domain model from those fields.
 
 ### 1. Update the imports
 
+> **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
+> The `cd` lines are written so you can paste them in order from there.
+
 Open `app/backend/aws-blocks/index.ts` and make sure `DistributedTable` is imported from `@aws-blocks/blocks` and `z` from `zod`:
 
    ```ts
@@ -168,7 +171,7 @@ Flutter verify:
 ## Checklist
 
 - [ ] `npm run typecheck` and `flutter analyze` both pass.
-- [ ] Saving a hero writes a file under `app/backend/.bb-data/tt-characters/`.
+- [ ] Saving a hero writes a file under `backend/.bb-data/tt-characters/`.
 - [ ] The hero survives a backend restart (sign in → still there, character select
       skipped).
 - [ ] `flutter test` passes.
@@ -193,7 +196,7 @@ Flutter verify:
   cd ..
   dart run build_runner build --delete-conflicting-outputs
   ```
-- **Old hero keeps loading / stale data** — `rm -rf app/backend/.bb-data` to reset
+- **Old hero keeps loading / stale data** — `rm -rf backend/.bb-data` to reset
   local tables, then restart the backend.
 - **Android emulator can't reach backend** — confirm `10.0.2.2` mapping in
   `lib/data/services/blocks_api_url_io.dart`. Physical devices need

@@ -42,6 +42,9 @@ real Block.
 ## Steps
 
 ### 1. Import the AuthBasic
+> **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
+> The `cd` lines are written so you can paste them in order from there.
+
 
 Add the `AuthBasic` to the import in `backend/aws-blocks/index.ts`:
 
@@ -97,8 +100,10 @@ await auth.requireAuth(context);
 ```
 
 Do this in `saveCharacter`, `getCharacter`, `createGame`, `getState`, `joinGame`,
-`startWithAi`, `takeAction`, `advanceBotTurn`, the channel getters, `getChatHistory`,
-`sendChat`. Afterwards, remove `requireAuth()` function.
+`joinPrivate`, `startWithAi`, `takeAction`, `advanceBotTurn`, the three channel getters,
+`getChatHistory`, `sendChat` — 14 call sites in total. Afterwards, remove the
+`requireAuth()` function. (`getConstants` stays public: it returns static reference data
+the sign-in screen needs before anyone has a session.)
 
 ### 5. Delete mocks related to auth
 
@@ -192,7 +197,7 @@ Flutter check:
 - **Sign-in fails on Android emulator** — confirm the app resolves to `10.0.2.2`
   (check `lib/data/services/blocks_api_url_io.dart`). The emulator's `localhost`
   points to the emulator itself, not your host machine.
-- **401 even after signing in** — delete `app/backend/.bb-data` and restart the
+- **401 even after signing in** — delete `backend/.bb-data` and restart the
   backend. A stale local auth store from an earlier run can corrupt sessions.
 - **Type error: `Cannot find name 'requireAuth'`** — you have a leftover fake
   reference. Search for `requireAuth(` and ensure each is

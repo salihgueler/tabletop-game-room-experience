@@ -42,11 +42,27 @@ mechanism as the DM's reasoning from module 07, just per-companion.
 
 Only the host client may call `advanceBotTurn`. Why? Without this guard, every connected
 client races to advance bot turns when the turn order reaches an AI seat — resulting in
-duplicate calls to `companionDecide` and double-posted actions. The backend enforces this:
-non-host calls are rejected. The Flutter UI only shows the "advance bot" button to the
-host player.
+duplicate calls to `companionDecide` and double-posted actions.
+
+The guard exists in **two places, and only one of them counts**:
+
+```ts
+const host = state.players.find((p) => p.slot === 0);
+if (host?.userId !== user.username)
+  throw new Error("Only the host can advance a companion turn");
+```
+
+That server check is what makes it correct — it's the same shape as the one already on
+`startWithAi`. The Flutter side also hides the button for non-hosts
+(`GameViewModel._driveBotIfNeeded` returns early when `!value.isHost`), but that is a UX
+courtesy, not a control: anyone can call the RPC directly. This is worth internalising as a
+general rule — a client-side guard shapes the interface, a server-side guard enforces the
+invariant, and you usually want both for different reasons.
 
 ## Steps
+
+> **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
+> The `cd` lines are written so you can paste them in order from there.
 
 ### 1. Update the `companionDecide` function
 
@@ -177,7 +193,7 @@ async function companionDecide(
 #### If something is not working make sure you copy the solution
 
    ```bash
-   cd app/backend
+   cd backend
    cp ../../08-companions/solution/index.ts aws-blocks/index.ts
    npm run typecheck
    ```
@@ -185,7 +201,7 @@ async function companionDecide(
 ### 3. **Regenerate the Dart client and rebuild:**
 
    ```bash
-   cd app/backend   # the blocks-generate-spec binary lives here
+   cd backend   # the blocks-generate-spec binary lives here
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs

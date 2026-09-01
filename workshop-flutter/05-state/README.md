@@ -57,6 +57,9 @@ Flutter UI code doesn't change at all in this module.
 
 ## Steps
 
+> **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
+> The `cd` lines are written so you can paste them in order from there.
+
 ### 1. **Embedd sub-schemas** for players, rolls, and log entries
 
    ```ts
@@ -167,7 +170,7 @@ Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
 
 #### If something is not working make sure you copy the solution
    ```bash
-   cd app/backend
+   cd backend
    cp ../../05-state/solution/index.ts aws-blocks/index.ts
    npm run typecheck
    ```
@@ -208,7 +211,7 @@ Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
 ### 9. **Inspect the data on disk:**
 
    ```bash
-   ls app/backend/.bb-data/    # tt-gameStates and tt-chat now exist alongside tt-games
+   ls backend/.bb-data/    # tt-gameStates and tt-chat now exist alongside tt-games
    ```
 
 ## Verify
@@ -245,7 +248,7 @@ curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
 
 - [ ] `npm run typecheck` passes.
 - [ ] `flutter analyze` reports no issues.
-- [ ] `app/backend/.bb-data/tt-gameStates/` and `app/backend/.bb-data/tt-chat/` exist
+- [ ] `backend/.bb-data/tt-gameStates/` and `backend/.bb-data/tt-chat/` exist
       after playing.
 - [ ] A game (and its chat) survives a dev-server restart.
 
@@ -266,7 +269,7 @@ curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
   `kind` outside the enum). The error names the offending path.
 - **Chat out of order** — you're sorting client-side instead of relying on the `ts` sort
   key; use the `query` shown above.
-- **Old game won't load after schema edits** — `rm -rf app/backend/.bb-data` to clear
+- **Old game won't load after schema edits** — `rm -rf backend/.bb-data` to clear
   items written under the previous shape.
 - **`flutter analyze` errors after regen** — if the generated bindings added new required
   fields, the UI may need minor updates to pass them through. Check `game_repository.dart`

@@ -37,6 +37,9 @@ the Flutter frontend consumes the same JSON-RPC responses through generated Dart
 
 ## Steps
 
+> **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
+> The `cd` lines are written so you can paste them in order from there.
+
 ### 1. Update the game schame
 
 Add game schema like below. This schema adds two new fields the Map version didn't need — `listKey` and `gameId`:
@@ -120,10 +123,11 @@ Now update the following:
 ### 6. **Run the app:**
 
    ```bash
-# Terminal 1
-npm run dev
+   # Terminal 1 — from workshop-flutter/app/
+   cd backend
+   npm run dev
 
-# Terminal 2
+   # Terminal 2 — from workshop-flutter/app/
    flutter run -d chrome
    ```
 
@@ -162,7 +166,7 @@ curl -s -b cookies.txt -X POST http://localhost:3001/aws-blocks/api \
 On disk you can also inspect the raw table data:
 
 ```bash
-cat app/backend/.bb-data/tt-games/data.json   # lobby rows, all with listKey:"all"
+cat backend/.bb-data/tt-games/data.json   # lobby rows, all with listKey:"all"
 ```
 
 **Flutter UI steps:**
@@ -183,7 +187,7 @@ Catch up from `app/backend/`:
 - [ ] `npm run typecheck` passes.
 - [ ] `flutter analyze` reports no issues.
 - [ ] Seeded + created games list correctly (newest first) and persist to
-      `app/backend/.bb-data/tt-games/`.
+      `backend/.bb-data/tt-games/`.
 - [ ] Join-Private resolves a game by its access code.
 - [ ] Responsive hall layout works below 840 px.
 
@@ -204,7 +208,7 @@ Catch up from `app/backend/`:
 - **`Index 'all' not found` / `Index 'gameId' not found`** — you passed a field where an
   index name goes. Use `index: "byCreated"`.
 - **Lobby empty after the change** — the seed only runs when the query returns nothing;
-  delete `app/backend/.bb-data` and restart to re-seed cleanly.
+  delete `backend/.bb-data` and restart to re-seed cleanly.
 - **`flutter analyze` errors about missing members** — you need to regenerate bindings.
   Re-run `npx blocks-generate-spec ...` and `dart run build_runner build
   --delete-conflicting-outputs`.

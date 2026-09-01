@@ -55,6 +55,9 @@ fallback)**. The canned provider is always appended automatically — you never 
 
 Below is the actual code you're copying in this module's checkpoint, so you can
 read through what each piece does before moving on.
+> **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
+> The `cd` lines are written so you can paste them in order from there.
+
 
 ### 1. Update the imports
 
@@ -256,7 +259,7 @@ inference-profile id instead of the preset.
 ### 5. **Regenerate the Dart client and rebuild:**
 
    ```bash
-   cd backend   # make sure you are at the backend foldeer
+   cd backend   # make sure you are at the backend folder
    npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
    cd ..
    dart run build_runner build --delete-conflicting-outputs
@@ -281,7 +284,9 @@ inference-profile id instead of the preset.
    ollama pull llama3.1:8b
    ```
 
-   Restart `npm run dev` (from `app/backend`) and re-run `flutter run -d macos`. Now the
+   Restart `npm run dev` (from `app/backend`) and re-run `flutter run -d chrome` (any
+   `flutter run` target works — `-d chrome` is the cross-platform default this workshop
+   uses). Now the
    DM narrates in-character, the action choices fit the moment, and the "🤔 thinking" bar
    streams the DM's reasoning live. `text-delta` chunks are re-published to the `thinking`
    Realtime namespace by `nextScene`.
