@@ -31,6 +31,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+# CDK Hosting staging dir, created by `npm run deploy` during synth
+/.hosting/
 /coverage/
 
 # Symbolication related

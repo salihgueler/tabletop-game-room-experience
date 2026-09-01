@@ -5,28 +5,37 @@ DynamoDB tables with GSIs, API Gateway WebSocket, Bedrock via SQS/Lambda — com
 the first time, fronted by CloudFront + S3 serving the Flutter web build.
 
 **Introduced:** CDK `Hosting`, the sandbox/prod deploy flow
-**You edit:** nothing in `index.ts` — the backend is complete. This module is about the
-deploy glue and going live.
+**You edit:** `aws-blocks/index.ts` — nothing (the backend is complete). You **do** edit
+`aws-blocks/index.cdk.ts` once, in step 1, to add `Hosting`.
 **You'll know you're done when:** your CloudFront URL serves the Flutter web app, you can
 register, create a character, play a turn, and see Realtime updates in a second tab.
 
 ---
 
+## Prerequisites
+
+Unlike every other module, this one needs a real AWS account and it creates resources that
+cost money. Set all four up **before** step 1 — each of them fails the deploy late and
+confusingly if missing:
+
+- **AWS credentials + a region.** `aws sts get-caller-identity` should return your account.
+  Everything below deploys into whatever profile/region your shell resolves.
+- **CDK bootstrapped**, once per account+region: `npx cdk bootstrap`.
+- **Bedrock model access enabled** for that region, in the Bedrock console. This is a hard
+  requirement for the `Agent` blocks, not a post-deploy detail — without it your DM
+  silently falls back to canned output (see the model-pinning gotcha below).
+- **A built Flutter web app** — step 2 covers this.
+
+> **Cost:** this provisions CloudFront, API Gateway, Lambda, DynamoDB and SQS. Idle cost is
+> small but not zero, and tearing a CloudFront distribution down takes 15–40 minutes
+> (disable, then delete). Read step 6 before you start, not after.
+
+---
+
 ## Concept
 
-You never wrote CloudFormation, IAM policies, or wiring. The generated
-`aws-blocks/index.cdk.ts` reads your backend's Blocks and provisions the matching AWS
-resources; `Hosting` adds a CloudFront + S3 front end for the built Flutter web app.
-
-```ts
-// aws-blocks/index.cdk.ts (generated glue — do not hand-edit)
-new Hosting(blocksStack, "Hosting", {
-  root: join(__dirname, "../.."),
-  buildCommand: "flutter build web --release",
-  buildOutputDir: "build/web",
-  api: blocksStack,
-});
-```
+You never wrote CloudFormation, IAM policies, or wiring. `aws-blocks/index.cdk.ts` reads
+your backend's Blocks and provisions the matching AWS resources.
 
 `BlocksStack.create` turns your `index.ts` into infrastructure:
 
@@ -55,13 +64,52 @@ the code, first.**
 
 ## Steps
 
-### 1. Sandbox first (ephemeral, fast)
+> **Working directory:** every fence below starts from `workshop-flutter/app/`. The `cd`
+> lines are written so you can paste them in order from there.
+
+### 1. Add `Hosting` to the CDK file
+
+The scaffolder generated `aws-blocks/index.cdk.ts` with the backend stack only — it has
+**no `Hosting` construct**, so a deploy right now would give you a working API and no
+website. Adding `Hosting` is this module's one code change.
+
+Open `backend/aws-blocks/index.cdk.ts`. `Hosting` ships in the module the file already
+imports from, so just add it to the existing import:
+
+```ts
+import { BlocksStack, BlocksPresets, Hosting } from "@aws-blocks/blocks/cdk";
+```
+
+Then, at the end of the file, add the block — note it is **skipped in sandbox mode**,
+because the sandbox deliberately has no front end:
+
+```ts
+if (!sandboxMode) {
+  new Hosting(blocksStack, "Hosting", {
+    root: join(__dirname, "..", ".."),
+    buildCommand: "flutter build web --release",
+    buildOutputDir: "build/web",
+    api: blocksStack,
+  });
+}
+```
+
+**Why `join(__dirname, "..", "..")`:** this file lives at `app/backend/aws-blocks/`, so two
+levels up is `app/` — your Flutter project root, the directory that contains `build/web`.
+Get this wrong and synth fails with `Build output directory not found`. (The finished
+reference app in `../../tabletop-flutter/` uses a single `".."` because there `aws-blocks/`
+sits directly beside `lib/` — don't copy that path here, the layouts differ.)
+
+`api: blocksStack` is what makes the deployed app talk to a **same-origin** API: CloudFront
+routes the RPC prefix to API Gateway, so there is no CORS and no URL to configure.
+
+### 2. Sandbox first (ephemeral, fast)
 
 The sandbox deploys the backend (Lambda + API Gateway + DynamoDB + WebSocket API) without the
 CloudFront/S3 front end, with hot reload — ideal for a first real-cloud smoke test:
 
 ```bash
-cd app/backend
+cd backend
 npm run sandbox
 ```
 
@@ -69,10 +117,9 @@ The sandbox sets `BLOCKS_SANDBOX=true`, which flips auth's `crossDomain` — ess
 Flutter clients, including mobile on another origin, where the frontend and API live on
 different registrable domains. Without it, session cookies are rejected cross-origin.
 
-**Run Flutter against the sandbox:**
+**Run Flutter against the sandbox** (second terminal, from `app/`):
 
 ```bash
-cd ..
 flutter run -d chrome \
   --dart-define=BLOCKS_API_URL=https://YOUR_API/aws-blocks/api
 ```
@@ -81,17 +128,20 @@ Replace `YOUR_API` with the API Gateway URL printed by `npm run sandbox`. Play a
 confirm the backend is live. If AI narration is generic, that's the model gotcha below —
 the game still runs.
 
+When you're done with the sandbox, from `app/backend`:
+
 ```bash
-cd backend
 npm run sandbox:destroy
 ```
 
-### 2. Pre-deploy: regenerate and build locally
+### 3. Pre-deploy: regenerate and build locally
 
-Before deploying, ensure the generated spec and Flutter web build are fresh:
+Before deploying, make sure the generated spec and Flutter web build are fresh. `Hosting`
+runs `flutter build web` itself during synth, but it does **not** run the spec generator or
+`build_runner` — a stale client here ships a stale app:
 
 ```bash
-cd app/backend
+cd backend
 npx blocks-generate-spec aws-blocks/index.ts ../lib/blocks.spec.json
 cd ..
 dart run build_runner build --delete-conflicting-outputs
@@ -100,7 +150,9 @@ flutter analyze
 flutter test
 ```
 
-### 3. Production deploy (with Hosting)
+### 4. Production deploy (with Hosting)
+
+From `app/`:
 
 ```bash
 cd backend
