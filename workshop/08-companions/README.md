@@ -67,8 +67,11 @@ Only **two ideas** are genuinely new in this module:
   containing the other, else the random valid fallback. Read those two things closely; skim
   the rest.
 
-1. **Replace the mock `COMPANION_LINES`**
-2. Add`COMPANION_PERSONAS` (one persona string per class), and the `companions` agent map built in a `for (const cls of CORE_CLASSES)` loop.
+### 1. Replace the mock COMPANION_LINES
+
+### 2. Add the personas and the companions agent map
+
+Add`COMPANION_PERSONAS` (one persona string per class), and the `companions` agent map built in a `for (const cls of CORE_CLASSES)` loop.
 
    This step drops in two things: the `COMPANION_PERSONAS` map (a one-line personality
    string per class) and the `companions` object — one `Agent` per class, each stamped with
@@ -106,7 +109,9 @@ for (const cls of CORE_CLASSES) {
 }
 ```
 
-3. Update the `companionDecide` function
+### 3. Rewrite companionDecide
+
+Update the `companionDecide` function
 
    The streaming/parse/fallback body of this function is the same skeleton as module 07's
    `nextScene` — the `emit` helper, the `text-delta` subscription, the `raw.match(/\{[\s\S]*\}/)`
@@ -207,12 +212,13 @@ async function companionDecide(
 
 Full implementation in [`solution/index.ts`](solution/index.ts).
 
-4. **Nothing else changes.** `advanceBotTurn` already calls `companionDecide` and
-   `postBotChat` — it doesn't care that the decision now comes from an LLM.
+### 4. Nothing else changes
 
-5. **Verify:**
-   Typecheck proves the four agents compile. Whether a real model is answering is a separate
-   question, and the Verify section below is where you settle it.
+**Nothing else changes.** `advanceBotTurn` already calls `companionDecide` and `postBotChat` — it doesn't care that the decision now comes from an LLM.
+
+### 5. Verify
+
+**Verify:** Typecheck proves the four agents compile. Whether a real model is answering is a separate question, and the Verify section below is where you settle it.
 
    ```bash
    npm run typecheck

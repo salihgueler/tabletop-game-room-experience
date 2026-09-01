@@ -71,7 +71,9 @@ turn" friction disappears.
 
 ## Steps
 
-1. **Import `Realtime`** Building Block:
+### 1. Import the Realtime block
+
+**Import `Realtime`** Building Block:
 
    You're pulling one more block into the same import you've been editing since module 02.
    Nothing runs yet — this is the JS-module equivalent of adding an import at the top of a
@@ -89,7 +91,9 @@ import {
 } from "@aws-blocks/blocks";
 ```
 
-2.  Construct the data inside the building blocks and use the `chatSchema`.
+### 2. Construct the Realtime block
+
+Construct the data inside the building blocks and use the `chatSchema`.
 
 ```ts
 const rt = new Realtime(scope, "rt", {
@@ -115,11 +119,11 @@ const rt = new Realtime(scope, "rt", {
 });
 ```
 
-3. **Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes
-   `await rt.publish("...", key, payload)` (in `saveAndBroadcast`, `transcribe`,
-   `postBotChat`, `sendChat`). They're already inside `async` functions.
+### 3. Point the publish calls at the block
 
-4. **Return real channels** from the three getters:
+**Point `publish` calls at the block.** Every `publish("...", key, payload)` becomes `await rt.publish("...", key, payload)` (in `saveAndBroadcast`, `transcribe`, `postBotChat`, `sendChat`). They're already inside `async` functions.
+
+### 4. Return real channels from the three getters
 
    ```ts
    async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
@@ -127,11 +131,13 @@ const rt = new Realtime(scope, "rt", {
    async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
    ```
 
-5. **Delete the realtime mock** — both `fakeChannel()` implementation and the empty `publish()` function.
+### 5. Delete the realtime mock
 
-6. **Verify:**
-   Typecheck and curl prove the channels exist and the transcript persists. They cannot prove
-   the socket is live — that's what the two checks further down are for.
+**Delete the realtime mock** — both `fakeChannel()` implementation and the empty `publish()` function.
+
+### 6. Verify
+
+**Verify:** Typecheck and curl prove the channels exist and the transcript persists. They cannot prove the socket is live — that's what the two checks further down are for.
 
    ```bash
    npm run typecheck

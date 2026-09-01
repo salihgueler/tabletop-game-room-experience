@@ -65,7 +65,9 @@ d20 roll, the DC check, narration, and turn order end to end.
 
 ## Steps
 
-1. **Add the embedded schemas for players, rolls and log entries**
+### 1. Add the embedded schemas
+
+**Add the embedded schemas for players, rolls and log entries**
 
    These three schemas describe the pieces a game state is built out of — one player, one
    dice roll, one log line. They exist on their own so the big `gameStateSchema` in the next
@@ -108,8 +110,9 @@ const logEntrySchema = z.object({
 });
 ```
 
-2. Add two tables (`gameStateSchema`, `chatSchema`), then create `gameStates` and
-   `chatMessages` — right after the `games` table.
+### 2. Add the gameStates and chatMessages tables
+
+Add two tables (`gameStateSchema`, `chatSchema`), then create `gameStates` and `chatMessages` — right after the `games` table.
 
 ```ts
 const gameStateSchema = z.object({
@@ -147,10 +150,14 @@ const chatMessages = new DistributedTable(scope, "chat", {
   key: { partitionKey: "gameId", sortKey: "ts" },
 });
 ```
-3. **Delete both Maps** (`gameStateStore`, `chatStore`). The persistence mock block is now
-   empty — remove it; only the realtime and AI mocks remain.
 
-4. Remove all the mock Game Types and **Infer the types from the schemas:**
+### 3. Delete both Maps
+
+**Delete both Maps** (`gameStateStore`, `chatStore`). The persistence mock block is now empty — remove it; only the realtime and AI mocks remain.
+
+### 4. Infer the types from the schemas
+
+Remove all the mock Game Types and **Infer the types from the schemas:**
 
    ```ts
    type Player = z.infer<typeof playerSchema>;
@@ -160,7 +167,9 @@ const chatMessages = new DistributedTable(scope, "chat", {
    type GameState = z.infer<typeof gameStateSchema>;
    ```
 
-5. **Swap the call sites** (all async now):
+### 5. Swap the call sites
+
+**Swap the call sites** (all async now):
 
    | before (Map)                                                      | after (table)                                                                              |
    | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -171,7 +180,9 @@ const chatMessages = new DistributedTable(scope, "chat", {
    | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
    | `chatStore.get(id)` - remove set and bucket as well               | `await chatMessages.put(msg)`                                                              |
 
-6. Update the `saveAndBroadcast` function like the following:
+### 6. Bump the version in saveAndBroadcast
+
+Update the `saveAndBroadcast` function like the following:
 
 ```ts
 async function saveAndBroadcast(state: GameState) {
@@ -184,10 +195,9 @@ async function saveAndBroadcast(state: GameState) {
 
 The full version is in [`solution/index.ts`](solution/index.ts).
 
-7. **Verify:**
-   Same idea as module 03, one level up: the whole game — players, rolls, log, chat — now
-   survives a restart. The turn engine was already authoritative; you only changed where it
-   keeps its state.
+### 7. Verify
+
+**Verify:** Same idea as module 03, one level up: the whole game — players, rolls, log, chat — now survives a restart. The turn engine was already authoritative; you only changed where it keeps its state.
 
    ```bash
    npm run typecheck

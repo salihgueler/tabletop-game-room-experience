@@ -35,7 +35,9 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
 
 ## Steps
 
-1. **Import the block and Zod**, and add the schema + table near the top:
+### 1. Import the block and Zod
+
+**Import the block and Zod**, and add the schema + table near the top:
 
    These two imports are the whole toolkit for this module: `DistributedTable` is the
    persistence Block, and `z` is Zod's builder. Reaching for a validation library the moment
@@ -56,7 +58,9 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
    import { z } from "zod";
    ```
 
-2. Add the character schema and character table.
+### 2. Add the character schema and table
+
+Add the character schema and character table.
 
 ```ts
 const characterSchema = z.object({
@@ -73,16 +77,21 @@ const characters = new DistributedTable(scope, "characters", {
 });
 ```
 
-3. Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block
-   (leave `gameStore` / `gameStateStore` / `chatStore` — those are modules 04–05).
+### 3. Delete the characterStore Map
 
-4. Replace the `Character` current type, and **use the type from the schema** so there's one source of truth (`z.infer<typeof schema>` extracts the static TypeScript type from a Zod schema, so you write the shape once and get the type for free):
+Delete **`const characterStore = new Map<string, Character>();`** from the persistence mock block (leave `gameStore` / `gameStateStore` / `chatStore` — those are modules 04–05).
+
+### 4. Infer the Character type from the schema
+
+Replace the `Character` current type, and **use the type from the schema** so there's one source of truth (`z.infer<typeof schema>` extracts the static TypeScript type from a Zod schema, so you write the shape once and get the type for free):
 
    ```ts
    type Character = z.infer<typeof characterSchema>;
    ```
 
-5. **Swap the call sites** (async now — tables return Promises):
+### 5. Swap the call sites
+
+**Swap the call sites** (async now — tables return Promises):
 
    | before (Map)                                                                         | after (DistributedTable)                                    |
    | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
@@ -90,10 +99,9 @@ const characters = new DistributedTable(scope, "characters", {
    | `characterStore.get(user.username) ?? null` - in getCharacter function               | `(await characters.get({ userId: user.username })) ?? null` |
    | `characterStore.get(user.username)` - in createGame, joinGame and sendChat functions | `await characters.get({ userId: user.username })`           |
 
-6. **Verify:**
-   You are proving the one thing a `Map` could never do: that a hero outlives the process.
-   Save one, restart the dev server, and sign in again — if it's still there, the write landed
-   in a real table on disk.
+### 6. Verify
+
+**Verify:** You are proving the one thing a `Map` could never do: that a hero outlives the process. Save one, restart the dev server, and sign in again — if it's still there, the write landed in a real table on disk.
 
    ```bash
    npm run typecheck

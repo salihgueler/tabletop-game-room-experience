@@ -86,7 +86,9 @@ model rather than a preset alias that Bedrock can silently re-point.)
 
 ## Steps
 
-1. **Import** `Agent`, `BedrockModels`, `OllamaModels` and
+### 1. Import Agent and the model presets
+
+**Import** `Agent`, `BedrockModels`, `OllamaModels` and
 
    These three names are all you add to the existing import. `Agent` is the LLM
    block itself; `BedrockModels` and `OllamaModels` are enums of ready-made model
@@ -107,8 +109,9 @@ import {
 } from "@aws-blocks/blocks";
 ```
 
-2. construct the `dm` agent
-   (inference-only, with the system prompt) at the top of the AI section.
+### 2. Construct the dm agent
+
+construct the `dm` agent (inference-only, with the system prompt) at the top of the AI section.
 
 ```ts
 const dm = new Agent(scope, "dm", {
@@ -127,12 +130,13 @@ const dm = new Agent(scope, "dm", {
 });
 ```
 
-3. **Keep the canned helper functions** (`categorize`, `RESULTS`, `cannedNarration`, `PROMPTS`,
-   `promptFor`) — they're now the _fallback_, not the primary path.
+### 3. Keep the canned helper functions
 
-4. **Rewrite `narrate`** to build a prompt from the action + roll outcome, call
-   `dm.stream(...).complete()`, return the text, and fall back to `cannedNarration` in a
-   `catch`.
+**Keep the canned helper functions** (`categorize`, `RESULTS`, `cannedNarration`, `PROMPTS`, `promptFor`) — they're now the _fallback_, not the primary path.
+
+### 4. Rewrite narrate to call the agent
+
+**Rewrite `narrate`** to build a prompt from the action + roll outcome, call `dm.stream(...).complete()`, return the text, and fall back to `cannedNarration` in a `catch`.
 
    ```ts
    async function narrate(
@@ -158,10 +162,9 @@ const dm = new Agent(scope, "dm", {
    }
    ```
 
-5. **Rewrite `nextScene`** to prompt for a one-line scene + a JSON array of 3–4 options,
-   stream `text-delta` chunks to the `thinking` channel via `rt.publish("thinking", ...)`,
-   parse the JSON (with a coercion helper + one retry), and fall back to the generic
-   prompt + class actions if parsing fails.
+### 5. Rewrite nextScene to stream and parse JSON
+
+**Rewrite `nextScene`** to prompt for a one-line scene + a JSON array of 3–4 options, stream `text-delta` chunks to the `thinking` channel via `rt.publish("thinking", ...)`, parse the JSON (with a coercion helper + one retry), and fall back to the generic prompt + class actions if parsing fails.
 
    **The shape, before the code.** The block below is long, but the flow is small.
    In pseudocode:
@@ -296,7 +299,7 @@ const dm = new Agent(scope, "dm", {
 
 The complete implementations are in [`solution/index.ts`](solution/index.ts).
 
-6. **Verify (canned — no setup):**
+### 6. Verify (canned — no setup)
 
 ```bash
 npm run typecheck
@@ -305,9 +308,9 @@ npm run dev
 
 Play a turn. Even without a model, the fallback keeps it playable.
 
-7. **Verify (real AI — fully optional):** only if you _want_ live, improvised narration
-   (see "No Ollama? No problem" above — the module is complete without this). Install and
-   run [Ollama](https://ollama.com), then:
+### 7. Verify (real AI — optional)
+
+**Verify (real AI — fully optional):** only if you _want_ live, improvised narration (see "No Ollama? No problem" above — the module is complete without this). Install and run [Ollama](https://ollama.com), then:
 
    ```bash
    ollama serve

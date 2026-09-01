@@ -32,7 +32,9 @@ table grows. The idiomatic Blocks pattern is a targeted `query()` instead:
 
 ## Steps
 
-1. Start by adding game schema after character schema. The schema adds two fields the Map version didn't need: `listKey` and `gameId`.
+### 1. Add the game schema
+
+Start by adding game schema after character schema. The schema adds two fields the Map version didn't need: `listKey` and `gameId`.
 
 ```ts
 // A game room in the lobby list.
@@ -53,7 +55,9 @@ const gameSchema = z.object({
 });
 ```
 
-2. **Add the `games` table** (schema + index) right after the `characters` table.
+### 2. Add the games table and its index
+
+**Add the `games` table** (schema + index) right after the `characters` table.
 
 ```ts
 const games = new DistributedTable(scope, "games", {
@@ -65,15 +69,17 @@ const games = new DistributedTable(scope, "games", {
 });
 ```
 
-3. **Delete `const gameStore = new Map<string, Game>();`** from the persistence mock (keep
-   `gameStateStore` and `chatStore` — that's module 05).
+### 3. Delete the gameStore Map
 
-4. **Type from schema:** `type Game = z.infer<typeof gameSchema>;` (delete the hand-written
-   `Game` type). `z.infer` reads the static TypeScript type back out of a Zod schema, so the
-   runtime validator and the compile-time type stay one definition. Note `Game` now includes `listKey`.
+**Delete `const gameStore = new Map<string, Game>();`** from the persistence mock (keep `gameStateStore` and `chatStore` — that's module 05).
 
-5. **Swap every call site.** All become `async`, and every write must include
-   `listKey: "all"`. When you are asked to query the item, paste the following:
+### 4. Infer the Game type from the schema
+
+**Type from schema:** `type Game = z.infer<typeof gameSchema>;` (delete the hand-written `Game` type). `z.infer` reads the static TypeScript type back out of a Zod schema, so the runtime validator and the compile-time type stay one definition. Note `Game` now includes `listKey`.
+
+### 5. Swap every call site
+
+**Swap every call site.** All become `async`, and every write must include `listKey: "all"`. When you are asked to query the item, paste the following:
 
    ```ts
    // list everything (query returns an async iterator):
@@ -92,7 +98,7 @@ const games = new DistributedTable(scope, "games", {
 
    The completed version is in [`solution/index.ts`](solution/index.ts) — diff against yours.
 
-6. **Verify:**
+### 6. Verify
 
    These two commands are your smoke test. `npm run typecheck` is the same `tsc`
    gate you would wire into a CI step — it proves your `z.infer` types and the
