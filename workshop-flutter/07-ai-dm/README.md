@@ -125,6 +125,8 @@ Streams the DM's reasoning to the `thinking` channel via `rt.publish(...)`, asks
 a JSON scene + options, parses (with one retry), and falls back to the generic prompt +
 class actions if parsing fails:
 
+> `companionDecide` stays canned for now — that's module 08.
+
 ```ts
 async function nextScene(
   gameId: string,
@@ -218,9 +220,6 @@ async function nextScene(
   return fallback;
 }
 ```
-
-> `companionDecide` stays canned for now — that's module 08.
-
 ---
 
 ## No Ollama? No problem — the canned provider
