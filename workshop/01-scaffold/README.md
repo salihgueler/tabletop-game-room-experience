@@ -229,6 +229,14 @@ because the render path only ever depends on `refreshState`, module 06 can drop 
 The mock and the real backend present the same `channel.subscribe` shape; this `try/catch` is
 what lets one component work unchanged against both.
 
+> **So expect a quiet chat panel in this module.** `GameRoom.jsx` fetches the transcript once
+> when the room mounts and after that only *appends* what the chat channel pushes it — and the
+> mock channel pushes nothing. The board, the dice and the turn order all update, because those
+> come from `refreshState`, but the chat log will sit there showing only what was already there
+> when you walked in. Nothing is broken: the messages are on the server, and
+> `curl`-ing `api.getChatHistory` will show them. Module 06 swaps in a real `Realtime` block and
+> the panel comes alive without a single change to `GameRoom.jsx`.
+
 ---
 
 ## Checklist

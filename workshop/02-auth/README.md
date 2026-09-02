@@ -57,7 +57,7 @@ Update the blocks import to have `AuthBasic`:
 import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
 ```
 
-Now, right after `const scope = new Scope("tt")`, add the import add the block:
+Now, right after `const scope = new Scope("tt")`, construct the block:
 
 ```ts
 const scope = new Scope("tt");
