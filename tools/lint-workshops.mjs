@@ -43,7 +43,7 @@ const EXPECTED_ABSENT = new Set([
 const findings = [];
 /** Coverage for the `indent` check. A check that silently matches nothing passes
  *  vacuously, so these numbers are printed with the result rather than assumed. */
-const stats = { fences: 0, checked: 0, matched: 0 };
+const stats = { fences: 0, checked: 0, matched: 0, sortKeys: 0 };
 const note = (file, line, check, msg) =>
   findings.push({ file, line, check, msg });
 
@@ -267,6 +267,36 @@ for (const ws of WORKSHOPS) {
     }
   }
 
+  // --- clock-derived sort keys -------------------------------------------
+  // A DistributedTable's PRIMARY key (partitionKey, sortKey) is the row's identity, so
+  // a sort key filled from Date.now() silently overwrites whenever two writes land in
+  // the same millisecond. This cost the chat transcript ~20% of its messages, dice
+  // rolls included, while every typecheck stayed green — so it is guarded here.
+  //
+  // Only the primary `key: { … }` counts. A secondary index sort key (under
+  // `indexes:`) orders entries but is not their identity — duplicates there are fine,
+  // which is why `byCreated`'s `createdAt` is deliberately not flagged.
+  for (const d of moduleDirs(ws)) {
+    const sol = join(ROOT, ws, d, "solution", "index.ts");
+    if (!existsSync(sol)) continue;
+    const rel = relative(ROOT, sol);
+    const src = readFileSync(sol, "utf8");
+    const keyed = [...src.matchAll(/\bkey:\s*\{[^}]*?sortKey:\s*"(\w+)"/g)].map((m) => m[1]);
+    if (!keyed.length) continue;
+    const identity = new Set(keyed);
+    stats.sortKeys += identity.size;
+    src.split("\n").forEach((line, i) => {
+      // `<sortKey>: Date.now()` — a raw clock read straight into an identity field.
+      for (const k of identity) {
+        if (new RegExp(`\\b${k}:\\s*Date\\.now\\(\\)`).test(line)) {
+          note(rel, i + 1, "sortkey",
+            `"${k}" is a table sort key but is assigned Date.now() here; two writes in ` +
+            `the same millisecond overwrite each other. Allocate a unique value instead.`);
+        }
+      }
+    });
+  }
+
   // --- mock labels in the checkpoints ------------------------------------
   for (const d of moduleDirs(ws)) {
     const sol = join(ROOT, ws, d, "solution", "index.ts");
@@ -291,7 +321,8 @@ for (const ws of WORKSHOPS) {
 const quiet = process.argv.includes("--quiet");
 const coverage =
   `indent check: ${stats.checked}/${stats.fences} code fences compared against a ` +
-  `checkpoint (${stats.matched} lines matched)`;
+  `checkpoint (${stats.matched} lines matched)\n` +
+  `   sortkey check: ${stats.sortKeys} table sort key(s) inspected`;
 if (!findings.length) {
   console.log("✅ workshops lint clean");
   console.log(`   ${coverage}`);
