@@ -151,6 +151,15 @@ const chatMessages = new DistributedTable(scope, "chat", {
 });
 ```
 
+> **The sort key has to be unique.** `(gameId, ts)` is the full identity of a chat row, so
+> two messages in the same game with the same `ts` are the *same row* — the second `put`
+> silently overwrites the first and that message is gone. This matters here because
+> `Date.now()` only resolves to the millisecond and a single turn emits a whole burst of
+> messages (a DM line, the action, the roll, the outcome) far faster than that. That is why
+> the backend hands out timestamps through the `nextTs` helper, which never returns the same
+> number twice, instead of calling `Date.now()` at each write. Any time you make a clock
+> reading part of a key, ask what happens when two writes share a tick.
+
 ### 3. Delete both Maps
 
 **Delete both Maps** (`gameStateStore`, `chatStore`). The persistence mock block is now empty — remove it; only the realtime and AI mocks remain.
@@ -178,7 +187,23 @@ Remove all the mock Game Types and **Infer the types from the schemas:**
    | `gameStateStore.set(id, state)`                                   | `await gameStates.put(state)`                                                              |
    | `gameStateStore.set(id, {<items>})`                               | `await gameStates.put({<items>})`                                                          |
    | `[...(chatStore.get(gameId) ?? [])].sort((a, b) => a.ts - b.ts);` | `await Array.fromAsync( chatMessages.query({ where: { gameId: { equals: gameId } } }), );` |
-   | `chatStore.get(id)` - remove set and bucket as well               | `await chatMessages.put(msg)`                                                              |
+   | `chatStore.get(id)` — see the note below                          | `await chatMessages.put(msg)`                                                              |
+
+The last row applies in **three separate places** — `transcribe`, `postBotChat`, and
+`sendChat` — and each one is a three-line read-modify-write that collapses into a single
+`put`. In every one of them, delete all three lines:
+
+```ts
+const bucket = chatStore.get(gameId) ?? [];   // delete
+bucket.push(msg);                             // delete
+chatStore.set(gameId, bucket);                // delete
+```
+
+and leave `await chatMessages.put(msg)` in their place. The copies inside `postBotChat` and
+`sendChat` are indented differently from the one in `transcribe`, so searching for the exact
+text above will miss them — search for `bucket` instead and confirm you have none left.
+Once all three sites are converted, the `const chatStore = new Map…` declaration is unused
+and should go too.
 
 ### 6. Bump the version in saveAndBroadcast
 
