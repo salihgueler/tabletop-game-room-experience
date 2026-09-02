@@ -58,7 +58,7 @@ export default function Chat({ title = 'CHAT', messages, onSend }) {
     <div className="panel col chat-panel" style={{ height: '100%' }}>
       <div className="panel-header">{title}</div>
       <div ref={scrollRef} className="grow" style={{ overflowY: 'auto', padding: '10px 12px' }}>
-        {messages.map((m, i) => <ChatLine key={m.ts ?? i} m={m} />)}
+        {messages.map((m, i) => <ChatLine key={`${m.ts ?? 'x'}-${i}`} m={m} />)}
       </div>
       {onSend && (
         <form onSubmit={submit} className="row gap-sm" style={{ padding: 10, borderTop: '2px solid var(--panel-line)' }}>

@@ -523,6 +523,18 @@ async function saveAndBroadcast(state: GameState) {
   return state;
 }
 
+// `ts` is the chat transcript's sort key (see the DistributedTable in module 05),
+// so every message MUST get a distinct one — two rows sharing a ts overwrite each
+// other and the message is gone. Date.now() is only millisecond-resolution and a
+// single turn emits several messages well inside one millisecond, so hand out
+// strictly increasing stamps instead of reading the clock each time.
+let lastTs = 0;
+function nextTs(count = 1): number {
+  const base = Math.max(Date.now(), lastTs + 1);
+  lastTs = base + count - 1;
+  return base;
+}
+
 // Write events to BOTH the board log and the persistent chat transcript, and
 // (in the real app) broadcast each to the chat channel.
 async function transcribe(
@@ -551,7 +563,7 @@ async function transcribe(
       text: e.text,
     })),
   ];
-  const base = Date.now();
+  const base = nextTs(withColor.length);
   const bucket = chatStore.get(state.gameId) ?? [];
   for (let i = 0; i < withColor.length; i++) {
     const e = withColor[i];
@@ -649,7 +661,7 @@ async function postBotChat(
   const bucket = chatStore.get(gameId) ?? [];
   const msg: ChatMsg = {
     gameId,
-    ts: Date.now(),
+    ts: nextTs(),
     who: name,
     color,
     text,
@@ -1048,7 +1060,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     const character = await characters.get({ userId: user.username });
     const msg: ChatMsg = {
       gameId,
-      ts: Date.now(),
+      ts: nextTs(),
       who: character?.name ?? user.username,
       color: character
         ? (CLASS_META[character.classKey]?.color ?? "var(--text)")
