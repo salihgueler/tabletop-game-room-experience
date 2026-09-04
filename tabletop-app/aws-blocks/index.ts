@@ -794,9 +794,21 @@ async function saveAndBroadcast(state: GameState) {
   return next;
 }
 
+// `ts` is the chat transcript's sort key, so every message MUST get a distinct one —
+// two rows sharing a ts are the SAME row and the second put silently overwrites the
+// first. Date.now() is only millisecond-resolution and a single turn emits several
+// messages well inside one millisecond, so hand out strictly increasing stamps
+// instead of reading the clock at each write.
+let lastTs = 0;
+function nextTs(count = 1): number {
+  const base = Math.max(Date.now(), lastTs + 1);
+  lastTs = base + count - 1;
+  return base;
+}
+
 // Write one or more events to BOTH the board log (drives the board + DM context)
 // and the persistent chat transcript (the scrollable history), broadcasting each
-// to the chat channel. ts is made monotonic within the batch so ordering holds.
+// to the chat channel. ts comes from nextTs so every row is unique and ordered.
 async function transcribe(
   state: GameState,
   entries: Array<{
@@ -823,7 +835,7 @@ async function transcribe(
       text: e.text,
     })),
   ];
-  const base = Date.now();
+  const base = nextTs(withColor.length);
   for (let i = 0; i < withColor.length; i++) {
     const e = withColor[i];
     const msg = {
@@ -928,7 +940,7 @@ async function postBotChat(
 ) {
   const msg = {
     gameId,
-    ts: Date.now(),
+    ts: nextTs(),
     who: name,
     color,
     text,
@@ -1374,7 +1386,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     const character = await characters.get({ userId: user.username });
     const msg = {
       gameId,
-      ts: Date.now(),
+      ts: nextTs(),
       who: character?.name ?? user.username,
       color: character
         ? (CLASS_META[character.classKey]?.color ?? "var(--text)")
