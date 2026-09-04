@@ -252,27 +252,68 @@ class _CompactTable extends StatelessWidget {
 
   final GameViewModel viewModel;
 
+  // Smallest heights at which each panel is still usable, plus the gaps between
+  // them. Above this total we lay the panels out to fill the window exactly;
+  // below it we let the list scroll rather than squeeze them into nothing.
+  static const double _turnOrder = 125;
+  static const double _dice = 155;
+  // The board carries fixed furniture regardless of height: the DM badge (~42)
+  // and the action panel (a 3-line narration, the status line, and a Wrap of
+  // action buttons that becomes two rows at phone width, ~200 together). Below
+  // this the player-token grid gets squeezed to nothing and the board's own
+  // Column overflows — measured at 68px short when this was 320.
+  static const double _minBoard = 400;
+  static const double _minChat = 190;
+  static const double _gaps = 30;
+  static const double _minTotal =
+      _turnOrder + _dice + _minBoard + _minChat + _gaps;
+
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      children: [
-        SizedBox(
-          height: 125,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final turnOrder = SizedBox(
+          height: _turnOrder,
           child: _TurnOrder(state: viewModel.state!, horizontal: true),
-        ),
-        const SizedBox(height: 10),
-        ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 620, maxHeight: 760),
-          child: _Board(viewModel: viewModel),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(height: 360, child: _Chat(viewModel: viewModel)),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 155,
+        );
+        final board = _Board(viewModel: viewModel);
+        final chat = _Chat(viewModel: viewModel);
+        final dice = SizedBox(
+          height: _dice,
           child: _DiceTray(roll: viewModel.state!.lastRoll),
-        ),
-      ],
+        );
+
+        if (fitsAvailableHeight(constraints.maxHeight, minimum: _minTotal)) {
+          // Enough room: give the board and the chat everything left over, so
+          // the table fills the window and nothing sits off-screen.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              turnOrder,
+              const SizedBox(height: 10),
+              Expanded(flex: 3, child: board),
+              const SizedBox(height: 10),
+              Expanded(flex: 2, child: chat),
+              const SizedBox(height: 10),
+              dice,
+            ],
+          );
+        }
+
+        // Too short to fit: scroll, but at the minimums rather than the much
+        // taller fixed heights this used to force.
+        return ListView(
+          children: [
+            turnOrder,
+            const SizedBox(height: 10),
+            SizedBox(height: _minBoard, child: board),
+            const SizedBox(height: 10),
+            SizedBox(height: _minChat, child: chat),
+            const SizedBox(height: 10),
+            dice,
+          ],
+        );
+      },
     );
   }
 }

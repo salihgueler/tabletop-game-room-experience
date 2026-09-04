@@ -2,6 +2,23 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 
+/// Decides whether a stack of panels can be laid out to FIT the space it was
+/// given, or whether the window is too short and the caller should fall back to
+/// a scrolling list.
+///
+/// The screens here each have a wide branch that is properly flexible (`Row` +
+/// `Expanded`) and a narrow branch that used to hard-code pixel heights. Fixed
+/// heights are why content sat outside the window at every size: they cannot
+/// shrink into a short viewport, and inside a scroll view they never even learn
+/// how much room there is. Panels should instead take the height available and
+/// only start scrolling once they would become too small to use.
+///
+/// [available] is the incoming `maxHeight`; [minimum] is the smallest total the
+/// content stays usable at. Returns false when [available] is unbounded, which
+/// is what a `SingleChildScrollView` or `ListView` child receives.
+bool fitsAvailableHeight(double available, {required double minimum}) =>
+    available.isFinite && available >= minimum;
+
 class TavernBackground extends StatelessWidget {
   const TavernBackground({super.key, required this.child});
 

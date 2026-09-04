@@ -47,69 +47,103 @@ class _CharacterViewState extends State<CharacterView> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
+      // LayoutBuilder OUTSIDE the scroll view: a SingleChildScrollView gives its
+      // child unbounded height, so anything inside it can never size itself to
+      // the window. Measuring here is what lets the card fill the viewport.
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 980),
-              child: Column(
-                children: [
-                  Text(
-                    'ADVENTURER\'S GUILD HALL',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.headlineMedium?.copyWith(fontSize: 24),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Forge your hero and take a seat at the table.',
-                    style: TextStyle(color: AppColors.meta),
-                  ),
-                  const SizedBox(height: 16),
-                  WoodFrame(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final preview = _Preview(
-                          controller: nameController,
-                          selected: selected,
-                          busy: busy,
-                          error: widget.viewModel.error,
-                          onSave: save,
-                        );
-                        final picker = _Picker(
-                          selected: selected,
-                          onSelected: (value) =>
-                              setState(() => selected = value),
-                        );
-                        if (constraints.maxWidth >= 720) {
-                          return SizedBox(
-                            height: 570,
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                SizedBox(width: 250, child: preview),
-                                const SizedBox(width: 14),
-                                Expanded(child: picker),
-                              ],
-                            ),
-                          );
-                        }
-                        return Column(
-                          children: [
-                            preview,
-                            const SizedBox(height: 14),
-                            SizedBox(height: 650, child: picker),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                ],
+        child: LayoutBuilder(
+          builder: (context, viewport) {
+            // Room left for the card once the heading block and padding are paid
+            // for. Below the floor the page scrolls instead of crushing it.
+            const chrome = 32.0 + 24.0 + 6.0 + 20.0 + 16.0;
+            final forCard = viewport.maxHeight - chrome;
+            // 470 is the card's own content floor in the side-by-side layout
+            // (measured: it overflows by 16px at 430). Above it the card fills
+            // the window; below it the page scrolls at this height.
+            const cardFloor = 470.0;
+            final fits = fitsAvailableHeight(forCard, minimum: cardFloor);
+
+            final card = WoodFrame(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final preview = _Preview(
+                    controller: nameController,
+                    selected: selected,
+                    busy: busy,
+                    error: widget.viewModel.error,
+                    onSave: save,
+                  );
+                  final picker = _Picker(
+                    selected: selected,
+                    onSelected: (value) => setState(() => selected = value),
+                  );
+                  if (constraints.maxWidth >= 720) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(width: 250, child: preview),
+                        const SizedBox(width: 14),
+                        Expanded(child: picker),
+                      ],
+                    );
+                  }
+                  return Column(
+                    children: [
+                      preview,
+                      const SizedBox(height: 14),
+                      // Fill what is left when the height is known; fall back to
+                      // a usable minimum when this sits inside a scroll view.
+                      if (constraints.maxHeight.isFinite)
+                        Expanded(child: picker)
+                      else
+                        SizedBox(height: 430, child: picker),
+                    ],
+                  );
+                },
               ),
-            ),
-          ),
+            );
+
+            final content = Column(
+              children: [
+                Text(
+                  'ADVENTURER\'S GUILD HALL',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.headlineMedium?.copyWith(fontSize: 24),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Forge your hero and take a seat at the table.',
+                  style: TextStyle(color: AppColors.meta),
+                ),
+                const SizedBox(height: 16),
+                if (fits)
+                  Expanded(child: card)
+                else
+                  // Bounded, not just a minimum: inside a scroll view the height
+                  // is unbounded, and the card's Row stretches its children, so
+                  // an unbounded box would force an infinite height.
+                  SizedBox(height: cardFloor, child: card),
+              ],
+            );
+
+            final bounded = Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 980),
+                child: content,
+              ),
+            );
+
+            // Only introduce a scroll view when the window genuinely cannot hold
+            // the card, so the common case fits exactly and never scrolls.
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: fits
+                  ? bounded
+                  : SingleChildScrollView(child: bounded),
+            );
+          },
         ),
       ),
     );

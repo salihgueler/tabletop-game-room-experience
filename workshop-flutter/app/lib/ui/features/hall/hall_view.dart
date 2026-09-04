@@ -135,24 +135,40 @@ class _HallViewState extends State<HallView> {
                         ],
                       );
                     }
+                    final gameList = _GameList(
+                      viewModel: viewModel,
+                      onOpen: widget.appViewModel.openGame,
+                    );
+                    final createGame = _CreateGame(
+                      viewModel: viewModel,
+                      codeController: codeController,
+                      onCreate: create,
+                      onOpen: widget.appViewModel.openGame,
+                    );
+
+                    if (fitsAvailableHeight(
+                      constraints.maxHeight,
+                      minimum: 620,
+                    )) {
+                      // Stack them but still fill the window, so neither panel
+                      // ends up below the fold on a short screen.
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(flex: 3, child: gameList),
+                          const SizedBox(height: 12),
+                          Expanded(flex: 4, child: createGame),
+                        ],
+                      );
+                    }
+
                     return ListView(
                       children: [
-                        SizedBox(
-                          height: 430,
-                          child: _GameList(
-                            viewModel: viewModel,
-                            onOpen: widget.appViewModel.openGame,
-                          ),
-                        ),
+                        SizedBox(height: 300, child: gameList),
                         const SizedBox(height: 12),
                         SizedBox(
-                          height: 590,
-                          child: _CreateGame(
-                            viewModel: viewModel,
-                            codeController: codeController,
-                            onCreate: create,
-                            onOpen: widget.appViewModel.openGame,
-                          ),
+                          height: 420,
+                          child: createGame,
                         ),
                       ],
                     );
