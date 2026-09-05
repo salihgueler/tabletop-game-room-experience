@@ -54,9 +54,10 @@ cp ../../01-scaffold/solution/index.handler.ts  aws-blocks/index.handler.ts
 cp ../../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts
 rm test/e2e.test.ts                             # see problem ④
 npm install
+npm install -D @aws-blocks/core                 # see problem ⑤
 ```
 
-Four problems might trip you up if you skip copying these files:
+Five problems might trip you up if you skip copying these files:
 
 - **① Lambda handler form.** The scaffolder emits `createLambdaHandler(backend)`, but
   the library expects the lazy factory
@@ -72,6 +73,14 @@ Four problems might trip you up if you skip copying these files:
   — and its `tsconfig.json` includes `test/**/*`. Leave it in place and
   `npm run typecheck` fails with `Property 'greet' does not exist` in **every** module,
   even though your backend is fine.
+- **⑤ `blocks-generate-spec` needs `@aws-blocks/core`.** The spec generator you run in
+  step 3 ships in `@aws-blocks/core`, which the template pulls in only *indirectly*.
+  npm installs an indirect copy **nested** inside `@aws-blocks/blocks/node_modules/`, and
+  a nested package gets no entry in `node_modules/.bin` — so `npx blocks-generate-spec`
+  finds nothing locally, falls through to the public registry, and fails with
+  `404 Not Found - GET https://registry.npmjs.org/blocks-generate-spec`. Declaring it
+  directly hoists the binary and the documented command works. This bites every module,
+  not just this one: the regeneration loop is the same four lines each time.
 
 ### 3. Generate the Flutter API
 
@@ -112,17 +121,20 @@ fully typed methods generated from the backend exports.
 
 ### 4. Run
 
+Both fences below start from the **repo root**, so they are unambiguous no matter where
+step 3 left your shell (it ends in `workshop-flutter/app/`):
+
 Terminal one (backend):
 
 ```bash
-cd backend # make sure you go to backend folder
+cd workshop-flutter/app/backend
 npm run dev
 ```
 
 Terminal two (Flutter):
 
 ```bash
-cd app # make sure you go to app folder
+cd workshop-flutter/app
 flutter run -d chrome
 ```
 
@@ -223,7 +235,7 @@ Three things to find:
 
 **The `num` gotcha — the one thing that will bite you.** TypeScript has a single `number`
 type, so the generator cannot tell an `int` from a `double`. It plays it safe and emits
-**`num`**, not `int`. Look at `GetStateResult` (around L452): `hp`, `slot`, `turnIndex`,
+**`num`**, not `int`. Look at `GetStateResult` (around L1646): `hp`, `slot`, `turnIndex`,
 `version` are all `final num`. That is why the repository you'll meet next module is full
 of `.toInt()` calls — e.g. `hp: player.hp.toInt()` in `game_repository.dart`. Whenever a
 backend number needs to be a Dart `int` (a list index, a widget count, a

@@ -30,6 +30,7 @@
     "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@aws-blocks/core": "^0.3.0",
     "@types/node": "^20.0.0",
     "aws-cdk-lib": "^2.257.0",
     "constructs": "^10.6.0",

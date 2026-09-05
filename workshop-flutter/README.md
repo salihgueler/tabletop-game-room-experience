@@ -86,6 +86,11 @@ dart run build_runner build --delete-conflicting-outputs
 flutter analyze
 ```
 
+> `blocks-generate-spec` comes from `@aws-blocks/core`, which Module 01 installs
+> directly (`npm install -D @aws-blocks/core`). Without that, npm leaves it nested
+> inside `@aws-blocks/blocks/node_modules/`, no `.bin` entry is created, and this
+> command fails with a registry `404`.
+
 Three rules:
 
 1. **The spec is the contract.** `blocks.spec.json` is generated from the
