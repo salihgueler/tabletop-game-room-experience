@@ -308,10 +308,10 @@ for (const ws of WORKSHOPS) {
         if (want === undefined || !want.includes(":")) continue;
         note(rel, l.n, "untyped",
           `"${name}(${params})" leaves ${bare.map((b) => `\`${b}\``).join(", ")} unannotated, ` +
-          `but the checkpoint declares "${name}(${want})". tsc accepts both, so nothing ` +
-          `warns you; the spec generator reads the annotation and emits an empty schema ` +
-          `for the bare form, degrading that parameter to an untyped one in the generated ` +
-          `client (dynamic in Dart, any in TypeScript).`);
+          `but the checkpoint declares "${name}(${want})". Nothing warns you: the parameter ` +
+          `is contextually typed, so noImplicitAny stays quiet and typecheck passes. The ` +
+          `generated client still loses the type — dynamic in Dart, via the empty schema the ` +
+          `spec generator emits, or any in TypeScript, where this file IS the client's types.`);
       }
     }
   }

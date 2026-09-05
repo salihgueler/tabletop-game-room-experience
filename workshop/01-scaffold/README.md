@@ -113,7 +113,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   async getConstants() {
     /* ... */
   },
-  async takeAction(gameId, action) {
+  async takeAction(gameId: string, action: string) {
     /* ... */
   },
   // ...

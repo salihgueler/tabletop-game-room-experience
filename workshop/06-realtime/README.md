@@ -126,10 +126,17 @@ const rt = new Realtime(scope, "rt", {
 ### 4. Return real channels from the three getters
 
    ```ts
-   async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
-   async getChatChannel(gameId)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); },
-   async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
+   async getStateChannel(gameId: string)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
+   async getChatChannel(gameId: string)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); },
+   async getThinkingChannel(gameId: string) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
    ```
+
+   Keep the `: string` annotations. They are not decoration: `aws-blocks/package.json`
+   maps `"types": "./index.ts"`, so this file *is* the frontend client's type
+   definition. Drop an annotation and that parameter becomes `any` in every call
+   site's completion and type checking — and nothing tells you, because the
+   parameter is contextually typed, so `noImplicitAny` stays quiet and
+   `npm run typecheck` still passes.
 
 ### 5. Delete the realtime mock
 
