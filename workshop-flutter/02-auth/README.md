@@ -7,7 +7,8 @@ sessions, and route protection — without touching the Flutter frontend.
 
 **You edit:** `app/backend/aws-blocks/index.ts`
 
-**You'll know you're done when:** signing out and hitting the API returns **401**, and
+**You'll know you're done when:** signing out and hitting the API is rejected with
+**`Authentication required`**, and
 a fresh account can sign up, save a character, and stay signed in across app restarts.
 
 ---
@@ -20,7 +21,7 @@ passwords, a signup/signin/signout state machine, and an **HttpOnly session cook
 the runtime sends on every request. Two touchpoints:
 
 - **`auth.requireAuth(context)`** — call it at the top of any method to require a
-  session. It reads the cookie off the per-request `context` and **throws 401** if
+  session. It reads the cookie off the per-request `context` and **throws** if
   there isn't one. This is why `context` (ignored until now) suddenly matters.
 - **`auth.createApi()`** — builds the `authApi` namespace (`getAuthState` /
   `setAuthState`) the Flutter app already calls through the generated
@@ -43,7 +44,9 @@ real Block.
 ## Steps
 
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
-> The `cd` lines are written so you can paste them in order from there.
+> Each one is written from that directory independently, so return to `app/` between
+> fences — several of them begin with `cd backend`, and running two of those in a row
+> without going back up looks for a `backend/backend/`.
 
 ### 1. Import the AuthBasic
 
@@ -163,7 +166,7 @@ subsequent RPC calls.
 
 Clicking around the app can only show you what the UI *chooses* to show — it can't prove the
 guard is real. Running both processes and then hitting the API directly (the `curl` in Verify
-below) does: an unauthenticated call fails with a 401 no matter what the buttons do, because
+below) does: an unauthenticated call is rejected no matter what the buttons do, because
 the check lives on the server, not in the Flutter code.
 
 Start both processes:
@@ -183,11 +186,16 @@ flutter run -d chrome
 Backend check — unauthenticated calls must now be rejected:
 
 ```bash
-# no session cookie → 401
+# no session cookie → rejected
 curl -s -X POST http://localhost:3001/aws-blocks/api \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"api.getCharacter","params":[],"id":1}'
-# → {"error":{"code":401,...}}
+# → {"error":{"code":500,"message":"Authentication required",
+#              "data":{"name":"SessionExpiredException"}},...}
+#
+# Note the shape: the HTTP status is 200 and the failure is carried in the JSON-RPC
+# `error` object, whose `code` is 500 — the generic server-error code — not 401.
+# What proves the guard works is the message, not the number.
 ```
 
 Flutter check:
@@ -283,7 +291,8 @@ hot-restart.)
 ## Checklist
 
 - [ ] `npm run typecheck` and `flutter analyze` both pass.
-- [ ] Unauthenticated `curl` to `api.getCharacter` returns a 401.
+- [ ] Unauthenticated `curl` to `api.getCharacter` comes back with an
+      `Authentication required` error.
 - [ ] You can register, save a character, restart the Flutter app, and stay signed in.
 - [ ] Signing out returns you to the auth screen.
 
@@ -302,7 +311,7 @@ hot-restart.)
 - **Sign-in fails on Android emulator** — confirm the app resolves to `10.0.2.2`
   (check `lib/data/services/blocks_api_url_io.dart`). The emulator's `localhost`
   points to the emulator itself, not your host machine.
-- **401 even after signing in** — delete `backend/.bb-data` and restart the
+- **`Authentication required` even after signing in** — delete `backend/.bb-data` and restart the
   backend. A stale local auth store from an earlier run can corrupt sessions.
 - **Type error: `Cannot find name 'requireAuth'`** — you have a leftover fake
   reference. Search for `requireAuth(` and ensure each is
