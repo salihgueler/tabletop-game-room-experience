@@ -15,6 +15,11 @@
  *                module that replaces it is 06 -- and those labels are the syllabus
  *   langs        ```tsc is not a language; it silently loses highlighting
  *   links        the de-duplicated boilerplate points at root-README anchors
+ *   untyped      three realtime channel getters shipped with unannotated params;
+ *                tsc infers them contextually, but the spec generator emits an
+ *                empty schema and the Dart client silently degrades to `dynamic`
+ *   toolchain    every module documents `npx blocks-generate-spec`, which 404s
+ *                unless a guide installs the package that provides it
  *
  * Usage:  node tools/lint-workshops.mjs [--quiet]
  * Exit:   0 clean, 1 findings.
@@ -43,7 +48,7 @@ const EXPECTED_ABSENT = new Set([
 const findings = [];
 /** Coverage for the `indent` check. A check that silently matches nothing passes
  *  vacuously, so these numbers are printed with the result rather than assumed. */
-const stats = { fences: 0, checked: 0, matched: 0, sortKeys: 0 };
+const stats = { fences: 0, checked: 0, matched: 0, sortKeys: 0, sigs: 0, toolchain: 0 };
 const note = (file, line, check, msg) =>
   findings.push({ file, line, check, msg });
 
@@ -265,6 +270,50 @@ for (const ws of WORKSHOPS) {
         }
       }
     }
+
+    // --- untyped parameters in copy-paste snippets ------------------------
+    // The `indent` check above compares a fence against the checkpoint but SKIPS
+    // any line it cannot find there — so a snippet that drops a parameter's type
+    // annotation passes both it and `tsc`, which infers the parameter
+    // contextually. The spec generator does not: it reads the annotation, and an
+    // unannotated parameter becomes `"schema": {}`, which surfaces in the Dart
+    // client as `dynamic` instead of `String`. `flutter analyze` stays clean
+    // because `dynamic` is assignable to everything, so nothing anywhere warns.
+    // Module 06 shipped exactly this on all three realtime channel getters.
+    if (solPath && existsSync(solPath)) {
+      const solSrc = readFileSync(solPath, "utf8");
+      // method name -> the checkpoint's own parameter list
+      const solParams = new Map();
+      for (const m of solSrc.matchAll(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/gm)) {
+        if (!solParams.has(m[1])) solParams.set(m[1], m[2].trim());
+      }
+      let inTs = false;
+      for (const l of lines) {
+        if (l.fenceOpen !== undefined) { inTs = /^(ts|tsx)\b/.test(l.lang); continue; }
+        if (l.fenceClose !== undefined) { inTs = false; continue; }
+        if (!inTs) continue;
+        const m = l.text.match(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/);
+        if (!m) continue;
+        const [, name, params] = m;
+        if (!params.trim()) continue;
+        stats.sigs++;
+        const bare = params
+          .split(",")
+          .map((p) => p.trim())
+          .filter((p) => p && !p.includes(":") && !p.includes("=") && !p.startsWith("..."));
+        if (!bare.length) continue;
+        const want = solParams.get(name);
+        // Only a finding when the checkpoint DOES annotate — otherwise the
+        // snippet is faithful to its own solution and this is not the bug.
+        if (want === undefined || !want.includes(":")) continue;
+        note(rel, l.n, "untyped",
+          `"${name}(${params})" leaves ${bare.map((b) => `\`${b}\``).join(", ")} unannotated, ` +
+          `but the checkpoint declares "${name}(${want})". tsc accepts both, so nothing ` +
+          `warns you; the spec generator reads the annotation and emits an empty schema ` +
+          `for the bare form, degrading that parameter to an untyped one in the generated ` +
+          `client (dynamic in Dart, any in TypeScript).`);
+      }
+    }
   }
 
   // --- clock-derived sort keys -------------------------------------------
@@ -297,6 +346,32 @@ for (const ws of WORKSHOPS) {
     });
   }
 
+  // --- the documented regeneration loop must be runnable ------------------
+  // `blocks-generate-spec` ships in @aws-blocks/core, which the backend template
+  // pulls in only indirectly — npm nests the indirect copy under
+  // @aws-blocks/blocks/node_modules/ and creates no .bin entry, so `npx
+  // blocks-generate-spec` misses it, falls through to the registry and 404s. The
+  // guides survived that for a whole release because the checkpoints still read
+  // green: nothing here executes the loop. So assert the instruction exists.
+  const usesSpecCli = [];
+  for (const file of docs) {
+    if (/\bblocks-generate-spec\b/.test(readFileSync(file, "utf8"))) {
+      usesSpecCli.push(relative(ROOT, file));
+    }
+  }
+  if (usesSpecCli.length) {
+    stats.toolchain++;
+    const installsCore = docs.some((f) =>
+      /npm\s+(?:install|i)\b[^\n]*@aws-blocks\/core/.test(readFileSync(f, "utf8")),
+    );
+    if (!installsCore) {
+      note(usesSpecCli[0], 1, "toolchain",
+        `${usesSpecCli.length} guide(s) run \`blocks-generate-spec\`, but no guide installs ` +
+        `@aws-blocks/core, which provides that binary. Without a direct dependency npm ` +
+        `leaves it nested and unlinked, and the command fails with a registry 404.`);
+    }
+  }
+
   // --- mock labels in the checkpoints ------------------------------------
   for (const d of moduleDirs(ws)) {
     const sol = join(ROOT, ws, d, "solution", "index.ts");
@@ -322,7 +397,9 @@ const quiet = process.argv.includes("--quiet");
 const coverage =
   `indent check: ${stats.checked}/${stats.fences} code fences compared against a ` +
   `checkpoint (${stats.matched} lines matched)\n` +
-  `   sortkey check: ${stats.sortKeys} table sort key(s) inspected`;
+  `   sortkey check: ${stats.sortKeys} table sort key(s) inspected\n` +
+  `   untyped check: ${stats.sigs} snippet method signature(s) inspected\n` +
+  `   toolchain check: ${stats.toolchain} workshop(s) using blocks-generate-spec`;
 if (!findings.length) {
   console.log("✅ workshops lint clean");
   console.log(`   ${coverage}`);
