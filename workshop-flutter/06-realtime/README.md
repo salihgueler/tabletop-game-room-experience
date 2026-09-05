@@ -45,7 +45,9 @@ disappears.
 ## Steps
 
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
-> The `cd` lines are written so you can paste them in order from there.
+> Each one is written from that directory independently, so return to `app/` between
+> fences — several of them begin with `cd backend`, and running two of those in a row
+> without going back up looks for a `backend/backend/`.
 
 ### 1. **Import `Realtime`** alongside the existing Building Blocks:
 
@@ -99,6 +101,16 @@ server-authoritative. You are wiring notification, not replication.
 
 Delete both `fakeChannel()` and the no-op `publish()` function.
 
+`fakeChannel()` was the only thing using the borrowed channel type, so remove that
+type-only import as well — it has been carried since module 02 purely to keep the
+generated Dart client stable while realtime was faked, and the real block now supplies
+the type:
+
+```ts
+// delete this line — nothing references RealtimeChannel any more
+import type { RealtimeChannel } from "@aws-blocks/blocks";
+```
+
 ### 4. **Point `publish` calls at the block.** 
 Every `publish("...", key, payload)` becomes: 
 
@@ -108,10 +120,18 @@ Every `publish("...", key, payload)` becomes:
 ### 5. **Return real channels** from the three getters:
 
    ```ts
-   async getStateChannel(gameId)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
-   async getChatChannel(gameId)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); },
-   async getThinkingChannel(gameId) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
+   async getStateChannel(gameId: string)    { await auth.requireAuth(context); return rt.getChannel("state", gameId); },
+   async getChatChannel(gameId: string)     { await auth.requireAuth(context); return rt.getChannel("chat", gameId); },
+   async getThinkingChannel(gameId: string) { await auth.requireAuth(context); return rt.getChannel("thinking", gameId); },
    ```
+
+> **Keep the `: string` on all three.** These annotations are load-bearing, and nothing
+> warns you if you drop them. `tsc` accepts either form, but the spec generator reads the
+> parameter type: annotated, it emits `"schema": { "type": "string" }` and you get
+> `getStateChannel({required String gameId})` in Dart. Unannotated, it emits an empty
+> `"schema": {}` and you get `{required dynamic gameId}` instead — and `flutter analyze`
+> still passes, because `dynamic` is assignable to everything. The only symptom is that
+> the typed client this workshop is about quietly stops being typed.
    
 ### 6. **Regenerate the Dart client bindings:**
 
