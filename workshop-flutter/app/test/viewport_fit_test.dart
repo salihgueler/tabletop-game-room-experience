@@ -16,6 +16,12 @@ import 'package:tabletop_workshop/ui/features/session/app_view_model.dart';
 /// A Flutter overflow is a thrown exception in tests, so pumping each view
 /// across a spread of viewports and asserting nothing throws is what holds the
 /// fix in place.
+///
+/// Overflow exceptions are only half the story, though. A scroll view whose
+/// content exceeds its box does NOT throw — it silently clips. The board's
+/// token grid is a GridView with NeverScrollableScrollPhysics, so a party of
+/// four went off-screen at every single viewport while this file reported all
+/// green. [_expectNothingHidden] is the assertion that actually catches it.
 const _viewports = <Size>[
   Size(390, 700), // phone portrait
   Size(430, 930), // large phone
@@ -37,16 +43,19 @@ void main() {
       testWidgets('game view at $label', (tester) async {
         await _pumpAt(tester, size, (vm) => GameView(appViewModel: vm));
         expect(tester.takeException(), isNull);
+        _expectNothingHidden(tester, label);
       });
 
       testWidgets('hall view at $label', (tester) async {
         await _pumpAt(tester, size, (vm) => HallView(appViewModel: vm));
         expect(tester.takeException(), isNull);
+        _expectNothingHidden(tester, label);
       });
 
       testWidgets('character view at $label', (tester) async {
         await _pumpAt(tester, size, (vm) => CharacterView(viewModel: vm));
         expect(tester.takeException(), isNull);
+        _expectNothingHidden(tester, label);
       });
     }
   });
@@ -58,6 +67,28 @@ void main() {
     expect(fitsAvailableHeight(399, minimum: 400), isFalse);
     expect(fitsAvailableHeight(400, minimum: 400), isTrue);
   });
+}
+
+/// Fails when a scroll view that the user cannot scroll is hiding content.
+///
+/// A GridView or ListView with [NeverScrollableScrollPhysics] clips silently
+/// rather than throwing, so `takeException()` cannot see it. Any such view with
+/// a non-zero maxScrollExtent has content off-screen that no gesture can reach.
+void _expectNothingHidden(WidgetTester tester, String label) {
+  for (final element in find.byType(Scrollable).evaluate()) {
+    final state = (element as StatefulElement).state as ScrollableState;
+    final scrollable = element.widget as Scrollable;
+    if (scrollable.physics is! NeverScrollableScrollPhysics) continue;
+    if (!state.position.hasContentDimensions) continue;
+    expect(
+      state.position.maxScrollExtent,
+      lessThan(0.5),
+      reason:
+          'at $label a non-scrollable ${scrollable.axis.name} view hides '
+          '${state.position.maxScrollExtent.toStringAsFixed(1)}px of content '
+          'that the user cannot scroll to',
+    );
+  }
 }
 
 Future<void> _pumpAt(
