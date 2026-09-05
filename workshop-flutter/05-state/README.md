@@ -58,7 +58,9 @@ Flutter UI code doesn't change at all in this module.
 ## Steps
 
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
-> The `cd` lines are written so you can paste them in order from there.
+> Each one is written from that directory independently, so return to `app/` between
+> fences — several of them begin with `cd backend`, and running two of those in a row
+> without going back up looks for a `backend/backend/`.
 
 ### 1. **Embed sub-schemas** for players, rolls, and log entries
 
@@ -156,6 +158,33 @@ Update `gameStates` keyed by `gameId`; `chatMessages` keyed by `(gameId, ts)`:
      key: { partitionKey: "gameId", sortKey: "ts" }, // sort key = chronological order
    });
    ```
+
+> **Why chat timestamps go through `nextTs()`, not `Date.now()`.** Making `ts` the sort
+> key means `(gameId, ts)` is now the row's *identity*, so two messages in the same game
+> with the same `ts` are the same row — and the second `put` silently overwrites the
+> first. `Date.now()` has millisecond resolution, and a DM line plus its dice-roll line
+> are written well inside one millisecond of each other, so a naive timestamp loses
+> messages with no error anywhere.
+>
+> That is why every chat write in this file already calls the small helper you inherited
+> from the earlier modules:
+>
+> ```ts
+> let lastTs = 0;
+> function nextTs(count = 1): number {
+>   const base = Math.max(Date.now(), lastTs + 1);
+>   lastTs = base + count - 1;
+>   return base;
+> }
+> ```
+>
+> It hands out strictly increasing values, and `transcribe` reserves a whole contiguous
+> block up front (`nextTs(withColor.length)`) so a batch of log lines keeps its order.
+> Leave those calls alone — swapping any of them back to `Date.now()` reintroduces the
+> silent overwrite. One caveat for module 09: `lastTs` is per-process, so it does not
+> coordinate across concurrent Lambda instances; a deployed, busy game wants an
+> attribute that is unique by construction (a ULID, or `ts` plus a sequence) rather than
+> a clock reading.
 
 ### 3. Delete `gameStateStore`, `chatStore` maps and add inferred types.
 
