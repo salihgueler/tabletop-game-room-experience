@@ -257,16 +257,20 @@ class _CompactTable extends StatelessWidget {
   // below it we let the list scroll rather than squeeze them into nothing.
   static const double _turnOrder = 125;
   static const double _dice = 155;
-  // The board carries fixed furniture regardless of height: the DM badge (~42)
-  // and the action panel (a 3-line narration, the status line, and a Wrap of
-  // action buttons that becomes two rows at phone width, ~200 together). Below
-  // this the player-token grid gets squeezed to nothing and the board's own
-  // Column overflows — measured at 68px short when this was 320.
-  static const double _minBoard = 400;
+  // The board's fixed furniture, independent of height: the DM badge (~42) and
+  // the action panel (a 3-line narration, the status line, and a Wrap of action
+  // buttons that becomes several rows at phone width). The token grid needs its
+  // own room on top of this — a flat board minimum left the grid 0px at 390
+  // wide, hiding the whole party with no error raised.
+  static const double _boardFurniture = 405;
   static const double _minChat = 190;
   static const double _gaps = 30;
-  static const double _minTotal =
-      _turnOrder + _dice + _minBoard + _minChat + _gaps;
+
+  double _minBoard(int playerCount) =>
+      _boardFurniture + _Board.gridHeightFor(playerCount);
+
+  double _minTotal(int playerCount) =>
+      _turnOrder + _dice + _minBoard(playerCount) + _minChat + _gaps;
 
   @override
   Widget build(BuildContext context) {
@@ -283,7 +287,10 @@ class _CompactTable extends StatelessWidget {
           child: _DiceTray(roll: viewModel.state!.lastRoll),
         );
 
-        if (fitsAvailableHeight(constraints.maxHeight, minimum: _minTotal)) {
+        if (fitsAvailableHeight(
+          constraints.maxHeight,
+          minimum: _minTotal(viewModel.state!.players.length),
+        )) {
           // Enough room: give the board and the chat everything left over, so
           // the table fills the window and nothing sits off-screen.
           return Column(
@@ -306,7 +313,10 @@ class _CompactTable extends StatelessWidget {
           children: [
             turnOrder,
             const SizedBox(height: 10),
-            SizedBox(height: _minBoard, child: board),
+            // Intrinsic height: the board sizes to its own content, so the
+            // grid always gets the room its party needs instead of trusting a
+            // predicted constant that came up short at phone width.
+            _Board(viewModel: viewModel, fillHeight: false),
             const SizedBox(height: 10),
             SizedBox(height: _minChat, child: chat),
             const SizedBox(height: 10),
@@ -465,9 +475,78 @@ class _DmChip extends StatelessWidget {
 }
 
 class _Board extends StatelessWidget {
-  const _Board({required this.viewModel});
+  const _Board({required this.viewModel, this.fillHeight = true});
 
   final GameViewModel viewModel;
+
+  /// When false the board sizes itself to its content, giving the token grid
+  /// exactly the room its party needs. Used on the scrolling path, so the
+  /// board's height is never a predicted constant that can come up short.
+  final bool fillHeight;
+
+  static const int _columns = 2;
+  static const double _tokenGap = 10;
+  static const double _gridPadding = 10;
+  // A token's own intrinsic height, from its parts: the avatar circle's
+  // maxHeight, the name label (12px text + 2x2 padding + 2x1 border), the gap
+  // under it, and the HP bar's minHeight. Sizing a tile below this overflows
+  // the token's Column — measured at exactly 26px short when this was 92.
+  static const double _avatarMax = 88;
+  static const double _nameLabel = 23;
+  static const double _underLabel = 2;
+  static const double _hpBar = 5;
+  static const double _minTokenHeight =
+      _avatarMax + _nameLabel + _underLabel + _hpBar;
+
+  /// Height the token grid needs to show [playerCount] tokens without hiding
+  /// any, including the padding around it.
+  static double gridHeightFor(int playerCount) {
+    final rows = (playerCount / _columns).ceil();
+    return rows * _minTokenHeight + (rows - 1) * _tokenGap + _gridPadding * 2;
+  }
+
+  Widget _gridRegion(GameState state) {
+    final grid = Padding(
+      padding: const EdgeInsets.all(_gridPadding),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          // Drive the tile shape from the height the grid actually has, never
+          // from its width. A fixed childAspectRatio made tiles taller as the
+          // board got wider, so a *bigger* window hid more of the party: at
+          // 2560x1440 two rows wanted 1362px in a 1099px box. Tiles now divide
+          // the available height, so every row is on screen at every size.
+          final rows = (state.players.length / _columns).ceil();
+          final tileWidth =
+              (box.maxWidth - _tokenGap * (_columns - 1)) / _columns;
+          final fitHeight = (box.maxHeight - _tokenGap * (rows - 1)) / rows;
+          // Only fall back to scrolling when the box genuinely cannot show a
+          // legible token, so the grid fills the space when the room is there
+          // and stays reachable when it is not.
+          final fits = fitHeight >= _minTokenHeight;
+          final tileHeight = fits ? fitHeight : _minTokenHeight;
+          return GridView.builder(
+            physics: fits
+                ? const NeverScrollableScrollPhysics()
+                : const ClampingScrollPhysics(),
+            itemCount: state.players.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: _columns,
+              childAspectRatio: tileWidth / tileHeight,
+              crossAxisSpacing: _tokenGap,
+              mainAxisSpacing: _tokenGap,
+            ),
+            itemBuilder: (context, index) => _Token(
+              player: state.players[index],
+              active: state.phase == 'player' && state.turnIndex == index,
+            ),
+          );
+        },
+      ),
+    );
+    return fillHeight
+        ? Expanded(child: grid)
+        : SizedBox(height: gridHeightFor(state.players.length), child: grid);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -490,6 +569,7 @@ class _Board extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: fillHeight ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Container(
             margin: const EdgeInsets.only(top: 8),
@@ -507,25 +587,7 @@ class _Board extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: state.players.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 1.35,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                ),
-                itemBuilder: (context, index) => _Token(
-                  player: state.players[index],
-                  active: state.phase == 'player' && state.turnIndex == index,
-                ),
-              ),
-            ),
-          ),
+          _gridRegion(state),
           Container(
             margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
             padding: const EdgeInsets.all(10),
