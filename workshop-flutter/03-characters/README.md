@@ -44,7 +44,9 @@ the repository constructs the domain model from those fields.
 ## Steps
 
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
-> The `cd` lines are written so you can paste them in order from there.
+> Each one is written from that directory independently, so return to `app/` between
+> fences — several of them begin with `cd backend`, and running two of those in a row
+> without going back up looks for a `backend/backend/`.
 
 
 ### 1. Update the imports
@@ -65,6 +67,16 @@ Open `app/backend/aws-blocks/index.ts` and make sure `DistributedTable` is impor
    } from "@aws-blocks/blocks";
 
    import { z } from "zod";
+   ```
+
+Declare Zod while you are here. It resolves today only because `@aws-blocks/blocks`
+happens to depend on it and npm hoists the copy — so the import works without being
+listed anywhere in your `package.json`. That is luck, not a contract: it breaks the day
+the dependency tree changes. Every module from here on uses `z`, so make it explicit:
+
+   ```bash
+   cd backend
+   npm install zod
    ```
 ### 2. Add the Database Schema and table
 

@@ -43,6 +43,12 @@ migrate_working_dir/
 /lib/blocks.spec.json
 /lib/blocks.blocks.dart
 
+# The backend you scaffold in module 01 with `npm create @aws-blocks/blocks-app`.
+# Also generated, and also deliberately not tracked: `app/` ships without it on
+# purpose so module 01 is a real scaffold rather than a checkout. Every module's
+# checkpoint lives in `NN-*/solution/index.ts` instead, which IS tracked.
+/backend/
+
 # Symbolication related
 app.*.symbols
 

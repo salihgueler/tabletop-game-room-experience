@@ -56,7 +56,9 @@ automatically; you never declare it.
 ## Steps
 
 > **Working directory:** every fence in this module starts from `workshop-flutter/app/`.
-> The `cd` lines are written so you can paste them in order from there.
+> Each one is written from that directory independently, so return to `app/` between
+> fences — several of them begin with `cd backend`, and running two of those in a row
+> without going back up looks for a `backend/backend/`.
 
 Below is the actual code you're copying in this module's checkpoint, so you can
 read through what each piece does before moving on.
