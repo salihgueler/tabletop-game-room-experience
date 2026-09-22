@@ -44,7 +44,7 @@ your backend's Blocks and provisions the matching AWS resources.
 | AuthBasic | DynamoDB users table + JWT sessions |
 | DistributedTable | DynamoDB table (+ GSIs) |
 | Realtime | API Gateway WebSocket API |
-| Agent | SQS + worker Lambda + Bedrock access |
+| Agent | Bedrock AgentCore Runtime + Bedrock access |
 
 ### What actually changes between local and deployed
 
