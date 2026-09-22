@@ -1,132 +1,170 @@
 # Native Client SDKs
 
-AWS Blocks generates typed native clients from your `blocks.spec.json` for mobile and multiplatform apps. All clients are fully type-safe — method signatures, params, and return types come from the spec.
+AWS Blocks generates typed native clients for **Kotlin** (Android / KMP / JVM),
+**Swift** (iOS / macOS), and **Dart** (Flutter) from a `blocks.spec.json`
+(OpenRPC). Each SDK ships its own build-time code generator that emits idiomatic
+method signatures, models, and return types from the spec — the `ApiNamespace`
+methods your backend exposes become typed client methods.
+
+**Use it for** mobile/native front-ends that call a Blocks backend. **Don't use
+it for** the TypeScript web client — that is generated alongside the server, no
+separate SDK needed.
+
+The three SDKs are at **different release maturity** — do not assume parity (see
+Publishing coordinates). All three live in the `aws-devtools-labs` GitHub org,
+**not** `aws-amplify`.
 
 ## Contents
-- [How it works](#how-it-works)
-- [Generating the spec](#generating-the-spec)
-- [Kotlin (Android / KMP / JVM)](#kotlin-android--kmp--jvm)
-- [Swift (iOS / macOS)](#swift-ios--macos)
-- [Dart (Flutter)](#dart-flutter)
-- [Feature matrix](#feature-matrix)
-- [Spec versioning](#spec-versioning)
 
-## How it works
-
-```
-Backend (TypeScript) → npx blocks-generate-spec → blocks.spec.json → Native codegen → Typed client
-```
-
-The codegen reads an OpenRPC-based spec emitted by your Blocks backend. Each native SDK ships its own build-time code generator that emits idiomatic code for the target platform.
+- Generating the spec
+- Kotlin (Android / KMP / JVM)
+- Swift (iOS / macOS)
+- Dart (Flutter)
+- Publishing coordinates
+- Capability matrix
 
 ## Generating the spec
 
-```bash
-npx blocks-generate-spec aws-blocks/index.ts blocks.spec.json   # generate the OpenRPC spec
+`@aws-blocks/core` ships a **`blocks-generate-spec`** bin, a CLI wrapper around
+`writeSpec()`. Any Blocks app can invoke it
+via `npx blocks-generate-spec`, and every `create-blocks-app` template wires it as
+the `spec` npm script:
+
+```jsonc
+// package.json (from every create-blocks-app template)
+"scripts": {
+  "spec": "blocks-generate-spec"
+}
 ```
 
-Commit this file to your repo and share it with mobile/native teams. Regenerate after any API or schema change.
+```bash
+npm run spec          # runs blocks-generate-spec
+# or directly:
+npx blocks-generate-spec [backendPath] [outputPath]
+```
+
+Defaults: `backendPath = ./aws-blocks/index.ts`,
+`outputPath = ./aws-blocks/blocks.spec.json`. For a TypeScript backend entry the
+CLI lazily loads `tsx` and uses its programmatic `tsImport`, so no extra build
+step is needed; JS entries use plain `import()`. It lives in its own CLI (rather
+than being wired into `npm run dev`) because the spec emitter loads the
+TypeScript compiler (~1.5s cold start).
+
+`npm run spec` after any API or schema change, then hand `blocks.spec.json` to the
+native teams.
+
+Golden codegen fixtures under `native/codegen-fixtures/` regenerate through each
+SDK's own runner via `native/codegen-fixtures/regenerate-all.sh`:
+`./gradlew :codegen:regenerateFixtures` (Kotlin), `REGENERATE_FIXTURES=1 swift test`
+(Swift), `REGENERATE_FIXTURES=1 dart test test/golden_file_test.dart` (Dart).
 
 ---
 
 ## Kotlin (Android / KMP / JVM)
 
-Package: `com.aws.blocks.kotlin`
+A Gradle plugin (`com.aws.blocks.kotlin`) generates sources into your module. The
+runtime is Kotlin Multiplatform (Ktor transport: OkHttp engine on Android/JVM,
+Darwin/URLSession on iOS).
 
 ### Setup
 
 ```kotlin
 // build.gradle.kts
 plugins {
-    id("com.aws.blocks.kotlin") version "<version>"
+    id("com.aws.blocks.kotlin") version "0.2.0"
 }
 
 dependencies {
-    implementation("com.aws.blocks.kotlin:runtime:<version>")
+    implementation("com.aws.blocks.kotlin:runtime:0.2.0")
 }
 ```
 
-### Configuration
+Maven group is `com.aws.blocks.kotlin`; the Gradle plugin id is
+`com.aws.blocks.kotlin` (implementation class
+`com.aws.blocks.plugin.AwsBlocksCodegenPlugin`).
+
+### Configuration — the `awsBlocks { }` extension
 
 ```kotlin
 import com.aws.blocks.plugin.GeneratedVisibility
 
 awsBlocks {
-    apiSpec = rootProject.file("blocks.spec.json")
-    packageName = "com.example.myapp.generated"
-    visibility = GeneratedVisibility.Internal
+    apiSpec = rootProject.file("blocks.spec.json")   // default: rootProject blocks.spec.json
+    packageName.set("com.example.myapp.generated")   // default: com.aws.blocks.generated
+    visibility.set(GeneratedVisibility.Internal)     // default: Public
 
     servers {
-        local("http://10.0.2.2:3000")
+        local("http://10.0.2.2:3001")
+        sandbox("https://sandbox.example.com")
         prod("https://api.example.com")
         custom("staging", "https://staging.example.com")
+    }
+
+    oidc {
+        redirectUrl = "com.example.myapp://auth/callback"
     }
 }
 ```
 
+`GeneratedVisibility` has exactly two values: `Public` and `Internal` (not
+`PUBLIC`/`INTERNAL`). Server overrides replace spec servers of the same name, or
+append as new ones.
+
 ### Usage
+
+Generated `ApiNamespace`s become classes (e.g. `Api`); enums and update payloads
+are **nested** under the namespace class:
 
 ```kotlin
 import com.example.myapp.generated.Api
-import com.example.myapp.generated.Todo
 
-val api = Api()
+val api = Api()   // uses the default server from the spec
 
-val todo: Todo = api.createTodo(title = "Buy groceries", priority = 1.0)
-val todos: List<Todo> = api.listTodos(sortBy = ListTodos.SortBy.Priority)
-api.updateTodo(todoId = todo.todoId, updates = UpdateTodo.Updates(completed = true))
+val todo = api.createTodo(title = "Buy groceries", priority = 1.0)
+val todos = api.listTodos(Api.ListTodos.SortBy.Priority)
+val result = api.updateTodo(todo.todoId, Api.UpdateTodo.Updates(completed = true))
 ```
+
+`priority` is a `Double` (JSON numbers generate as `Double`, hence `1.0`).
+`BlocksClient.clearCookies()` clears the persisted session.
 
 ### Gradle tasks
 
-| Task | Description |
-|------|-------------|
-| `awsBlocksCodegen<Variant>` | Generates sources for Android variant (e.g. `awsBlocksCodegenDebug`) |
-| `awsBlocksCodegen` | Generates sources for KMP (commonMain) or JVM (main) |
-| `awsBlocksDumpModel` | Dumps intermediate model for debugging |
+- `awsBlocksCodegen<Variant>` — Android variant (e.g. `awsBlocksCodegenDebug`)
+- `awsBlocksCodegen` — KMP `commonMain` / JVM `main`
+- `awsBlocksDumpModel` — dumps the intermediate model for debugging
 
-### Platform support
+### Error handling
 
-| Platform | Engine | Cookie Storage |
-|----------|--------|----------------|
-| Android | OkHttp | EncryptedSharedPreferences |
-| iOS | Darwin (URLSession) | Keychain Services |
-| JVM | OkHttp | AES-256-GCM encrypted files |
+The runtime throws `NetworkException` (transport failures: timeout, DNS,
+connection refused — retry-safe) and `ApiException` (JSON-RPC error body from the
+backend — inspect `.code` / `.name` / `.message`). Both extend `BlocksException`,
+which is an `open class` (not sealed), so you can subclass it or catch the base
+type (`native/kotlin/runtime/src/commonMain/kotlin/com/aws/blocks/kotlin/exceptions/BlocksException.kt:10`).
 
-### Block support (Kotlin)
+### Encrypted cookie storage
 
-| Block | Android | iOS | JVM |
-|-------|---------|-----|-----|
-| General/RPC | ✅ | ✅ | ✅ |
-| Realtime | ✅ | ✅ | ✅ |
-| File Bucket | ✅ | ✅ | ✅ |
-| OIDC | ✅ | ❌ | ❌ |
+Android uses `EncryptedSharedPreferences`; iOS uses Keychain Services; JVM uses
+AES-256-GCM encrypted files. OIDC uses a Custom Tabs redirect flow implemented in
+`androidMain` only — **Android is the only Kotlin target with OIDC**.
 
-### Error Handling (Kotlin)
-
-| Exception | When |
-|-----------|------|
-| `NetworkException` | Transport-level failures (timeout, DNS, connection refused) |
-| `ApiException` | Application-level errors (4xx/5xx from backend, JSON-RPC error body) |
-
-Catch `NetworkException` for connectivity issues (retry-safe) and `ApiException` for business logic errors (inspect `.code` and `.message`).
-
-**Requirements:** Kotlin 2.x, JDK 17+, Gradle 7.4+, AGP 7.1+ (Android)
-
-**Known fixes:** Nullable discriminated unions now generate correct Kotlin code. Previously, optional union-typed fields produced non-compilable sealed class hierarchies. Update to the latest Kotlin SDK version if you encounter `sealed class` compile errors on nullable union fields.
+**Requirements:** Android `minSdk` 23 (`compileSdk` 36); iOS targets `iosX64`,
+`iosArm64`, `iosSimulatorArm64`; Ktor 3.x.
 
 ---
 
 ## Swift (iOS / macOS)
 
-Package: `aws-blocks-swift`
+A SwiftPM build-tool plugin generates `Models.swift` and `API.swift` into the
+target's derived sources on every build — nothing to commit. Published as the
+**separate** `aws-blocks-swift` repository, not the monorepo.
 
 ### Setup
 
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/aws-amplify/aws-blocks-swift.git", from: "0.1.0"),
+    .package(url: "https://github.com/aws-devtools-labs/aws-blocks-swift.git", from: "0.1.0"),
 ],
 targets: [
     .target(
@@ -141,74 +179,70 @@ targets: [
 ]
 ```
 
-### Spec placement
+Drop `blocks.spec.json` next to the target's sources (e.g. `Sources/MyApp/`) — the
+build plugin discovers it automatically.
 
-Drop `blocks.spec.json` next to your target's source:
-```
-Sources/MyApp/
-├── blocks.spec.json   ← discovered automatically
-└── App.swift
-```
+### Products and targets
 
-The build plugin generates `Models.swift` and `API.swift` into derived sources on every build.
+- `BlocksRuntime` (library) — HTTP client, WebSocket, file handles, Keychain cookies
+- `BlocksCodegenBuildPlugin` — build-tool plugin; auto-generates on `swift build`
+- `BlocksCodegenCommandPlugin` — command plugin; manual generation via
+  `swift package plugin generate-code-from-blocks-spec`
+- `BlocksCodegen` / `swift-code-generator` — codegen library and CLI (used by the plugins)
 
 ### Usage
+
+Each API namespace becomes its own class carrying a `BlocksClient`. Discriminated
+unions map to Swift `enum`s with associated values:
 
 ```swift
 import BlocksRuntime
 
-let client = BlocksClient(url: URL(string: "https://api.example.com")!)
+let auth = AuthApi(server: BlocksServer(name: "prod", url: "https://api.example.com"))
 
-let todo = try await client.createTodo(title: "Buy milk", priority: 1)
-let todos = try await client.listTodos(sortBy: .priority)
+let state = try await auth.setAuthState(input: .signIn(SetAuthState.SignIn(
+    username: "alice",
+    password: "P@ss1"
+)))
 ```
 
-### Features
+Native mappings: `format: "uuid"` → `UUID`, `format: "date-time"` → `Date`,
+`format: "uri"` → `URL`; schema constraints (`minLength`, `pattern`, `minimum`, …)
+become `precondition` checks at construct time; open-shape records
+(`T & Record<string, V>`) render as `[String: V]`. OIDC is supported via the
+`OIDCClient` actor in `BlocksRuntime` (`Sources/BlocksRuntime/OIDC/`).
 
-- **Native Foundation types** — `format: "uuid"` → `UUID`, `format: "date-time"` → `Date`, `format: "uri"` → `URL`
-- **Discriminated unions** → Swift `enum` with associated values
-- **Schema constraints** → `precondition` checks at construct time (`minLength`, `maxLength`, `pattern`, `minimum`, etc.)
-- **Default values** from the spec become Swift initializer defaults
-- **Open-shape records** — `T & Record<string, V>` renders as `let attributes: [String: V]`
-
-### Targets
-
-| Target | Purpose |
-|--------|---------|
-| `BlocksRuntime` | Runtime: HTTP client, WebSocket, file handles, Keychain cookies |
-| `BlocksCodegen` | Build-time codegen library |
-| `swift-code-generator` | CLI entry point for manual codegen |
-| `BlocksCodegenBuildPlugin` | Auto-generates on `swift build` |
-| `BlocksCodegenCommandPlugin` | Manual via `swift package plugin generate-code-from-blocks-spec` |
-
-### Platform support
-
-| Platform | Min version | Cookie storage |
-|----------|-------------|----------------|
-| iOS | 16.0 | Keychain Services |
-| macOS | 13.0 | Keychain Services |
-
-**Requirements:** Swift 5.9+, Xcode 15+
+**Requirements:** swift-tools 5.9; platforms iOS 16, macOS 13.
 
 ---
 
 ## Dart (Flutter)
 
-Packages: `blocks_runtime`, `blocks_codegen`
+Three pub packages, all at version **0.1.2** and all with **no git release tag
+yet**:
+
+- `blocks_runtime` — JSON-RPC 2.0 HTTP client, WebSocket realtime, file
+  transferables. Pure Dart (works in CLI/server apps).
+- `blocks_codegen` — build_runner code generator (reads the OpenRPC spec).
+- `blocks_runtime_flutter` — Flutter-specific implementations (secure storage,
+  OAuth browser flow via `flutter_secure_storage` / `url_launcher` / `app_links`).
 
 ### Setup
 
 ```yaml
 # pubspec.yaml
 dependencies:
-  blocks_runtime: ^0.1.1
+  blocks_runtime: ^0.1.2
 
 dev_dependencies:
-  blocks_codegen: ^0.1.1
-  build_runner: ^2.4.0
+  blocks_codegen: ^0.1.2
+  build_runner: ^2.16.0
 ```
 
-### Configuration
+`build_runner` is the standard Dart codegen driver — its version (`^2.x`) is
+independent of the Blocks package versions.
+
+### Configuration and generation
 
 ```yaml
 # build.yaml
@@ -220,70 +254,45 @@ targets:
           spec: lib/blocks.spec.json
 ```
 
-### Generate
-
 ```bash
 dart run build_runner build
 ```
 
 ### Usage
 
+Named parameters; enums render as top-level `Api<Method><Field>` types:
+
 ```dart
 import 'package:blocks_runtime/blocks_runtime.dart';
 import 'blocks.blocks.dart';
 
-final blocks = Blocks(baseUrl: 'https://your-api.example.com');
+final blocks = Blocks(baseUrl: 'https://api.example.com');
 
 final todo = await blocks.api.createTodo(title: 'Buy milk', priority: 1);
-final todos = await blocks.api.listTodos(sortBy: SortBy.priority);
-
-// Realtime subscriptions
-final channel = await blocks.api.getCursorChannel();
-channel.subscribe().listen((cursor) {
-  print('${cursor.userId} moved to (${cursor.x}, ${cursor.y})');
-});
+final byPriority = await blocks.api.listTodos(sortBy: ApiListTodosSortBy.priority);
+final got = await blocks.api.getTodo(todoId: todo.todoId);
 ```
 
-### Features
-
-- **Type-safe API calls** — every method, parameter, and return type is generated
-- **Realtime** — typed `Stream<T>` subscriptions over WebSocket
-- **Auth flows** — discriminated unions become sealed classes
-- **File transfers** — presigned upload/download via handle objects
-- **No Flutter dependency** — `blocks_runtime` is pure Dart (works in CLI/server apps)
-
-### Project structure
-
-```
-native/dart/
-├── packages/
-│   ├── blocks_runtime/          # Ships with your app
-│   ├── blocks_codegen/          # Build-time only
-│   └── blocks_runtime_flutter/  # Flutter integration (secure storage, browser launcher)
-└── example/                     # Demo Flutter app
-```
-
-**Requirements:** Dart 3.3+, Node.js 22+ (local backend)
+**Requirements:** Dart SDK `^3.11.0`; `blocks_runtime_flutter` needs Flutter `>=3.41.0`.
 
 ---
 
-## Feature matrix
+## Publishing coordinates
 
-| Feature | Kotlin | Swift | Dart |
-|---------|--------|-------|------|
-| RPC/API methods | ✅ | ✅ | ✅ |
+| SDK | Package / coordinate | Latest tag | Repo (org `aws-devtools-labs`) |
+|-----|----------------------|------------|--------------------------------|
+| Kotlin | Maven group `com.aws.blocks.kotlin` (`:runtime`); Gradle plugin `com.aws.blocks.kotlin` | `kotlin@0.2.0` | `aws-blocks` (monorepo) |
+| Swift | SwiftPM `aws-blocks-swift`, product `BlocksRuntime` | `swift@0.1.1` | `aws-blocks-swift` |
+| Dart | `blocks_runtime`, `blocks_codegen`, `blocks_runtime_flutter` | none yet | `aws-blocks` (monorepo) |
+
+## Capability matrix
+
+| Capability | Kotlin | Swift | Dart |
+|------------|--------|-------|------|
+| RPC / API methods | ✅ | ✅ | ✅ |
 | Realtime (WebSocket) | ✅ | ✅ | ✅ |
 | File Bucket | ✅ | ✅ | ✅ |
-| OIDC Auth | ✅ (Android only) | ❌ | ❌ |
-| Discriminated unions | ✅ (sealed) | ✅ (enum) | ✅ (sealed) |
-| Schema validation | At construct | precondition | At construct |
-| Cookie storage | Platform-native encrypted | Keychain | Flutter secure storage |
-
-## Spec versioning
-
-The spec file (`blocks.spec.json`) is the contract between your backend and native clients. Best practices:
-
-1. **Commit the spec** — check it into your repo so mobile devs can pull updates
-2. **CI validation** — regenerate on every backend PR to catch breaking changes
-3. **Backwards compatibility** — adding methods/fields is non-breaking; removing or renaming is breaking
-4. **Versioned URLs** — use the `servers` config in Kotlin or the `baseUrl` param in Swift/Dart to point at the correct environment
+| OIDC auth | ✅ Android only | ✅ `OIDCClient` | ✅ `OidcClient` (Flutter launcher in `blocks_runtime_flutter`) |
+| Discriminated unions | ✅ sealed | ✅ enum | ✅ sealed |
+| Schema validation | at construct | `precondition` | at construct |
+| Encrypted cookie storage | Android `EncryptedSharedPreferences` / iOS Keychain / JVM AES-256-GCM | Keychain | `flutter_secure_storage` |

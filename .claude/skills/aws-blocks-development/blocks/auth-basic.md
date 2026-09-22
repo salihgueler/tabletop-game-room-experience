@@ -1,203 +1,233 @@
 # AuthBasic
 
-**When to use:** Prototypes, MVPs, internal tools — simple username/password auth with built-in UI widget. Fastest path to a working auth flow.
+Username/password auth with bcrypt-hashed credentials, HTTP-only cookie
+sessions, and a provider-agnostic state-machine API that drives the shared
+`Authenticator` UI. Optional email/SMS-code signup confirmation and password
+reset.
 
-**When NOT to use:** Production apps needing MFA, social login, or advanced security (use AuthCognito). External IdP integration (use AuthOIDC).
+**Use it for** prototypes, MVPs, internal tools — the fastest path to a working
+login. **Don't use it for** MFA, social login, groups/RBAC, or custom
+attributes (that is the AuthCognito block), or sign-in through an external IdP
+like Google/Okta (that is the AuthOIDC block).
 
-Username/password auth with state machine API. Optional code-confirmed signup.
+## Contents
 
-**Error handling patterns:**
-- Thrown errors (catch block): `isBlocksError(e, 'InvalidCredentials')`
-- Returned AuthState (from setAuthState): `hasAuthError(state, 'InvalidCredentials')`
+- Import paths
+- Backend: construct, protect routes, export the API
+- Options: `AuthBasicOptions`
+- Server-side methods
+- Frontend: the Authenticator UI
+- Sign-out
+- Errors
+- What it provisions
 
-`AuthState` now carries an optional `errorName` field populated from the thrown `ApiError.name`.
+## Import paths
 
-## Recipe: Add authentication to an app
+- `AuthBasic`, `AuthBasicErrors`, and the types `AuthBasicUser`,
+  `AuthBasicOptions`, `PasswordPolicy` — from the umbrella `@aws-blocks/blocks`
+  (or `@aws-blocks/bb-auth-basic`).
+- UI components (`Authenticator`, `AccountMenuBar`, `AuthenticatedContent`,
+  `onAuthChange`, `broadcastAuthChange`) — from `@aws-blocks/blocks/ui`. They
+  live behind the `/ui` subpath so backend bundles don't pull in the DOM code;
+  the umbrella root does not export them.
+- The `AuthState` / `AuthStateApi` / `AuthActionInput` types — from
+  `@aws-blocks/auth-common`.
 
-**Step 1 — Backend (`aws-blocks/index.ts`):** Add AuthBasic + protect routes + export authApi
+There is no `signInWith`, no `groups`, no `admin` surface on AuthBasic — those
+are AuthCognito. Reaching for one is the signal you want a different block.
+
+## Backend: construct, protect routes, export the API
 
 ```typescript
-import { Scope, ApiNamespace, AuthBasic } from "@aws-blocks/blocks";
+import { Scope, ApiNamespace, AuthBasic } from '@aws-blocks/blocks';
 
-const scope = new Scope("my-app");
+const scope = new Scope('my-app');
 
-const auth = new AuthBasic(scope, "auth", {
+const auth = new AuthBasic(scope, 'auth', {
   sessionDuration: 86400,
   passwordPolicy: { minLength: 8, requireDigits: true },
 });
 
-// Export the auth API for the Authenticator UI component
+// State-machine API the Authenticator UI drives.
 export const authApi = auth.createApi();
 
-export const api = new ApiNamespace(scope, "api", (context) => ({
-  // All routes protected — requireAuth throws 401 if not logged in
+export const api = new ApiNamespace(scope, 'api', (context) => ({
   async getTasks() {
-    const user = await auth.requireAuth(context);
-    return { tasks: [], user: user.username };
-  },
-  async createTask(title: string) {
-    const user = await auth.requireAuth(context);
-    return { id: "1", title, owner: user.username };
+    const user = await auth.requireAuth(context); // throws 401 if not signed in
+    return { tasks: [], owner: user.username };
   },
 }));
 ```
 
-**Step 2 — Frontend:** Add the Authenticator component + gate content behind auth
+Auth is opt-in **per method** — call `auth.requireAuth(context)` inside the
+handlers you want protected. `ApiNamespace` takes exactly `(scope, id, handler)`;
+there is no auth option on the constructor.
+
+## Options: `AuthBasicOptions`
 
 ```typescript
-import { Authenticator, onAuthChange } from "@aws-blocks/blocks/ui";
-import { authApi } from "aws-blocks";
-
-// onAuthChange emits a synchronous first frame immediately with the current
-// auth state — no async delay before the first callback fires.
-document.body.appendChild(Authenticator(authApi));
-onAuthChange(authApi, (user) => {
-  if (user) { /* show app content */ }
-  else { /* Authenticator handles login UI */ }
-});
-```
-
-**Step 3 — Verify:** Run `npm run typecheck` then `npm run dev`. Navigate to localhost:3000 — you should see the sign-up/sign-in form. Create an account, then API calls will work.
-
----
-
-## API Details
-
-```typescript
-const auth = new AuthBasic(scope, 'auth', {
-  sessionDuration: 86400,
-  passwordPolicy: { minLength: 8, requireDigits: true },
-  codeDelivery: async (username, code) => {
-    console.log(`Verification code for ${username}: ${code}`);
-  },
-});
-
-// Protect API routes
-async protectedRoute() {
-  const user = await auth.requireAuth(context); // throws 401 if not logged in
-  return { hello: user.username };
+interface AuthBasicOptions {
+  sessionDuration?: number;        // session cookie lifetime, seconds
+  passwordPolicy?: PasswordPolicy;
+  crossDomain?: boolean;           // SameSite=None; Secure for a separate frontend domain
+  codeDelivery?: CodeDeliveryFn;   // (username, code) => Promise<void>
+  logger?: ChildLogger;
 }
 
-// Export for Authenticator UI component
-export const authApi = auth.createApi();
+interface PasswordPolicy {
+  minLength?: number;
+  requireDigits?: boolean;
+  requireLowercase?: boolean;
+  requireUppercase?: boolean;
+  requireSpecialChars?: boolean;   // note: AuthCognito's field is requireSymbols
+}
 ```
 
-**Frontend (vanilla DOM component):**
+Reach for these in specific situations:
+
+- **Confirmed signup** — set `codeDelivery`. Its two-arg shape
+  `(username, code) => Promise<void>` differs from AuthCognito's three-arg one.
+  Without it, signups complete immediately. Locally you can just
+  `console.log` the code; there is no mailbox.
+- **Frontend on a different registrable domain than the API** —
+  `crossDomain: true` switches the session cookie to `SameSite=None; Secure`.
+  Same-origin apps and the local dev proxy work on the `SameSite=Lax` default.
+
+## Server-side methods
+
+Every auth block implements the same `BlocksAuth` core (`requireAuth`,
+`checkAuth`, `getCurrentUser`), so route code is provider-portable.
+
+| Method | Returns | Notes |
+|---|---|---|
+| `requireAuth(context)` | `Promise<AuthBasicUser>` | Throws 401 if not signed in |
+| `checkAuth(context)` | `Promise<boolean>` | Boolean, no throw |
+| `getCurrentUser(context)` | `Promise<AuthBasicUser \| null>` | Null when signed out |
+| `signUp(username, password)` | `Promise<void>` | |
+| `confirmSignUp(username, code)` | `Promise<void>` | Only when `codeDelivery` is set |
+| `signIn(username, password, context)` | `Promise<AuthBasicUser>` | |
+| `signOut(context)` | `Promise<void>` | |
+| `resetPassword(username)` | `Promise<void>` | |
+| `confirmResetPassword(username, code, newPassword)` | `Promise<void>` | |
+
+`AuthBasicUser` is `{ userId, username, createdAt }`.
+
+**SSR:** in a server component, browser cookies are not auto-forwarded to
+Blocks API calls, so an SSR call to a protected route silently 401s. Wrap it in
+`withAuth` from `@aws-blocks/blocks/server` — see the AuthCognito block's SSR
+section for the same mechanism.
+
+## Frontend: the Authenticator UI
+
+The `Authenticator` renders sign-up / sign-in / confirm forms from the
+`AuthState` the block emits — no provider-specific frontend code.
 
 ```typescript
-import { Authenticator, onAuthChange } from "@aws-blocks/blocks/ui";
-import { authApi } from "aws-blocks";
+import { Authenticator, onAuthChange } from '@aws-blocks/blocks/ui';
+import { authApi } from 'aws-blocks';
 
 document.body.appendChild(Authenticator(authApi));
+
+// onAuthChange fires immediately with the current user, then on every change.
 onAuthChange(authApi, (user) => {
-  console.log(user ? `Signed in as ${user.username}` : "Signed out");
+  // user is AuthUser | null
 });
 ```
 
-**React wrapper pattern:**
+**React:** the widget is a plain DOM node, so mount it in an effect and clear
+the container first — React strict mode double-mounts, and a naive
+`appendChild`/`removeChild` cleanup renders it twice.
 
 ```tsx
-import { useEffect, useRef } from "react";
-import { Authenticator } from "@aws-blocks/blocks/ui";
-import { authApi } from "aws-blocks";
-
 function AuthGate() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const container = ref.current;
     if (!container) return;
-    // Clear first to prevent duplicates from React strict mode double-mount
-    container.innerHTML = "";
-    const el = Authenticator(authApi);
-    container.appendChild(el);
-    return () => {
-      container.innerHTML = "";
-    };
+    container.innerHTML = '';               // guard against strict-mode double-mount
+    container.appendChild(Authenticator(authApi));
+    return () => { container.innerHTML = ''; };
   }, []);
   return <div ref={ref} />;
 }
 ```
 
-**⚠️ React strict mode double-mount:** The naive pattern of `appendChild` + `removeChild` in cleanup causes the widget to render twice because strict mode unmounts and remounts. Always clear the container with `innerHTML = ""` before appending.
-
-**Styling the Authenticator widget:** The widget renders plain HTML with inline styles (`border: 1px solid #ddd`, basic padding on inputs/buttons, `h3` headings). To match your app's theme, use CSS overrides with `!important` scoped to a container class. Target: `h3` for headings, `input` for fields, `button` for submit, `div[style*="color: red"]` for errors, `div[style*="margin-bottom: 16px"]` for action blocks.
-
-**Sign-out:** The `AuthStateApi` does NOT have a `signOut()` method. Use `authApi.setAuthState({ action: "signOut" })` followed by `broadcastAuthChange(null)` to notify all listeners:
-
-```typescript
-import { broadcastAuthChange } from "@aws-blocks/blocks/ui";
-
-async function signOut() {
-  await authApi.setAuthState({ action: "signOut" });
-  broadcastAuthChange(null);
-}
-```
-
-Local mock: Local JWT tokens. AWS: DynamoDB + JWT.
-
-**Auth API export:** Simply use `export const authApi = auth.createApi()`. The CDK construct automatically grants the Lambda role DynamoDB permissions. Do NOT build custom ApiNamespace wrappers for auth — it bypasses CDK's IAM wiring and causes AccessDeniedException in production.
-
-
-## Common Mistakes
-
-❌ ``auth.requireAuth(req)` with a request object`
-✅ ``auth.requireAuth(context)` — context comes from ApiNamespace callback`
-_Wrong parameter — context is provided by the API framework_
-
-❌ `401 on page refresh (cookies not persisting)`
-✅ `Ensure HTTPS in production. Set `SameSite=None; Secure` for cross-origin.`
-_Cookie security attributes required for production_
-
-❌ `Authenticator widget renders twice in React`
-✅ `Clear container with `innerHTML = ""` before appending (React strict mode double-mounts)`
-_Use cleanup pattern in useEffect_
-
-
-## UI Components
-
-All auth UI components are imported from `@aws-blocks/blocks/ui`.
-
-| Component | Purpose |
-|-----------|---------|
-| `Authenticator(authApi)` | Full sign-up/sign-in form (standalone) |
-| `AccountMenuBar(authApi)` | Compact menu bar with sign-in/sign-out |
-| `AuthenticatedContent(authApi, renderFn, options?)` | Renders content only when authenticated |
-
-**AuthenticatedContent fallback:**
+**Gate content behind auth** with `AuthenticatedContent`. The unauthenticated
+fallback is a positional third argument — a DOM node, not an options object:
 
 ```typescript
 import { AuthenticatedContent } from '@aws-blocks/blocks/ui';
 
-// Optional fallback content when user is NOT authenticated
-const fallbackEl = document.createElement('p');
-fallbackEl.textContent = 'Please sign in to continue.';
+const fallback = document.createElement('p');
+fallback.textContent = 'Please sign in to continue.';
 
 document.body.appendChild(
-  AuthenticatedContent(authApi, (user) => {
-    const el = document.createElement('div');
-    el.textContent = `Welcome, ${user.username}`;
-    return el;
-  }, { fallback: fallbackEl })
+  AuthenticatedContent(
+    authApi,
+    (user) => {
+      const el = document.createElement('div');
+      el.textContent = `Welcome, ${user.username}`;
+      return el;
+    },
+    fallback,
+  ),
 );
 ```
 
-**E2E testing with `data-testid`:**
+`AccountMenuBar(authApi)` is the compact header variant (username + Sign Out, or
+a Sign In button that opens the Authenticator in a modal).
 
-All auth UI components expose stable `data-testid` attributes for e2e test targeting:
-- Root container, per-action wrappers (sign-in, sign-up, etc.), heading, error display
-- `AuthenticatedContent`, `AccountMenuBar`, signed-in marker
-- Full selector contract documented in `CUSTOMIZING-AUTH-UI.md` (in the `@aws-blocks/blocks` package)
+**Styling:** the widget renders plain HTML with inline styles. Restyle with CSS
+overrides scoped to a container class. The full selector / `data-testid`
+contract is in `CUSTOMIZING-AUTH-UI.md` in the `@aws-blocks/auth-common` package.
 
-**Auth admin types:** `AdminOptions`, `AdminUser`, `AdminCreateInit`, `GroupAdmin`, `LifecycleAdmin`, `AdminSurface`, `AdminGetterOf`, `AdminDisabled` are now re-exported from `@aws-blocks/blocks` directly (no need to import from internal packages).
+## Sign-out
 
-## What It Provisions
+`AuthStateApi` has no `signOut()` method. Drive it through the state machine and
+broadcast so other tabs and components react:
 
-- DynamoDB table (user credentials, hashed passwords)
-- Lambda function (auth endpoints)
-- JWT token issuance and validation
+```typescript
+import { broadcastAuthChange } from '@aws-blocks/blocks/ui';
 
-## See Also
+async function signOut() {
+  await authApi.setAuthState({ action: 'signOut' });
+  broadcastAuthChange(null);
+}
+```
 
-- [auth-cognito](./auth-cognito.md) — Production auth with MFA, groups, social federation
-- [auth-oidc](./auth-oidc.md) — External identity provider integration
-- [api-namespace](./api-namespace.md) — Wiring auth into your API
+`setAuthState` always takes a single action-payload object
+(`{ action, ...fields }`), e.g. `setAuthState({ action: 'signIn', username, password })`.
+
+## Errors
+
+`AuthBasicErrors` values are the wire-format names you match on:
+
+| Constant | Value |
+|---|---|
+| `InvalidCredentials` | `InvalidCredentialsException` |
+| `UserAlreadyExists` | `UserAlreadyExistsException` |
+| `InvalidCode` | `InvalidCodeException` |
+| `SessionExpired` | `SessionExpiredException` |
+| `InvalidPassword` | `InvalidPasswordException` |
+
+Two matching patterns:
+
+```typescript
+import { isBlocksError } from '@aws-blocks/core';
+import { AuthBasicErrors } from '@aws-blocks/blocks';
+
+// Thrown error (catch block)
+try { await auth.signIn(u, p, context); }
+catch (e) { if (isBlocksError(e, AuthBasicErrors.InvalidCredentials)) { /* ... */ } }
+```
+
+`AuthState` carries an optional `errorName` populated from the thrown
+`ApiError.name`, so `hasAuthError(state, AuthBasicErrors.InvalidCredentials)`
+works on a state returned from `setAuthState`.
+
+## What it provisions
+
+A DynamoDB table (usernames + bcrypt-hashed passwords and session records) and
+the Lambda auth endpoints behind the shared execution role. Sessions are
+HMAC-signed JWTs; idle cost is zero. Local dev runs entirely in-memory —
+verification codes surface through the `codeDelivery` hook, no email service.
