@@ -24,7 +24,7 @@
     "destroy": "tsx aws-blocks/scripts/destroy.ts"
   },
   "dependencies": {
-    "@aws-blocks/blocks": "*",
+    "@aws-blocks/blocks": "0.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^4.3.0"

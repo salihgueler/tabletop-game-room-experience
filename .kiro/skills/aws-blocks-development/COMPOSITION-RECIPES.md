@@ -1,6 +1,31 @@
 # Composition Recipes
 
-Multi-block patterns showing how blocks wire together. Each recipe is a complete `aws-blocks/index.ts`.
+Multi-block patterns showing how blocks wire together in a single
+`aws-blocks/index.ts`. Each recipe is verified against the package `API.md`
+files and the shipped `create-blocks-app` templates.
+
+Two rules cut across every recipe, because they are the mistakes agents make
+most:
+
+- **`ApiNamespace` takes exactly three arguments** — `new ApiNamespace(scope,
+  'api', (context) => ({ ...methods }))`. There is no options object and no
+  `auth` argument. Auth is opt-in **per method**: call
+  `await auth.requireAuth(context)` (or `requireRole`) at the top of each method
+  that needs it, and omit it for public methods.
+- **`table.query(...)` returns an `AsyncIterable<T>`, not an array.** Collect it
+  with `await Array.fromAsync(table.query({ ... }))`. Awaiting the iterable
+  directly does not give you an array, so `.filter`/`.map` on the awaited value
+  throws. This matches `TESTING-REFERENCE.md`.
+
+All symbols below are re-exported from the umbrella `@aws-blocks/blocks`
+package, so a single import line works.
+
+## Contents
+
+- Recipe: Authenticated CRUD API
+- Recipe: AI chat with tools
+- Recipe: Background file processing
+- Recipe: Multi-tenant SaaS with feature flags
 
 ---
 
@@ -8,408 +33,323 @@ Multi-block patterns showing how blocks wire together. Each recipe is a complete
 
 **Blocks:** `AuthBasic` + `DistributedTable` + `ApiNamespace`
 
-**Why:** The starting pattern for any app that stores user-owned data behind login.
+The starting pattern for any app that stores user-owned data behind login. The
+authenticated user's `username` is the partition key, so every query is
+naturally scoped to one user — cross-user reads are impossible because the key
+is never client-supplied.
 
-**Wiring points:**
-- Pass `auth` in ApiNamespace options — all methods require auth by default
-- Use `user.userId` from `requireAuth(context)` as the partition key to scope data per user
+`DistributedTable` has no `update()` method: read the item, then `put()` the
+whole object back. Guard against lost updates with `ifFieldEquals` (optimistic
+locking) — a concurrent writer bumps `version`, the condition fails, and `put`
+throws `ConditionalCheckFailedException`.
 
 ```typescript
-import { Scope, ApiNamespace } from "@aws-blocks/core";
-import { AuthBasic } from "@aws-blocks/blocks";
-import { DistributedTable } from "@aws-blocks/blocks";
+import { ApiNamespace, Scope, AuthBasic, DistributedTable } from "@aws-blocks/blocks";
+import crypto from "node:crypto";
 import { z } from "zod";
 
-const scope = new Scope("my-app");
+const scope = new Scope("todo-app");
 const auth = new AuthBasic(scope, "auth");
+export const authApi = auth.createApi();
 
-const todos = new DistributedTable(scope, "todos", {
-  pk: "userId",
-  sk: "todoId",
-  attributes: { title: "string", done: "boolean", createdAt: "number" },
-  indexes: { byDate: { pk: "userId", sk: "createdAt" } },
+const todoSchema = z.object({
+  userId: z.string(),      // partition key — per-user isolation
+  todoId: z.string(),      // sort key
+  title: z.string(),
+  done: z.boolean(),
+  version: z.number(),     // optimistic-lock counter
+  createdAt: z.number(),
 });
 
-export const api = new ApiNamespace(scope, "api", { auth }, (context) => ({
+const todos = new DistributedTable(scope, "todos", {
+  schema: todoSchema,
+  key: { partitionKey: "userId", sortKey: "todoId" },
+  indexes: {
+    byCreatedAt: { partitionKey: "userId", sortKey: "createdAt" },
+  },
+});
+
+export const api = new ApiNamespace(scope, "api", (context) => ({
   async createTodo(title: string) {
     const user = await auth.requireAuth(context);
     const todoId = crypto.randomUUID();
-    await todos.put({ userId: user.userId, todoId, title, done: false, createdAt: Date.now() });
-    return { todoId };
+    const todo = { userId: user.username, todoId, title, done: false, version: 1, createdAt: Date.now() };
+    await todos.put(todo);
+    return todo;
   },
 
   async listTodos() {
     const user = await auth.requireAuth(context);
-    return todos.query({ index: "byDate", where: { userId: { equals: user.userId } } });
+    return await Array.fromAsync(
+      todos.query({ index: "byCreatedAt", where: { userId: { equals: user.username } } })
+    );
   },
 
   async toggleTodo(todoId: string) {
     const user = await auth.requireAuth(context);
-    const item = await todos.get({ userId: user.userId, todoId });
-    if (!item) throw new Error("Not found");
-    await todos.update({ userId: user.userId, todoId }, { done: !item.done });
-    return { done: !item.done };
+    const todo = await todos.get({ userId: user.username, todoId });
+    if (!todo) throw new Error("Not found");
+    await todos.put(
+      { ...todo, done: !todo.done, version: todo.version + 1 },
+      { ifFieldEquals: { version: todo.version } },   // fails if a concurrent write bumped version
+    );
+    return { done: !todo.done };
   },
 
   async deleteTodo(todoId: string) {
     const user = await auth.requireAuth(context);
-    await todos.delete({ userId: user.userId, todoId });
+    await todos.delete({ userId: user.username, todoId });
   },
 }));
-
-export const authApi = auth.createApi();
-```
-
-**Frontend snippet:**
-```typescript
-import { api, authApi } from "aws-blocks";
-import { Authenticator } from "@aws-blocks/auth-common/ui";
-
-document.body.appendChild(Authenticator(authApi));
-
-// After sign-in:
-const { todoId } = await api.createTodo("Buy milk");
-const items = await api.listTodos();
 ```
 
 ---
 
-## Recipe: AI Chat with History & Streaming
+## Recipe: AI chat with tools
 
-**Blocks:** `Agent` + `DistributedTable` + `AuthCognito`
+**Blocks:** `Agent` + `DistributedTable` + `AuthBasic`
 
-**Why:** Conversational AI with per-user conversation persistence, auth-gated access, and real-time streaming.
+Conversational AI whose tools read the caller's own data. The Agent streams via
+AsyncJob + Realtime internally — you do not add those blocks yourself.
 
-**Wiring points:**
-- Agent uses Realtime internally — no explicit Realtime block needed
-- Frontend must subscribe (via `useChat`) BEFORE calling `stream()` — early chunks are lost otherwise
-- Agent is server-side only — expose via ApiNamespace methods, never import in frontend
+Three things the types enforce:
+
+- The tool field is **`parameters`** (a Zod schema), not `schema`. Tools are
+  defined through the `tool(...)` factory passed to `tools`.
+- The config field is **`systemPrompt`**, not `system`.
+- `stream()` returns an `AgentStreamResult`. It is safe to return straight from
+  an API method — its `toJSON()` serializes to `{ channelId, channel: null }`,
+  and the client rebuilds a subscribe-only channel from `channelId`. `userId` is
+  **required** on `stream()` unless the Agent is `inferenceOnly`.
+
+The tool `handler` receives `{ input, context }`; `context` is the per-call tool
+context (the `context` you pass to `stream`), which is where auth-derived values
+belong. Note this is the Agent tool context, not the API `BlocksContext` — so
+resolve the user in the API method and pass what the tool needs through
+`stream({ context })`.
 
 ```typescript
-import { Scope, ApiNamespace } from "@aws-blocks/core";
-import { AuthCognito, Agent, DistributedTable } from "@aws-blocks/blocks";
+import { ApiNamespace, Scope, AuthBasic, Agent, DistributedTable, BedrockModels } from "@aws-blocks/blocks";
 import { z } from "zod";
 
 const scope = new Scope("chat-app");
+const auth = new AuthBasic(scope, "auth");
+export const authApi = auth.createApi();
 
-const auth = new AuthCognito(scope, "auth", {
-  mfa: "optional",
-  mfaTypes: ["TOTP"],
-  groups: ["users"],
+const noteSchema = z.object({
+  userId: z.string(),
+  noteId: z.string(),
+  content: z.string(),
 });
 
 const notes = new DistributedTable(scope, "notes", {
-  pk: "userId",
-  sk: "noteId",
-  attributes: { title: "string", content: "string" },
+  schema: noteSchema,
+  key: { partitionKey: "userId", sortKey: "noteId" },
 });
 
-const agent = new Agent(scope, "assistant", {
-  system: "You are a helpful assistant. Use the searchNotes tool to find user notes when asked.",
+const assistant = new Agent(scope, "assistant", {
+  systemPrompt: "You are a helpful assistant. Use searchNotes to answer questions about the user's saved notes.",
+  model: { deployed: BedrockModels.FAST },
+  toolContextSchema: z.object({ userId: z.string() }),
   tools: (tool) => ({
     searchNotes: tool({
       description: "Search the user's saved notes by keyword",
-      schema: z.object({ keyword: z.string() }),
+      parameters: z.object({ keyword: z.string() }),
       handler: async ({ input, context }) => {
-        const user = await auth.requireAuth(context);
-        const all = await notes.query({ where: { userId: { equals: user.userId } } });
+        const all = await Array.fromAsync(
+          notes.query({ where: { userId: { equals: context.userId } } })
+        );
         return all.filter((n) => n.content.includes(input.keyword));
       },
     }),
   }),
 });
 
-export const api = new ApiNamespace(scope, "api", { auth }, (context) => ({
+export const api = new ApiNamespace(scope, "api", (context) => ({
   async chat(message: string, conversationId?: string) {
     const user = await auth.requireAuth(context);
-    return agent.stream(message, { conversationId, userId: user.userId, context });
-  },
-
-  async listConversations() {
-    const user = await auth.requireAuth(context);
-    return agent.listConversations(user.userId);
-  },
-
-  async deleteConversation(conversationId: string) {
-    const user = await auth.requireAuth(context);
-    await agent.deleteConversation(conversationId, user.userId);
+    // userId is required for persistence; context feeds the tool's toolContextSchema.
+    return assistant.stream(message, {
+      userId: user.userId,
+      conversationId,
+      context: { userId: user.userId },
+    });
   },
 }));
-
-export const authApi = auth.createApi();
 ```
 
-**Frontend snippet:**
-```typescript
-import { api } from "aws-blocks";
-import { useChat } from "@aws-blocks/blocks/react";
-
-function Chat() {
-  const { messages, send, isStreaming } = useChat(api.chat);
-  // useChat handles: subscribe → stream() → collect chunks → update messages
-  return <button onClick={() => send("What's in my notes about React?")}>Ask</button>;
-}
-```
+The client subscribes to `result.channelId` for streaming chunks; the
+`@aws-blocks/blocks/react` `useChat` hook wires that up.
 
 ---
 
-## Recipe: Background Processing Pipeline
+## Recipe: Background file processing
 
-**Blocks:** `AsyncJob` + `FileBucket` + `EmailClient` + `Metrics` + `Dashboard`
+**Blocks:** `FileBucket` + `AsyncJob` + `EmailClient` + `Metrics`
 
-**Why:** User uploads a file, backend processes it asynchronously, sends a notification, and tracks metrics.
+The client uploads directly to S3 with a presigned URL, then kicks off async
+processing that emails the user and records metrics. Keep the SQS payload small
+by passing the file **key**, never its bytes.
 
-**Wiring points:**
-- FileBucket generates presigned upload URLs — client uploads directly to S3
-- AsyncJob payload must be < 256KB — pass the file *key*, not the file content
-- EmailClient and Metrics are called inside the job handler (runs async in Lambda)
-- Dashboard auto-collects metrics from the Metrics block
+API-shape facts this recipe pins down:
+
+- Presigned URLs are `bucket.putUrl(path)` (upload) and `bucket.getUrl(path)`
+  (download). There is no `getSignedUrl`/`getSignedUploadUrl`.
+- `EmailClient` takes `{ fromAddress }`, not `{ from }`. `send` needs
+  `{ to, subject, body }` (`body` is the plain-text part; `html` is optional).
+- `metrics.emit(name, value, { unit })` — there is no `record(...)`. `unit` is a
+  `MetricUnit` string such as `'Milliseconds'` or `'Count'`.
+- The `AsyncJob` handler signature is `(payload, context)` — `payload` is your
+  typed value directly, not wrapped in `{ input }`.
 
 ```typescript
-import { Scope, ApiNamespace } from "@aws-blocks/core";
-import { AuthBasic, AsyncJob, FileBucket, EmailClient, Metrics, Dashboard } from "@aws-blocks/blocks";
+import { ApiNamespace, Scope, AuthBasic, FileBucket, AsyncJob, EmailClient, Metrics } from "@aws-blocks/blocks";
 import { z } from "zod";
 
 const scope = new Scope("processor");
 const auth = new AuthBasic(scope, "auth");
-const bucket = new FileBucket(scope, "uploads");
-const email = new EmailClient(scope, "mail", { from: "noreply@myapp.com" });
-const metrics = new Metrics(scope, "metrics");
-const dashboard = new Dashboard(scope, "dash");
+export const authApi = auth.createApi();
+
+const uploads = new FileBucket(scope, "uploads");
+const email = new EmailClient(scope, "mail", { fromAddress: "noreply@myapp.com" });
+const metrics = new Metrics(scope, "metrics", { namespace: "Processor" });
 
 const processJob = new AsyncJob(scope, "process", {
   schema: z.object({ fileKey: z.string(), userEmail: z.string() }),
-  handler: async ({ input }) => {
+  handler: async (payload) => {
     const start = Date.now();
 
-    // Download and process the file
-    const content = await bucket.get(input.fileKey);
-    const result = processFile(content); // your logic
-    await bucket.put(`results/${input.fileKey}`, result);
+    const file = await uploads.get(payload.fileKey);
+    if (!file) throw new Error(`Missing upload: ${payload.fileKey}`);
+    const resultKey = `results/${payload.fileKey}`;
+    await uploads.put(resultKey, transform(file.body));
 
-    // Notify user
     await email.send({
-      to: input.userEmail,
+      to: payload.userEmail,
       subject: "Processing complete",
-      body: `Your file has been processed. Download: ${await bucket.getSignedUrl(`results/${input.fileKey}`)}`,
+      body: `Your file is ready: ${await uploads.getUrl(resultKey)}`,
     });
 
-    // Record metrics
-    metrics.record("ProcessingTime", Date.now() - start, "Milliseconds");
-    metrics.record("FilesProcessed", 1, "Count");
+    metrics.emit("ProcessingTime", Date.now() - start, { unit: "Milliseconds" });
+    metrics.emit("FilesProcessed", 1, { unit: "Count" });
   },
 });
 
-export const api = new ApiNamespace(scope, "api", { auth }, (context) => ({
+export const api = new ApiNamespace(scope, "api", (context) => ({
   async getUploadUrl(filename: string) {
     const user = await auth.requireAuth(context);
     const key = `${user.userId}/${Date.now()}-${filename}`;
-    const url = await bucket.getSignedUploadUrl(key);
-    return { url, key };
+    return { url: await uploads.putUrl(key), key };
   },
 
   async startProcessing(fileKey: string) {
     const user = await auth.requireAuth(context);
-    // Pass reference, NOT file content (256KB SQS limit)
-    await processJob.submit({ fileKey, userEmail: user.email });
-    return { status: "processing" };
+    // Pass the key, not the bytes — SQS payloads are capped at 256 KB.
+    const { jobId } = await processJob.submit({ fileKey, userEmail: user.username });
+    return { jobId, status: "processing" };
   },
 }));
 
-export const authApi = auth.createApi();
-
-function processFile(content: Buffer): Buffer {
-  // Your processing logic here
-  return content;
+function transform(body: Buffer): Buffer {
+  return body; // your processing logic
 }
 ```
 
+`Metrics` feeds a `Dashboard` if you add one: `new Dashboard(scope, 'dash', {
+metrics })`. You must pass the `Metrics` instance — a bare `Dashboard` collects
+nothing.
+
 ---
 
-## Recipe: Multi-tenant SaaS
+## Recipe: Multi-tenant SaaS with feature flags
 
-**Blocks:** `AuthCognito (groups)` + `DistributedTable` + `AppSetting` + `Hosting`
+**Blocks:** `AuthCognito` + `DistributedTable` + `KVStore`
 
-**Why:** Tenant-isolated data with role-based access control and per-tenant configuration.
+Tenant-isolated data with group-based admin access and per-tenant feature flags.
+The `tenantId` lives as a Cognito custom attribute and is read **server-side**
+from the authenticated session — a client-supplied tenant id is never trusted.
+Prefixing the partition key with `tenant#<id>` isolates every tenant's rows.
 
-**Wiring points:**
-- Store `tenantId` as a custom attribute on the Cognito user — derive it server-side from the authenticated session
-- Use `tenant#${tenantId}` as partition key prefix — guarantees data isolation at the DynamoDB level
-- NEVER trust a client-supplied tenantId — always extract from the authenticated user
-- AppSetting stores per-tenant feature flags (keyed by tenantId)
+Two API-shape corrections drive the structure:
+
+- Custom attributes are declared via `userAttributes: [{ name: 'tenantId', type:
+  'String' }]` and read back as `user.attributes['custom:tenantId']` (Cognito
+  prefixes custom attributes with `custom:`). Group RBAC is `groups: [...]` plus
+  `await auth.requireRole(context, 'admins')`.
+- **`AppSetting` cannot store per-tenant flags.** It is a *single* value —
+  `get()` takes no arguments and `put(value)` sets the one value. There is no
+  keyed access. Feature flags keyed by tenant belong in `KVStore`, whose
+  `get(key)` / `put(key, value)` are keyed. `KVStore<T>` with a schema stores
+  typed objects directly (no manual `JSON.parse`).
 
 ```typescript
-import { Scope, ApiNamespace } from "@aws-blocks/core";
-import { AuthCognito, DistributedTable, AppSetting, Hosting } from "@aws-blocks/blocks";
+import { ApiNamespace, Scope, AuthCognito, DistributedTable, KVStore } from "@aws-blocks/blocks";
+import crypto from "node:crypto";
 import { z } from "zod";
 
 const scope = new Scope("saas");
 
 const auth = new AuthCognito(scope, "auth", {
-  groups: ["admins", "members"] as const,
-  userAttributes: [{ name: "tenantId", type: "String" }] as const,
+  groups: ["admins", "members"],
+  userAttributes: [{ name: "tenantId", type: "String" }],
+});
+export const authApi = auth.createApi();
+
+const recordSchema = z.object({
+  tenantKey: z.string(),   // "tenant#<tenantId>" — partition key isolates tenants
+  recordId: z.string(),
+  type: z.string(),
+  payload: z.string(),
+  createdBy: z.string(),
+  createdAt: z.number(),
 });
 
 const data = new DistributedTable(scope, "data", {
-  pk: "tenantKey", // "tenant#<tenantId>"
-  sk: "recordId",
-  attributes: { type: "string", payload: "string", createdBy: "string", createdAt: "number" },
-  indexes: { byType: { pk: "tenantKey", sk: "type" } },
+  schema: recordSchema,
+  key: { partitionKey: "tenantKey", sortKey: "recordId" },
+  indexes: {
+    byType: { partitionKey: "tenantKey", sortKey: "type" },
+  },
 });
 
-const features = new AppSetting(scope, "features");
+// Feature flags keyed by tenantId — KVStore, because AppSetting is single-value.
+const flags = new KVStore<{ betaFeatures: boolean }>(scope, "flags", {
+  schema: z.object({ betaFeatures: z.boolean() }),
+});
 
-// Helper: extract tenantId from authenticated user (server-side only)
-async function getTenantId(context: any) {
+// Resolve tenant from the authenticated session — never from client input.
+async function resolveTenant(context: any) {
   const user = await auth.requireAuth(context);
   const tenantId = user.attributes["custom:tenantId"];
   if (!tenantId) throw new Error("User has no tenant assignment");
   return { user, tenantId, tenantKey: `tenant#${tenantId}` };
 }
 
-export const api = new ApiNamespace(scope, "api", { auth }, (context) => ({
+export const api = new ApiNamespace(scope, "api", (context) => ({
   async createRecord(type: string, payload: string) {
-    const { user, tenantKey } = await getTenantId(context);
+    const { user, tenantKey } = await resolveTenant(context);
     const recordId = crypto.randomUUID();
     await data.put({ tenantKey, recordId, type, payload, createdBy: user.userId, createdAt: Date.now() });
     return { recordId };
   },
 
   async listByType(type: string) {
-    const { tenantKey } = await getTenantId(context);
-    return data.query({ index: "byType", where: { tenantKey: { equals: tenantKey }, type: { equals: type } } });
+    const { tenantKey } = await resolveTenant(context);
+    return await Array.fromAsync(
+      data.query({ index: "byType", where: { tenantKey: { equals: tenantKey }, type: { equals: type } } })
+    );
   },
 
   async getFeatureFlags() {
-    const { tenantId } = await getTenantId(context);
-    const flags = await features.get(`flags:${tenantId}`);
-    return flags ? JSON.parse(flags) : { betaFeatures: false };
+    const { tenantId } = await resolveTenant(context);
+    return (await flags.get(tenantId)) ?? { betaFeatures: false };
   },
 
-  // Admin-only: update tenant feature flags
-  async setFeatureFlags(flags: Record<string, boolean>) {
-    const { tenantId } = await getTenantId(context);
-    await auth.requireRole(context, "admins");
-    await features.set(`flags:${tenantId}`, JSON.stringify(flags));
-  },
-}));
-
-export const authApi = auth.createApi();
-export const hosting = new Hosting(scope, "web");
-```
-
----
-
-## Recipe: Real-time Collaboration
-
-**Blocks:** `Realtime` + `DistributedTable` + `AuthBasic` + `KVStore`
-
-**Why:** Shared cursors, live chat, and presence tracking with message persistence and auto-expiring online status.
-
-**Wiring points:**
-- `getChannel()` returns an auth-gated handle — only return it after `requireAuth`
-- KVStore with TTL for presence: set on join, auto-expires after 60s, refresh with heartbeat
-- Realtime delivery is best-effort — backfill missed messages from DistributedTable on reconnect
-- Subscribe before publishing; `await sub.established` before assuming connection is live
-
-```typescript
-import { Scope, ApiNamespace } from "@aws-blocks/core";
-import { AuthBasic, Realtime, DistributedTable, KVStore } from "@aws-blocks/blocks";
-import { z } from "zod";
-
-const scope = new Scope("collab");
-const auth = new AuthBasic(scope, "auth");
-
-const rt = new Realtime(scope, "rt", {
-  namespaces: {
-    cursors: Realtime.namespace(z.object({ userId: z.string(), x: z.number(), y: z.number() })),
-    chat: Realtime.namespace(z.object({ userId: z.string(), text: z.string(), ts: z.number() })),
-  },
-});
-
-const messages = new DistributedTable(scope, "msgs", {
-  pk: "roomId",
-  sk: "ts",
-  attributes: { userId: "string", text: "string" },
-});
-
-// TTL-based presence: keys auto-expire after 60s
-const presence = new KVStore(scope, "presence", { ttlSeconds: 60 });
-
-export const api = new ApiNamespace(scope, "api", { auth }, (context) => ({
-  async joinRoom(roomId: string) {
-    const user = await auth.requireAuth(context);
-
-    // Mark user online (TTL auto-expires if they disconnect)
-    await presence.set(`${roomId}:${user.userId}`, JSON.stringify({ name: user.username, joinedAt: Date.now() }));
-
-    // Return channels for subscription
-    return {
-      cursors: await rt.getChannel("cursors", roomId),
-      chat: await rt.getChannel("chat", roomId),
-    };
-  },
-
-  // Heartbeat — client calls every 30s to keep presence alive
-  async heartbeat(roomId: string) {
-    const user = await auth.requireAuth(context);
-    await presence.set(`${roomId}:${user.userId}`, JSON.stringify({ name: user.username, joinedAt: Date.now() }));
-  },
-
-  async sendMessage(roomId: string, text: string) {
-    const user = await auth.requireAuth(context);
-    const ts = Date.now();
-    // Persist + broadcast in parallel
-    await Promise.all([
-      messages.put({ roomId, ts, userId: user.userId, text }),
-      rt.publish("chat", roomId, { userId: user.userId, text, ts }),
-    ]);
-    return { ts };
-  },
-
-  async moveCursor(roomId: string, x: number, y: number) {
-    const user = await auth.requireAuth(context);
-    await rt.publish("cursors", roomId, { userId: user.userId, x, y });
-  },
-
-  // Load history on join (backfill what Realtime didn't deliver)
-  async getHistory(roomId: string, since?: number) {
-    await auth.requireAuth(context);
-    return messages.query({
-      where: { roomId: { equals: roomId }, ...(since ? { ts: { greaterThan: since } } : {}) },
-    });
-  },
-
-  async getOnlineUsers(roomId: string) {
-    await auth.requireAuth(context);
-    // Scan presence keys for this room (non-expired = online)
-    const keys = await presence.list(`${roomId}:`);
-    return keys.map((k) => JSON.parse(k.value));
+  async setFeatureFlags(value: { betaFeatures: boolean }) {
+    const { tenantId } = await resolveTenant(context);
+    await auth.requireRole(context, "admins");   // group-gated: throws if not an admin
+    await flags.put(tenantId, value);
+    return { success: true };
   },
 }));
-
-export const authApi = auth.createApi();
-```
-
-**Frontend snippet:**
-```typescript
-import { api } from "aws-blocks";
-
-const { cursors, chat } = await api.joinRoom("room-1");
-
-const chatSub = chat.subscribe({
-  onMessage: (msg) => addMessageToUI(msg),
-  onDisconnect: async (reason) => {
-    if (reason === "client") return;
-    // Reconnect + backfill missed messages from DB
-    const { chat: newChat } = await api.joinRoom("room-1");
-    const missed = await api.getHistory("room-1", lastSeenTimestamp);
-    missed.forEach(addMessageToUI);
-    newChat.subscribe({ onMessage: addMessageToUI });
-  },
-});
-await chatSub.established;
-
-// Heartbeat every 30s
-setInterval(() => api.heartbeat("room-1"), 30_000);
 ```

@@ -1,263 +1,321 @@
 # Hosting
 
-**When to use:** Deploying your frontend — SPAs (React/Vue/Angular), SSR apps (Next.js/Nuxt), or static sites. Handles CloudFront, S3, custom domains, WAF.
+Deploys a frontend — SPA, static site, or SSR app — to S3 + CloudFront in the
+same stack as a Blocks backend, and proxies `/aws-blocks/*` through the same
+CloudFront domain so the frontend calls the API with relative URLs and no CORS.
 
-**When NOT to use:** API-only backends (Hosting is for frontends). Serving user-uploaded files (use FileBucket).
+**Use it for** the production deploy of a Blocks app's frontend (React/Vue/
+Angular SPA, a static site, or Next.js/Nuxt/Astro/SvelteKit SSR) alongside its
+backend, with an optional custom domain, WAF, and per-request CSP.
 
-Deploy frontend apps to AWS (S3 + CloudFront) with API proxy, custom domains, WAF, and SSR support.
+**Don't use it for** an API-only backend (omit Hosting entirely — the backend
+deploys without it), for serving user-uploaded files (that is FileBucket), or in
+sandbox mode. The scaffolded `index.cdk.ts` only constructs Hosting when
+`!sandboxMode`, so `npm run sandbox` is backend-only and Hosting is a
+production-deploy concern.
 
-**When to use:** Production deployment of SPA or SSR frontends alongside a Blocks backend. Supports Vite/React/Vue/Angular (SPA) and Next.js/Nuxt (SSR via Lambda Web Adapter + OpenNext).
+## Which `Hosting` this is
+
+This file documents the **core `Hosting` construct** exported from
+`@aws-blocks/blocks/cdk`. That is what
+every scaffolded `aws-blocks/index.cdk.ts` imports and constructs. It wraps the
+lower-level L3 `HostingConstruct` with Blocks conventions (runs the build,
+detects the framework, deploys `config.json`, wires the API proxy).
+
+There is a **separate** L3 surface — the `defineHosting` / `HostingProps` type
+from `@aws-blocks/hosting` — with a wider option set (`environment`,
+`storage.encryption`, `cdn.ssrDefaultTtl`, `compute.warmup`, `compute.tracing`,
+`storage.inventory`). Those are NOT props of the construct documented here; do
+not pass them to `new Hosting(...)`. When a caller means the L3, they are in a
+different API. This file is the core construct only.
+
+## Contents
+
+- Import and minimal example
+- `HostingProps`
+- Framework detection and the `framework` values
+- SSR runtime: OpenNext vs the Lambda Web Adapter
+- The API proxy — why `api` is effectively required
+- Custom domain
+- WAF
+- Content-Security-Policy (the default, and why passing your own is risky)
+- On-by-default cost/behaviour: `monitoring` and `skewProtection`
+- Other options: `buildCache`, `errorPages`, `logging`, `geoRestriction`, `quotas`
+- What there is NO surface for (VPC)
+- Deploy commands
+- What it provisions
+
+## Import and minimal example
 
 ```typescript
 import { Hosting, BlocksStack } from '@aws-blocks/blocks/cdk';
 import { join } from 'node:path';
 
-const blocksStack = await BlocksStack.create(app, 'my-app', { /* ... */ });
+const blocksStack = await BlocksStack.create(app, stackName, { /* ... */ });
 
 new Hosting(blocksStack, 'Hosting', {
-  root: join(__dirname, '..'),
-  buildCommand: 'npm run build',
-  api: blocksStack,
+  root: join(__dirname, '..'),      // frontend app root
+  buildCommand: 'npm run build',    // runs during synth, with BLOCKS_API_URL injected
+  api: blocksStack,                 // wires the /aws-blocks/* CloudFront proxy
 });
 ```
 
-**⚠️ Always use `api: blocksStack`** — sets up CloudFront proxy for `/api/*` and generates `config.json`. The old `apiUrl` string prop was removed in 0.4.0.
+`root` is the only structurally-required prop, but a real deploy always passes
+`api` (see below). `buildCommand` runs during `cdk synth`; omit it only if the
+build output already exists on disk.
 
-## Framework Auto-Detection
+## `HostingProps`
 
-Hosting auto-detects from `package.json`:
-- Has `next` dependency → `'nextjs'` (SSR via Lambda Web Adapter)
-- Has `nuxt` dependency → `'nuxt'` (SSR via OpenNext for Nuxt)
-- Has `index.html` in build output → `'spa'` (S3 + CloudFront)
-- Otherwise → `'static'`
-
-Override: `framework: 'spa'` if a stray `next` dependency triggers unwanted SSR.
-
-## SSR Deployment (Next.js / Nuxt)
+The `Hosting` construct options:
 
 ```typescript
-new Hosting(blocksStack, 'Hosting', {
-  root: join(__dirname, '..'),
-  buildCommand: 'npm run build',
-  framework: 'nextjs', // or 'nuxt'
-  api: blocksStack,
-  compute: { memorySize: 1024, timeout: 30 },
-});
-```
+interface HostingProps {
+  root: string;                       // required — frontend app root
+  buildCommand?: string;              // e.g. 'npm run build'; run during synth
+  framework?: FrameworkType;          // auto-detected when omitted (see below)
+  buildOutputDir?: string;            // auto-detected per framework when omitted
+  customAdapter?: FrameworkAdapterFn; // for a framework with no built-in adapter
+  basePath?: string;                  // serve under a sub-path, e.g. '/app'
 
-SSR runs via Lambda Web Adapter. `BLOCKS_API_URL` is injected automatically for server components.
+  api?: BlocksStackApi;               // the Blocks backend (or any { apiUrl })
+  backendConfig?: Record<string, unknown>;  // extra public keys in config.json
 
-**Nuxt local dev** — set `BLOCKS_API_URL` in `nuxt.config.ts` runtimeConfig:
-```typescript
-export default defineNuxtConfig({ runtimeConfig: { blocksApiUrl: 'http://localhost:3000/api' } });
-```
-
-**Next.js local dev** — use concurrently:
-```json
-{
-  "scripts": {
-    "dev": "concurrently \"npm:dev:api\" \"npm:dev:next\"",
-    "dev:api": "tsx watch aws-blocks/scripts/server.ts",
-    "dev:next": "BLOCKS_API_URL=http://localhost:3000/api next dev"
-  }
+  compute?: ComputeConfig;            // SSR Lambda: memorySize, timeout, ...
+  domain?: HostingDomainConfig;
+  waf?: HostingWafConfig;
+  retainOnDelete?: boolean;           // default false
+  contentSecurityPolicy?: string;
+  priceClass?: cdk.aws_cloudfront.PriceClass;  // default PRICE_CLASS_100
+  geoRestriction?: { type: 'whitelist' | 'blacklist'; countries: string[] };
+  quotas?: {
+    cacheBehaviors?: number;          // default 25
+    edgeFunctions?: number;           // default 25
+    headerPolicies?: number;          // default 20 (account-wide)
+    maxRouteChunks?: number;          // default 64
+  };
+  buildCache?: { enabled: boolean; bucket?: cdk.aws_s3.IBucket };
+  errorPages?: { notFound?: string; serverError?: string };
+  logging?: { enabled: boolean; retentionDays?: number };  // default retention 90
+  monitoring?: { enabled?: boolean; snsTopicArn?: string };  // ON by default
+  skewProtection?: { enabled: boolean; maxAge?: number };    // ON by default
 }
 ```
-Server components use `BLOCKS_API_URL` env var. Client components fetch `/.blocks-sandbox/config.json`.
 
-## SPA Fallback Behavior
+`ComputeConfig` (SSR only): `memorySize` (MB, default 512), `timeout`
+(`cdk.Duration` or a plain number of seconds, default 30 — a number outside 1–900
+throws `compute.timeout must be between 1-900 seconds`),
+`reservedConcurrency`, `imageOptimization.reservedConcurrency`, and
+`logRetention` (default `TWO_WEEKS`).
 
-The `spaFallback` prop explicitly controls whether unknown routes rewrite to `/index.html` (SPA) or return 404 (multi-page static):
+There is **no `apiUrl` string prop** and there never was — pass the backend stack
+via `api`. There is **no `spaFallback` prop** (it is an internal adapter field,
+see below) and **no `storage` prop** on this construct.
 
-- `spaFallback: true` — all extensionless paths rewrite to `/index.html` (for SPAs like React, Vue)
-- `spaFallback: false` — unknown paths return 404 (for static multi-page sites like Astro static)
-- When omitted, the Hosting construct infers behavior from the framework adapter (backward-compatible)
+## Framework detection and the `framework` values
 
-Multi-page static sites without a custom `404.html` get a **branded default 404 page** (HTTP 404, not raw S3 403 XML). Precedence: user-provided 404 → framework-provided 404 → built-in default 404.
+`FrameworkType` is `'nextjs' | 'nitro' | 'nuxt' | 'astro' | 'sveltekit' | 'spa' |
+'static'` (an open union — it also accepts any other string, which routes to a
+`customAdapter` or throws `UnsupportedFrameworkError` if none is registered).
 
-**Atomic redeploys:** S3 asset uploads are now atomic — no gap where old assets are deleted before new ones land. Eliminates the brief 403 window during redeployments.
+When `framework` is omitted, `detectFramework` reads the project's own
+`package.json` (`dependencies` + `devDependencies` + `peerDependencies`, not
+`node_modules`) and picks the first match in this order:
 
-## Custom Domain + WAF + CSP
+1. `next` present → `nextjs`
+2. any of `nuxt`, `nitropack`, `@solidjs/start`, `@analogjs/platform-server`,
+   `@tanstack/start` → `nitro`
+3. `astro` → `astro`
+4. `@sveltejs/kit` → `sveltekit` (bare `svelte` without kit is a Vite SPA)
+5. otherwise → `spa`
 
-```typescript
-new Hosting(blocksStack, 'Hosting', {
-  root: join(__dirname, '..'),
-  buildCommand: 'npm run build',
-  api: blocksStack,
-  domain: {
-    domainName: 'app.example.com',
-    certificateArn: 'arn:aws:acm:us-east-1:123456789:certificate/abc-123',
-  },
-  waf: { enabled: true },
-  contentSecurityPolicy:
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.amazonaws.com wss://*.amazonaws.com; img-src 'self' data:;",
-});
-```
+Set `framework` explicitly to override — e.g. `framework: 'spa'` when a stray
+`next` peer dependency would otherwise misfire SSR. `spa` means single-page
+(client-side routing, `/index.html` fallback); `static` means multi-page
+(directory-index resolution). Both use the same adapter; the only difference is
+the internal `spaFallback` flag it derives (`spa` → true, `static` → false).
 
-Certificate MUST be in `us-east-1` (CloudFront requirement). CSP does NOT support double wildcards.
+## SSR runtime: OpenNext vs the Lambda Web Adapter
 
-**CSP note:** The default CSP blocks external resources. If you use Google Fonts, analytics, or external CDNs, add those origins to `contentSecurityPolicy`. Always include `https://*.amazonaws.com wss://*.amazonaws.com` in `connect-src` if using Realtime (API Gateway WebSocket). For apps with user-generated content (markdown images), use `img-src 'self' data: https:`.
+Two different mechanisms, split by framework — do not conflate them:
 
-## basePath
+- **Next.js → OpenNext** (`@opennextjs/aws`). The adapter runs the OpenNext
+  build, reads `.open-next/`, and translates it to the deploy manifest. Not the
+  Lambda Web Adapter.
+- **Nitro/Nuxt, Astro, SvelteKit → the Lambda Web Adapter (LWA).** These emit a
+  standard Node HTTP server (Astro via `@astrojs/node`, SvelteKit via
+  `@sveltejs/adapter-node`) which runs behind the LWA.
 
-For apps served at a sub-path instead of the domain root:
+SPA and static sites have no SSR runtime — they are S3 + CloudFront only.
 
-```typescript
-new Hosting(blocksStack, 'Hosting', {
-  root: join(__dirname, '..'),
-  buildCommand: 'npm run build',
-  api: blocksStack,
-  basePath: '/app',
-});
-```
+## The API proxy — why `api` is effectively required
 
-Auto-detects Nuxt `app.baseURL` from `nuxt.config.ts`. For Next.js, also set `basePath` in `next.config.js`.
+Passing `api: blocksStack` does three things: it adds CloudFront behaviors that
+proxy `/aws-blocks` and `/aws-blocks/*` (plus the auth subtree `/aws-blocks-auth/*`
+and any registered RawRoute paths) to the API Gateway origin; it injects
+`BLOCKS_API_URL` (and `BLOCKS_CONFIG` from `backendConfig`) into the SSR Lambda;
+and it writes `config.json` with a *relative* `apiUrl` so the browser fetches
+through the same domain. Omit `api` only for a genuinely static, backend-less
+site. Without it, the frontend has no API URL to call.
 
-## Quotas
+`config.json` is deployed to `/.blocks-sandbox/config.json` and served no-cache;
+client code reads it for API discovery. `backendConfig` keys are merged into it
+and are **publicly readable** — never put secrets there.
 
-For accounts with raised AWS service quotas, override defaults:
+## Custom domain
 
-```typescript
-new Hosting(blocksStack, 'Hosting', {
-  root: join(__dirname, '..'),
-  buildCommand: 'npm run build',
-  api: blocksStack,
-  quotas: {
-    cacheBehaviors: 50,    // default: 25
-    edgeFunctions: 25,     // default: 10
-    headerPolicies: 50,    // default: 20
-  },
-});
-```
-
-## Storage Deployment Override
-
-For large static sites that exceed default S3 deployment limits:
+`HostingDomainConfig` (re-exported from `@aws-blocks/hosting`):
 
 ```typescript
-new Hosting(blocksStack, 'Hosting', {
-  root: join(__dirname, '..'),
-  buildCommand: 'npm run build',
-  api: blocksStack,
-  storage: {
-    deployment: {
-      memoryLimit: 1024,    // MB, for asset bundling Lambda
-      ephemeralStorage: 2048, // MB, for large build outputs
-    },
-  },
-});
+domain: {
+  domainName: string | string[];              // single or multi-domain
+  certificate?: ICertificate;                 // BYO ACM cert — MUST be us-east-1
+  hostedZone?: string;                        // Route 53 zone name; creates A/AAAA
+  hostedZoneId?: string;                      // avoids HostedZone.fromLookup()
+  wwwRedirect?: 'toApex' | 'toWww' | 'none';  // default 'none'
+}
 ```
 
-## CloudFront Behaviors and Cache Policies
+There is **no `certificateArn` field**. Pass a certificate object:
 
-CloudFront is configured with these default behaviors:
+```typescript
+import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 
-| Path Pattern | Origin | Cache Policy |
-|---|---|---|
-| `/api/*` | API Gateway | CachingDisabled (proxy) |
-| `/_next/static/*` | S3 | CachingOptimized (immutable assets) |
-| `/.blocks-sandbox/*` | S3 | CachingDisabled (config) |
-| `*` (default) | S3 or Lambda (SSR) | CachingOptimized or CachingDisabled |
+domain: {
+  domainName: 'app.example.com',
+  certificate: Certificate.fromCertificateArn(
+    stack, 'Cert',
+    'arn:aws:acm:us-east-1:123456789012:certificate/abc-123',
+  ),
+  hostedZone: 'example.com',
+}
+```
 
-For SSR frameworks, the default behavior routes to the Lambda Web Adapter. Static assets (`/_next/static/`, `/assets/`) are served directly from S3 with long-lived cache headers.
+The certificate must live in **us-east-1** (CloudFront requirement). With a
+`hostedZone`/`hostedZoneId`, Route 53 records are created automatically; without
+either, you manage DNS externally and CNAME to the distribution domain.
+`wwwRedirect` only takes effect when both the apex and `www` names are in
+`domainName`.
 
-## CloudFront Subpath Directory Indexes
+## WAF
 
-Static site generators like Astro produce `/posts/index.html` for a `/posts` route. CloudFront + S3 only resolves `index.html` for the root path (`/`), not subpaths. Requesting `/posts` returns 403/404. For Astro, use `build.format: "file"` in `astro.config.mjs` which generates `/posts.html` instead.
+`HostingWafConfig`:
 
-## CORS Handling
+```typescript
+waf: {
+  enabled: boolean;
+  rateLimit?: number;    // requests per 5-minute window per IP; default 1000
+  webAclArn?: string;    // BYO existing WAFv2 WebACL — must be us-east-1
+}
+```
 
-- Hosting construct automatically adds the CloudFront domain to `CORS_ALLOWED_ORIGINS` on the Lambda
-- In sandbox mode, `http://localhost:*` patterns are auto-preserved for local frontend dev
-- For additional origins (e.g. staging domains), set `CORS_ALLOWED_ORIGINS` env var with comma-separated regex patterns
+`rateLimit` is the AWS WAF rate-based-rule floor: **the minimum accepted value is
+100** (AWS rejects lower). A BYO `webAclArn`, like the certificate, must be scoped
+`CLOUDFRONT` in **us-east-1**; region validation enforces this at synth unless
+`skipRegionValidation` is set on the L3 (not exposed here).
 
-## All Options
+## Content-Security-Policy (the default, and why passing your own is risky)
 
-| Option | Type | Description |
-|---|---|---|
-| `root` | string | Path to frontend app root |
-| `buildCommand` | string | Build command (e.g., `'npm run build'`) |
-| `framework` | `'nextjs' \| 'nuxt' \| 'spa'` | Auto-detected if omitted |
-| `buildOutputDir` | string | Output directory (auto-detected) |
-| `api` | BlocksStackApi | **Required.** BlocksStack instance — enables API proxy via CloudFront |
-| `basePath` | string | Sub-path prefix (e.g., `'/app'`). Auto-detects Nuxt `app.baseURL` |
-| `backendConfig` | Record<string, unknown> | Extra keys in config.json (⚠️ publicly accessible) |
-| `compute` | ComputeConfig | SSR Lambda config (memorySize, timeout) |
-| `spaFallback` | boolean | Explicit SPA fallback (true=rewrite to index.html, false=404) |
-| `domain` | HostingDomainConfig | Custom domain (domainName, hostedZone, certificate) |
-| `waf` | HostingWafConfig | WAF protection (enabled, rateLimit) |
-| `contentSecurityPolicy` | string | Custom CSP header |
-| `quotas` | QuotasConfig | Override default service quotas (cacheBehaviors, edgeFunctions, headerPolicies) |
-| `storage` | StorageConfig | Override deployment storage limits (memoryLimit, ephemeralStorage) |
-| `retainOnDelete` | boolean | Keep S3 bucket on stack deletion |
-| `priceClass` | PriceClass | CloudFront price class (default PRICE_CLASS_100) |
+When you pass **no** `contentSecurityPolicy`, the construct emits this default,
+with `override: false`:
 
-## Framework-Specific Notes
+```
+default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:; media-src 'self'; object-src 'none'; frame-ancestors 'self'
+```
 
-### TanStack Start (NOT supported)
+`override: false` is deliberate: it lets an SSR origin's own per-request CSP
+(carrying a nonce, e.g. Next.js Server Components) win. The moment you pass your
+own `contentSecurityPolicy`, the header flips to `override: true` — CloudFront
+then forces your static string onto every response and **strips the SSR
+per-request nonce**, breaking nonce-based inline scripts. So for a nonce-using
+SSR app, prefer setting CSP at the origin and leaving this prop unset. The
+default already allows `connect-src 'self' https: wss:`, so Realtime/API
+connections work without a custom CSP.
 
-TanStack Start is an SSR framework **NOT supported** by Hosting. If your app uses TanStack Start but all data fetching is client-side, convert to a standard Vite + React SPA:
-1. Replace TanStack Start config with standard Vite + `@vitejs/plugin-react`
-2. Add `index.html` and `src/main.tsx` as SPA entry points
-3. Remove SSR-specific code (`HeadContent`, `Scripts`, `shellComponent`)
-4. Set `framework: "spa"` in Hosting
+## On-by-default cost/behaviour: `monitoring` and `skewProtection`
 
-TanStack Router (client-side routing) works fine — only Start's SSR layer is incompatible.
+Two options default to **on** and change cost/behaviour silently — know they are
+there:
 
-### Angular
+- **`monitoring` (default `{ enabled: true }`)** — wires CloudWatch alarms
+  (CloudFront 5xx, SSR Lambda errors/throttles, revalidation DLQ) to an SNS topic.
+  If `snsTopicArn` is omitted, it **creates** an SNS topic (surfaced as
+  `hosting.monitoringTopic`). Costs a few cents/month per alarm. Opt out with
+  `monitoring: { enabled: false }`.
+- **`skewProtection` (default `{ enabled: true }`)** — a cookie (`__dpl`) pins a
+  mid-session viewer to the build they started on, preventing asset mismatch
+  during a rolling deploy. `maxAge` defaults to 86400s (24h). Keep `maxAge` ≤ the
+  build retention window, or a returning viewer can be pinned to a
+  lifecycle-deleted build prefix and get a 403.
 
-Angular's `ng serve` doesn't serve `.blocks-sandbox/config.json`. Fix: add as static asset in `angular.json` and/or use `proxy.conf.json` to forward requests to Blocks dev server.
+## Other options
 
-### Astro
+- **`buildCache: { enabled: true }`** — provisions (or reuses) an S3 bucket for
+  framework build caches (e.g. `.next/cache`), exported as a CfnOutput and set as
+  `HOSTING_BUILD_CACHE_BUCKET`; you sync it in CI. Reduces cold-build time.
+- **`errorPages: { notFound, serverError }`** — custom 404/500 HTML (paths
+  relative to project root, present in build output). Incompatible with SPA
+  client-side routing: enabling them disables SPA fallback, which breaks deep
+  links. Use for static/SSR only. If the adapter already detected an error page
+  (e.g. SPA `404.html` in build output), the prop is ignored to avoid duplicate
+  CloudFront error responses.
+- **`logging: { enabled: true, retentionDays }`** — CloudFront access logs to a
+  dedicated S3 bucket, default 90-day retention.
+- **`geoRestriction: { type: 'whitelist' | 'blacklist', countries }`** — CloudFront
+  geo restriction by ISO country code.
+- **`quotas`** — raise these ONLY to match an AWS quota increase you were actually
+  granted; over-setting does not raise the AWS ceiling, it just turns a clear
+  synth error into an opaque CloudFormation rollback. `edgeFunctions` default is
+  **25** (not 10). `maxRouteChunks` (default 64, ≈1600 route/redirect/header
+  entries) is a self-imposed KVS guard, not an AWS quota — raise it only for a
+  very large `trailingSlash`-canonicalizing site after measuring edge-function
+  headroom.
 
-- Use `client:only="react"` (NOT `client:load`) for React islands importing `aws-blocks`
-- Use `build.format: "file"` — CloudFront doesn't resolve subpath directory indexes
-- React components passed as Astro slot children lose interactivity; compose within the same island
+## `basePath` and Astro subpaths
 
-## Deploy Commands
+Set `basePath: '/app'` (leading slash, no trailing) to serve the whole site under
+a sub-path; CloudFront behaviors are prefixed and the bare root 308-redirects to
+`/app/`. For Nuxt set `app.baseURL`, for Next.js also set `basePath` in
+`next.config.js`. The prop is the source of truth and overrides adapter detection.
+
+Do **not** set Astro `build.format: 'file'` to fix subpath routing. Astro's
+static output is multi-page and the adapter marks it `spaFallback: false`, so the
+CloudFront/KVS edge router already resolves directory indexes (`/about` →
+`about/index.html`). The reference test-app (`test-apps/hosting-ssr-astro-default404`)
+deploys default `output: 'static'` with no `build.format` and routes correctly.
+
+## What there is NO surface for: VPC
+
+The core `Hosting` construct exposes **no VPC configuration** — there is no `vpc`
+prop on `HostingProps` and none on the SSR compute config. `test-apps/vpc-smoke`
+is a stub (a package.json, a `.blocks/config.json`, and a `client.js` — no VPC
+infrastructure), not a working example. Do not go looking for a VPC option; wiring
+the SSR Lambda into a VPC is not a supported first-class feature here.
+
+## Deploy commands
 
 ```bash
-npm run sandbox          # Deploy ephemeral sandbox (backend only, no Hosting)
-npm run sandbox:destroy  # Tear down sandbox
-npm run deploy           # Production deploy with Hosting (S3 + CloudFront)
+npm run sandbox           # backend-only ephemeral sandbox — Hosting is NOT built
+npm run sandbox:destroy   # tear down the sandbox
+npm run deploy            # production deploy — builds the frontend and Hosting
+npm run destroy           # tear down the production stack
 ```
 
-Do NOT run `cdk deploy` directly — use the scaffolded scripts which handle sandbox IDs, removal policies, and CDK context.
+Use the scaffolded scripts, not raw `cdk deploy` — they resolve the stack/sandbox
+IDs and CDK context. The scaffolded `index.cdk.ts` is correct as generated; you
+rarely edit the `Hosting` block by hand.
 
-## Key Facts
+## What it provisions
 
-- Hosting is **disabled in sandbox mode** (backend-only). Only active in production deploys (`npm run deploy`).
-- CORS is auto-handled — CloudFront domain auto-added to `CORS_ALLOWED_ORIGINS`.
-- `config.json` is generated at `/.blocks-sandbox/config.json` with the API URL for frontend client discovery.
-- Do NOT write your own `index.cdk.ts` — the scaffolder generates it correctly.
+A private S3 bucket (CloudFront OAC only), a CloudFront distribution with the
+security-headers policy, the `config.json` deployment, and — as configured — an
+SSR Lambda (OpenNext or LWA), image-optimization Lambda, CloudFront Functions /
+Lambda@Edge for routing and skew protection, an ACM-backed alias + Route 53
+records (custom domain), a WAF WebACL (`waf.enabled`), a build-cache bucket
+(`buildCache`), an access-log bucket (`logging`), and CloudWatch alarms + an SNS
+topic (`monitoring`, on by default).
 
-Local mock: N/A (Hosting is deploy-time only). AWS: S3 + CloudFront + Lambda (SSR).
+Public members on the construct: `bucket`, `distribution`, `url`, `ssrFunction`
+(the SSR Lambda, if any), `buildCacheBucket`, and `monitoringTopic`.
 
-
-## Common Mistakes
-
-❌ `"No index.html found in build output"`
-✅ `Ensure your framework outputs index.html, or use `framework: "nextjs"` for SSR`
-_SPA adapter requires index.html — SSR frameworks may not produce one_
-
-❌ `API URL is `undefined` in production`
-✅ `Pass `api: blocksStack` to Hosting constructor — this sets up the CloudFront proxy`
-_Must pass BlocksStack instance, not a URL string_
-
-❌ `CSP blocks API/WebSocket connections`
-✅ `Add `https://*.amazonaws.com` and `wss://*.amazonaws.com` to `connect-src``
-_CSP doesn't support double wildcards like `*.execute-api.*.amazonaws.com`_
-
-
-## What It Provisions
-
-- S3 bucket (static assets)
-- CloudFront distribution (CDN + HTTPS)
-- Lambda@Edge or CloudFront Functions (SSR/rewrites)
-- ACM certificate (if custom domain)
-- WAF WebACL (if enabled)
-- Route53 records (if custom domain)
-
-## See Also
-
-- [api-namespace](./api-namespace.md) — Backend API that Hosting proxies to
-- [file-bucket](./file-bucket.md) — User file uploads (separate from hosting)
+Related blocks: ApiNamespace is the backend Hosting proxies to; FileBucket is for
+user file uploads, which Hosting does not serve.

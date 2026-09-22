@@ -24,6 +24,7 @@ resources; `Hosting` adds a CloudFront + S3 front end for the built SPA.
 const blocksStack = await BlocksStack.create(app, stackName, {
   backendHandlerPath: join(__dirname, "index.handler.ts"),
   backendCDKPath: join(__dirname, "index.ts"),
+  defaults: sandboxMode ? BlocksPresets.sandbox : BlocksPresets.production,
 });
 
 if (!sandboxMode) {
@@ -38,7 +39,7 @@ if (!sandboxMode) {
 
 `BlocksStack.create` turns your `index.ts` into infrastructure: `AuthBasic` → a DynamoDB
 users table + JWT sessions, each `DistributedTable` → a DynamoDB table (+ GSIs),
-`Realtime` → API Gateway WebSocket, each `Agent` → SQS + a worker Lambda + Bedrock access.
+`Realtime` → API Gateway WebSocket, each `Agent` → a Bedrock AgentCore Runtime + Bedrock access.
 
 ### What actually changes between local and deployed
 

@@ -1,83 +1,149 @@
 # KVStore
 
-**When to use:** Simple key-value data — user preferences, session data, caches, feature flags per-user, counters.
+Simple key-value storage backed by DynamoDB — user preferences, session data,
+caches, per-user feature flags, counters. Fast single-key get/put/delete with
+conditional writes and optional typed schemas.
 
-**When NOT to use:** Structured records with queries/indexes (use DistributedTable). SQL data (use Database). Large binary objects (use FileBucket).
+**Use it for** single-key access where you don't need queries or indexes.
 
-Simple key-value storage with optional typed schemas.
+**Don't use it for** structured records with queries/indexes (DistributedTable),
+SQL data (Database), or large binary objects (FileBucket).
 
-**Schema validation:** Accepts any `@standard-schema/spec` compatible validator (Zod, Valibot, ArkType) for typed values. Without a schema, stores strings only.
+Values are strings by default. Pass a `@standard-schema/spec` validator (Zod,
+Valibot, ArkType) to store typed values.
+
+## Contents
+
+- Import
+- Operations
+- `KVStoreOptions`
+- TTL (per-item expiry)
+- Errors
+- Local development and provisioning
+
+## Import
 
 ```typescript
-const store = new KVStore(scope, "cache", {});
+import { KVStore, KVStoreErrors } from '@aws-blocks/blocks';
+```
 
-await store.put("key", "value");
-const val = await store.get("key"); // string | null
-await store.delete("key");
+`isBlocksError` comes from `@aws-blocks/core`.
 
-// Conditional write (optimistic locking)
-await store.put("key", "newValue", { ifValueEquals: "oldValue" });
+## Operations
 
-// Create-only (fails if key exists)
-await store.put("key", "value", { ifNotExists: true });
+```typescript
+const store = new KVStore(scope, 'cache');
 
-// Conditional delete
-await store.delete("key", { ifExists: true });
-await store.delete("key", { ifValueEquals: "expected" });
+await store.put('key', 'value');
+const val = await store.get('key');       // string | null
+await store.delete('key');
 
-// Scan all keys (async iterator)
+// Conditional writes
+await store.put('key', 'newValue', { ifValueEquals: 'oldValue' }); // optimistic lock
+await store.put('key', 'value', { ifNotExists: true });            // create-only
+await store.delete('key', { ifExists: true });
+await store.delete('key', { ifValueEquals: 'expected' });
+
+// Scan all entries (AsyncIterable) — collect with Array.fromAsync or for await
 for await (const { key, value } of store.scan()) {
   console.log(key, value);
 }
 ```
 
-**Typed with schema:**
-```typescript
-const configSchema = z.object({ theme: z.string(), fontSize: z.number() });
-const prefs = new KVStore(scope, "prefs", { schema: configSchema });
+Data methods are runtime-only — call them inside a handler, not at the top level
+of `aws-blocks/index.ts` (top-level runs during CDK synth, where the block is an
+infrastructure construct with no data methods).
 
-await prefs.put("user-1", { theme: "dark", fontSize: 14 }); // validated
-const p = await prefs.get("user-1"); // { theme: string, fontSize: number } | null
-```
-
-**Options:**
-- `schema` — StandardSchemaV1 validator for typed values
-- `table` — `KVStore.fromExisting('my-table')` to wrap an existing DynamoDB table
-- `logger` — `ChildLogger` for internal operations
-- `removalPolicy` — `'destroy'` for sandbox/ephemeral stacks (table deleted on `cdk destroy`)
-
-Local mock: JSON files in `.bb-data/`. AWS: DynamoDB single-table.
-
-
-## TTL (Time-to-Live)
-
-Opt-in per-item expiry backed by DynamoDB TTL:
+### Typed values
 
 ```typescript
-const cache = new KVStore(scope, "session-cache", {
-  ttl: true, // enables DynamoDB TTL on the table
+const prefs = new KVStore(scope, 'prefs', {
+  schema: z.object({ theme: z.string(), fontSize: z.number() }),
 });
-
-// Write with expiry
-await cache.put("session:abc", data, { ttlSeconds: 3600 }); // expires in 1 hour
-await cache.put("token:xyz", data, { expiresAt: Date.now() + 86400000 }); // absolute timestamp
-
-// Reads and scans automatically filter expired items
-const val = await cache.get("session:abc"); // null if expired
-
-// Opt out of filtering (e.g. for maintenance sweeps)
-const all = await cache.scan({ includeExpired: true });
+await prefs.put('user-1', { theme: 'dark', fontSize: 14 });  // validated
+const p = await prefs.get('user-1');                         // { theme, fontSize } | null
 ```
 
-**Note:** DynamoDB deletes expired items asynchronously (up to 48h). The local mock emulates the same expiry semantics (filters on read). Both `ttlSeconds` and `expiresAt` default to no expiry (item lives forever).
+## `KVStoreOptions`
 
-## What It Provisions
+```typescript
+interface KVStoreOptions<T = string> {
+  schema?: StandardSchemaV1<T>;          // typed values; omit for strings
+  ttl?: boolean;                         // enable per-item expiry (see below)
+  table?: ExternalTableRef;              // wrap an existing table — see below
+  removalPolicy?: 'destroy' | 'retain';
+  deletionProtection?: boolean;
+  logger?: ChildLogger;
+}
+```
 
-- DynamoDB table (single-table key-value design)
-- IAM policies for table access
+`table` and `fromExisting` are two halves of the **same** feature, not
+alternatives: `KVStore.fromExisting(tableName)` is a static factory that returns
+an `ExternalTableRef`, which you then pass as the `table` option. You do not use
+them independently.
 
-## See Also
+```typescript
+const store = new KVStore(scope, 'legacy', {
+  table: KVStore.fromExisting('my-existing-table'),
+});
+```
 
-- [distributed-table](./distributed-table.md) — When you need indexes and structured queries
-- [app-setting](./app-setting.md) — Single app-wide config values
-- [database](./database.md) — When you need SQL
+## TTL (per-item expiry)
+
+Enable DynamoDB TTL with `ttl: true`, then set expiry per write via `PutOptions`:
+
+```typescript
+const cache = new KVStore(scope, 'session-cache', { ttl: true });
+
+await cache.put('session:abc', data, { ttlSeconds: 3600 });            // relative (seconds)
+await cache.put('token:xyz', data, { expiresAt: new Date(Date.now() + 86400000) }); // absolute Date
+await cache.put('token:xyz', data, { expiresAt: Math.floor(Date.now() / 1000) + 86400 }); // epoch SECONDS
+
+const val = await cache.get('session:abc');   // reads/scans filter expired items
+const all = await Array.fromAsync(cache.scan({ includeExpired: true })); // opt out of filtering
+```
+
+`PutOptions` = `{ ifNotExists?, ifValueEquals?, ttlSeconds?, expiresAt? }`. Both
+`ttlSeconds` and `expiresAt` default to no expiry. DynamoDB deletes expired items
+asynchronously (up to ~48h); the mock emulates the same read-time filtering.
+
+**`expiresAt` is Unix epoch SECONDS** (the DynamoDB TTL unit) — either a `Date`
+or a number of seconds. A numeric millisecond-epoch value (e.g.
+`Date.now() + 86400000`) is **rejected** with `ValidationFailedException`: any
+number `>= 1e11` is assumed to be milliseconds and refused rather than silently
+stored as a year-5138 expiry. Pass a `Date`, or divide a ms value by 1000.
+
+**`ttlSeconds` and `expiresAt` are mutually exclusive** — passing both throws
+`ValidationFailedException` ("pass either `ttlSeconds` or `expiresAt`, not both").
+`ttlSeconds` must be a finite number `> 0` (fractional values round up to the
+next second); `expiresAt` may be any instant, including one already in the past
+(requesting immediate expiry).
+
+## Errors
+
+```typescript
+import { isBlocksError } from '@aws-blocks/core';
+import { KVStoreErrors } from '@aws-blocks/bb-kv-store';
+
+try {
+  await store.put('k', 'v', { ifNotExists: true });
+} catch (e: unknown) {
+  if (isBlocksError(e, KVStoreErrors.ConditionalCheckFailed)) { /* key already exists */ }
+  throw e;
+}
+```
+
+| Constant | `error.name` |
+|---|---|
+| `KVStoreErrors.ConditionalCheckFailed` | `ConditionalCheckFailedException` |
+| `KVStoreErrors.ValidationFailed` | `ValidationFailedException` |
+| `KVStoreErrors.ItemTooLarge` | `ItemTooLargeException` |
+
+## Local development and provisioning
+
+Mock stores JSON at `.bb-data/{fullId}/store.json`, persisted across restarts
+(wipe with `rm -rf .bb-data`). AWS provisions a single-table key-value DynamoDB
+table plus IAM policies for access.
+
+For app-wide single config values, use AppSetting; for structured records with
+indexes, use DistributedTable.

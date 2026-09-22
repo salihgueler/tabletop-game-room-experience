@@ -1,306 +1,203 @@
-# Extending with Existing AWS Resources
+# Extending Blocks with Existing AWS Resources
+
+Adopting Blocks into a **brownfield** AWS account — coexisting with stacks,
+resources, and conventions you already own. Four mechanisms, each for a different
+situation:
+
+| Pattern | When |
+|---------|------|
+| **`BlocksBackend` / `BlocksStack`** | Run the Blocks Lambda + API Gateway alongside (or as) your CDK stacks, and wire your own CDK resources to its `.handler` |
+| **`fromExisting` on a BB** | Point a Blocks Building Block at a pre-deployed AWS resource — keeps the typed runtime API and mocks, skips provisioning |
+| **Custom Building Block** | Author your own BB when no first-party one fits |
+| **Vendorize** | Eject a first-party BB's source into `vendor/` and own it (`blocks-vendorize`) |
 
 ## Contents
-- [BlocksBackend — Brownfield CDK Integration](#blocksbackend--brownfield-cdk-integration)
-- [fromExisting() — Wrapping Pre-Deployed Resources](#fromexisting--wrapping-pre-deployed-resources)
-- [Custom Building Block Authoring](#custom-building-block-authoring)
-- [Decision Matrix](#decision-matrix)
-- [Migration Patterns](#migration-patterns)
 
-## BlocksBackend — Brownfield CDK Integration
+- BlocksStack vs BlocksBackend
+- `fromExisting` — adopting pre-deployed resources
+- Custom Building Block structure
+- Decision matrix
 
-Drop Blocks into an existing CDK stack without replacing your infrastructure:
+## BlocksStack vs BlocksBackend
 
-```typescript
-import { BlocksBackend } from '@aws-blocks/blocks/cdk';
-import { Stack } from 'aws-cdk-lib';
-import { Scope } from '@aws-blocks/blocks';
+Both expose the same `.handler` (the shared Lambda) and `.apiUrl` / `.gateway`.
+Both are created by an **async** static factory and imported from
+`@aws-blocks/blocks/cdk` (re-exported from `@aws-blocks/core/cdk`).
 
-const stack = new Stack(app, 'MyExistingStack');
-const backend = new BlocksBackend(stack, 'Blocks', {
-  scope: new Scope('my-app'),
-});
-// Existing constructs continue to work alongside
-const existingBucket = new s3.Bucket(stack, 'LegacyBucket');
-```
+- **`BlocksStack`** is a whole `cdk.Stack` — greenfield, or Blocks isolated in its
+  own deploy unit.
+- **`BlocksBackend`** is a `Construct` you drop *into* an existing stack —
+  brownfield, Blocks living alongside your other resources.
 
-`BlocksBackend` synthesizes all Building Blocks as CDK constructs **within your stack**, sharing the same deploy/destroy lifecycle.
-
-## fromExisting() — Wrapping Pre-Deployed Resources
-
-Reference pre-deployed AWS resources without Blocks managing their lifecycle:
+`BlocksBackendProps` (same core fields as `BlocksStack`):
 
 ```typescript
-const orders = DistributedTable.fromExisting(scope, 'orders', {
-  tableName: 'prod-orders-table',
-  partitionKey: 'orderId',
-  sortKey: 'timestamp',
-});
-const uploads = FileBucket.fromExisting(scope, 'uploads', {
-  bucketName: 'my-company-uploads-prod',
-});
-const auth = AuthCognito.fromExisting(scope, 'auth', {
-  userPoolId: 'us-east-1_AbCdEfG',
-  userPoolClientId: '1234567890abcdef',
+interface BlocksBackendProps {
+  backendHandlerPath: string;   // path to index.handler.ts (runtime entry)
+  backendCDKPath: string;       // path to index.ts (backend definition, imported at synth)
+  defaults: BlocksDefaults;     // required — a posture from BlocksPresets
+}
+```
+
+`defaults` is **required**. Pass `BlocksPresets.sandbox` or
+`BlocksPresets.production` (both from `@aws-blocks/blocks/cdk`); omitting it throws
+a clear error at `create()`. `create()` is async because it imports your backend
+entry (`backendCDKPath`) to enumerate blocks at synth time.
+
+```typescript
+import * as cdk from 'aws-cdk-lib';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import { BlocksBackend, BlocksPresets } from '@aws-blocks/blocks/cdk';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+class MyExistingStack extends cdk.Stack {
+  public blocks!: BlocksBackend;
+
+  static async build(scope: cdk.App, id: string) {
+    const stack = new MyExistingStack(scope, id);
+    const queue = new sqs.Queue(stack, 'work-queue');   // a resource you already own
+
+    stack.blocks = await BlocksBackend.create(stack, 'BlocksApi', {
+      backendHandlerPath: join(__dirname, 'index.handler.ts'),
+      backendCDKPath: join(__dirname, 'index.ts'),
+      defaults: BlocksPresets.sandbox,
+    });
+
+    // Wire IAM + env on the handler — identical surface to BlocksStack.
+    queue.grantSendMessages(stack.blocks.handler);
+    stack.blocks.handler.addEnvironment('WORK_QUEUE_URL', queue.queueUrl);
+    return stack;
+  }
+}
+```
+
+Greenfield equivalent (`BlocksStack.create(app, 'my-app', { backendHandlerPath, backendCDKPath, defaults })`)
+returns a stack whose `.handler` you wire the same way.
+
+## `fromExisting` — adopting pre-deployed resources
+
+Most Building Blocks expose a **`static fromExisting` ref factory** that takes the
+resource's physical name/id and returns a small branded ref. You pass that ref as
+an option to the **normal constructor** — the block then binds to the pre-existing
+resource (granting the runtime Lambda access) instead of provisioning a new one.
+It is **not** a standalone constructor:
+
+```typescript
+// CORRECT — ref factory feeding the constructor's option
+new DistributedTable(scope, 'orders', {
+  schema, key,
+  table: DistributedTable.fromExisting('prod-orders-table'),
 });
 ```
 
-Provides the same typed runtime API (read/write/query) without creating the resource. CDK emits an `import` — no accidental deletions.
+Because the physical name is passed through at synth, pre-pin it (e.g. set
+`tableName` on the resource you own, or read it from an env var) so the runtime
+side can reference the same name. `fromExisting` cannot introspect **cross-account**
+resources — use the `BlocksBackend`/CDK wiring pattern for those.
 
-## Custom Building Block Authoring
+### The complete set
 
-Custom blocks let you wrap any service (AWS or not) with the same local-first DX as built-in blocks. Every Building Block **extends `Scope`** (from `@aws-blocks/core/cdk` in the CDK layer) and uses **4 files** mapped via conditional exports in `package.json`:
+| Block (package) | Factory → ref | Constructor option | Import of the ref type |
+|---|---|---|---|
+| `KVStore` (`bb-kv-store`) | `KVStore.fromExisting(tableName: string): ExternalTableRef` | `table` | `ExternalTableRef` |
+| `DistributedTable` (`bb-distributed-table`) | `DistributedTable.fromExisting(tableName: string): ExternalTableRef` | `table` | `ExternalTableRef` |
+| `DistributedTable` (KMS) | `DistributedTable.fromKmsKey(keyArn: string): ExternalKmsKeyRef` | `encryption` | `ExternalKmsKeyRef` |
+| `FileBucket` (`bb-file-bucket`) | `FileBucket.fromExisting(bucketName: string): ExternalBucketRef` | `bucket` | `ExternalBucketRef` |
+| `AuthCognito` (`bb-auth-cognito`) | `AuthCognito.fromExisting(userPoolId: string, clientId?: string): ExternalUserPoolRef` | `userPool` | `ExternalUserPoolRef` |
+| `Database` (`bb-data`) | `Database.fromExisting(config): ExternalDatabaseRef` (also the standalone `fromExisting` export) | `connection` | `ExternalDatabaseRef` |
 
-```json
+Notes on the ones that differ:
+
+- **`AuthCognito`** — the second argument is `clientId` (**not** `userPoolClientId`).
+  Both fields live on the returned `ExternalUserPoolRef`; pass the ref as
+  `userPool` in `AuthCognitoOptions`.
+- **`Database`** — `fromExisting` is an **identity** helper: `ExternalDatabaseRef`
+  is either `{ host, port?, database, secretArn }` or
+  `{ connectionString, ssl? }`. Pass the result as the `connection` option.
+  `migrationsPath` cannot be combined with a `fromExisting` database (synth throws),
+  and the `bb-data` CLI's migrate/status/generate-types refuse on an external DB.
+- **`AppSetting`** (`bb-app-setting`) is the exception — its `fromExisting` is a
+  **full constructor**, not a ref factory:
+  `AppSetting.fromExisting(scope, id, { name, secret? }): AppSetting<T>`. It builds
+  and returns the block bound to a pre-existing SSM parameter.
+
+```typescript
+// Two more examples
+new FileBucket(scope, 'uploads', { bucket: FileBucket.fromExisting('my-uploads-prod') });
+
+new AuthCognito(scope, 'auth', {
+  userPool: AuthCognito.fromExisting('us-east-1_AbCdEfG', '1234567890abcdef'),
+});
+```
+
+## Custom Building Block structure
+
+A custom block wraps any service (AWS or not) with the same local-first DX as a
+first-party block. Each layer is a separate file selected by **conditional
+exports** in `package.json`, and the class **extends `Scope`** in each layer:
+
+```jsonc
+// package.json — condition order matters; "default" = the mock layer
 {
+  "type": "module",
   "exports": {
     ".": {
-      "cdk": "./dist/cdk.js",
-      "browser": "./dist/browser.js",
-      "aws-runtime": "./dist/aws.js",
-      "default": "./dist/mock.js"
+      "browser": "./dist/index.browser.js",
+      "cdk": { "types": "./dist/index.cdk.d.ts", "default": "./dist/index.cdk.js" },
+      "aws-runtime": "./dist/index.aws.js",
+      "types": "./dist/index.mock.d.ts",
+      "default": "./dist/index.mock.js"
     }
   }
 }
 ```
 
-| Export Condition | Runs In | Purpose |
-|--------|---------|---------| 
-| `default` | Local dev server | In-memory/filesystem fake — no AWS needed |
-| `aws-runtime` | Lambda runtime | Real AWS SDK calls |
-| `cdk` | CDK synth | Emits CloudFormation resources |
-| `browser` | Frontend bundle | Typed stub for RPC |
+| Condition | File | Runs in | Purpose |
+|---|---|---|---|
+| `default` | `index.mock.ts` | local dev server | in-memory/filesystem fake, no AWS |
+| `aws-runtime` | `index.aws.ts` | Lambda runtime | real AWS SDK / API calls |
+| `cdk` | `index.cdk.ts` | CDK synth | provisions infra, grants IAM, injects env |
+| `browser` | `index.browser.ts` | frontend bundle | type-only re-exports / stub |
 
-### File Structure
+Shared interfaces live in `types.ts` (zero runtime deps) so every layer imports
+identical option/result types.
 
-```
-custom-blocks/my-block/
-├── package.json       # name, conditional exports, "type": "module"
-├── tsconfig.json      # Extends root config
-├── src/
-│   ├── types.ts       # Shared interfaces (zero runtime deps)
-│   ├── errors.ts      # Error class (optional)
-│   ├── index.mock.ts  # Local implementation (default export)
-│   ├── index.ts       # Production implementation (aws-runtime)
-│   ├── index.cdk.ts   # CDK layer: extends Scope, provisions infra
-│   └── browser.ts     # Type-only re-exports for frontend
-└── dist/              # Built output
-```
+### Key rules
 
-### Step 1 — Shared Types (`types.ts`)
+- **Every layer's class extends `Scope`** and exports the **same public class name
+  and methods**. In the CDK layer import `Scope` (and `synthGuard`) from
+  `@aws-blocks/core/cdk`; in the runtime/mock layers import `Scope` (and
+  `ScopeParent`) from `@aws-blocks/core`. `getMockDataDir` is imported from
+  `@aws-blocks/core/bb-utils`.
+- `Scope` gives you `this.handler` (the shared Lambda), `this.fullId`, and CDK tree
+  integration. In `index.cdk.ts`, call `this.handler.addToRolePolicy(...)` to grant
+  permissions and `this.handler.addEnvironment(key, value)` to inject config the
+  runtime reads. Convention: `BLOCKS_${fullId}_*`.
+- **Stub runtime methods in the CDK layer with `synthGuard(blockName, methodName)`**
+  — it throws a clear error if a runtime method is called during synth.
+- **`getMockDataDir(this)`** resolves to `<cwd>/.bb-data/{fullId}/` for mock
+  persistence (deterministic, offline).
+- **No-op layers are valid** — export `{}` (or type-only re-exports for `browser`)
+  for layers you don't need.
+- Wire it in as a workspace dependency (`"my-block": "workspace:*"`) and use it in
+  `aws-blocks/index.ts` like any other block.
 
-Define interfaces shared across all layers. Zero runtime dependencies — types only:
+> The upstream `docs/reference/building-block-structure.md` describes an older
+> `materialize`-function model (`index.ts` / `infra.ts` / `mock.ts` /
+> `client-hook.ts`). First-party BBs and the `test-apps/extending-blocks-guide`
+> custom `bb-queue` use the conditional-export + `Scope`-subclass model above; that
+> is the current shape.
 
-```typescript
-// src/types.ts
-export interface MyBlockOptions {
-  timeout?: number;
-}
-
-export interface MyBlockResult {
-  data: string;
-  cached: boolean;
-}
-```
-
-### Step 2 — Mock Layer (`index.mock.ts`)
-
-Local-first implementation using `getMockDataDir()`. Must export the **same public class name and methods** as `index.ts`:
-
-```typescript
-// src/index.mock.ts — runs during local dev, no network needed
-import { Scope, getMockDataDir } from '@aws-blocks/blocks';
-import type { ScopeParent } from '@aws-blocks/core';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import type { MyBlockOptions, MyBlockResult } from './types.js';
-
-export class MyBlock extends Scope {
-  private dataDir: string;
-
-  constructor(scope: ScopeParent, id: string, options?: MyBlockOptions) {
-    super(id, { parent: scope });
-    this.dataDir = getMockDataDir(this);
-  }
-
-  async query(input: string): Promise<MyBlockResult> {
-    // Filesystem/in-memory fake — deterministic, fast, offline
-    const cachePath = join(this.dataDir, `${input}.json`);
-    if (existsSync(cachePath)) {
-      return { data: readFileSync(cachePath, 'utf-8'), cached: true };
-    }
-    return { data: `mock-result-for-${input}`, cached: false };
-  }
-}
-```
-
-### Step 3 — Production Layer (`index.ts`)
-
-Real implementation using AWS SDK or external APIs. Reads resource identifiers from `process.env` (injected by CDK layer):
-
-```typescript
-// src/index.ts — runs in Lambda
-import { Scope } from '@aws-blocks/core';
-import type { ScopeParent } from '@aws-blocks/core';
-import type { MyBlockOptions, MyBlockResult } from './types.js';
-
-export class MyBlock extends Scope {
-  constructor(scope: ScopeParent, id: string, private options?: MyBlockOptions) {
-    super(id, { parent: scope });
-  }
-
-  async query(input: string): Promise<MyBlockResult> {
-    const apiKey = process.env[`BLOCKS_${this.fullId.toUpperCase()}_API_KEY`];
-    const res = await fetch(`https://api.example.com/query?q=${input}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    return await res.json();
-  }
-}
-```
-
-### Step 4 — CDK Layer (`index.cdk.ts`)
-
-**Extends `Scope`** from `@aws-blocks/core/cdk`. Gets `this.handler` (the Lambda function) automatically. Provisions resources and grants permissions:
-
-```typescript
-// src/index.cdk.ts — runs during CDK synth
-import { Scope, synthGuard } from '@aws-blocks/core/cdk';
-import type { ScopeParent } from '@aws-blocks/core';
-import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
-import type { MyBlockOptions } from './types.js';
-
-// Re-export types for consumers
-export type { MyBlockOptions, MyBlockResult } from './types.js';
-
-export class MyBlock extends Scope {
-  constructor(scope: ScopeParent, id: string, options?: MyBlockOptions) {
-    super(id, { parent: scope });
-
-    // Grant Lambda permissions (this.handler comes from Scope)
-    this.handler.addToRolePolicy(new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: ['execute-api:Invoke'], // whatever your block needs
-      resources: ['*'],
-    }));
-
-    // Inject env vars the runtime reads
-    this.handler.addEnvironment(
-      `BLOCKS_${this.fullId.toUpperCase()}_API_KEY`,
-      options?.apiKey ?? ''
-    );
-  }
-
-  // Runtime methods are NOT available during CDK synth.
-  // synthGuard() throws a clear error if called at synth time.
-  query(..._args: unknown[]): never { return synthGuard('MyBlock', 'query'); }
-}
-```
-
-**Key points:**
-- `extends Scope` — gives you `this.handler`, `this.fullId`, CDK construct tree integration
-- `this.handler.addToRolePolicy(...)` — grant Lambda permissions
-- `this.handler.addEnvironment(key, value)` — inject config the runtime reads
-- `synthGuard(blockName, methodName)` — throws a clear error if runtime methods are called during synth
-- `this.fullId` — unique scoped ID (e.g. `"my-app.my-block"`) for naming resources
-
-### Step 5 — Browser Layer (`browser.ts`)
-
-Type-only re-exports (or empty export). No runtime code ships to the browser:
-
-```typescript
-// src/browser.ts — type re-exports only
-export type { MyBlock } from './index.mock.js';
-```
-
-### Step 6 — Wire into Your App
-
-Add the custom block as a workspace dependency:
-
-```json
-// Root package.json
-{
-  "workspaces": ["aws-blocks", "custom-blocks/my-block"],
-  "type": "module"
-}
-
-// aws-blocks/package.json
-{ "dependencies": { "my-block": "workspace:*" } }
-```
-
-Use in `aws-blocks/index.ts`:
-
-```typescript
-import { MyBlock } from 'my-block';
-const myBlock = new MyBlock(scope, 'service', { timeout: 5000, apiKey: '...' });
-
-export const api = new ApiNamespace(scope, 'api', (context) => ({
-  async search(query: string) {
-    return myBlock.query(query);
-  },
-}));
-```
-
-### Key Rules
-
-- **All layers extend `Scope`** — gives CDK tree integration, `this.handler`, `this.fullId`
-- **Same public interface** — `index.mock.ts` and `index.ts` must export identical class name and methods
-- **`synthGuard()` in CDK** — stub runtime methods that throw clear errors if called at synth time
-- **`getMockDataDir(this)`** — use for mock persistence (resolves to `.bb-data/{fullId}/`)
-- **Non-AWS providers are fine** — wrap Google Maps, Stripe, any external API
-- **No-op is valid** — export `{}` for layers you don't need (e.g. `browser.ts`)
-- **Env var convention** — `BLOCKS_${fullId}_*` prefix for injected config
-
-## Decision Matrix
+## Decision matrix
 
 | Scenario | Approach |
 |----------|----------|
-| New features on existing CDK stack | **BlocksBackend** — manages new resources inside your stack |
-| Use a table/bucket owned by another team | **fromExisting()** — typed access, no ownership |
-| Greenfield app | **Scope** alone via `create-blocks-app` |
-| Service Blocks doesn't cover (ElastiCache) | **Custom Building Block** — write 4 exports |
-| Shared resource across multiple apps | **fromExisting()** — reference by name/ARN |
-| Gradual CDK→Blocks migration | **BlocksBackend + fromExisting()** combined |
-
-## Migration Patterns
-
-### Pattern 1: Side-by-Side (Incremental)
-
-```typescript
-const stack = new Stack(app, 'ProdStack');
-const legacyTable = new dynamodb.Table(stack, 'Users', { /* ... */ });
-const backend = new BlocksBackend(stack, 'BlocksLayer', { scope: new Scope('migration') });
-const users = DistributedTable.fromExisting(backend.scope, 'users', {
-  tableName: legacyTable.tableName, partitionKey: 'userId',
-});
-```
-
-### Pattern 2: API-First Route Migration
-
-```typescript
-export const api = new ApiNamespace(scope, 'api', (ctx) => ({
-  // Phase 1: New endpoints use fromExisting resources
-  async getUser(id: string) { return users.get({ userId: id }); },
-  // Phase 2: Retire old Lambda handlers as traffic shifts
-  // Phase 3: Replace fromExisting with native Building Blocks
-}));
-```
-
-### Pattern 3: Wrap Internal Services as Blocks
-
-```typescript
-// mock.ts — canned responses for local dev
-export class PaymentService {
-  async charge(amount: number) { return { status: 'ok', txId: 'mock-123' }; }
-}
-// aws.ts — real call
-export class PaymentService {
-  async charge(amount: number, currency: string) {
-    return fetch(`${process.env.PAYMENT_URL}/charge`, {
-      method: 'POST', body: JSON.stringify({ amount, currency }),
-    }).then(r => r.json());
-  }
-}
-```
-
-Typed, mockable access to internal services with zero deployment coupling.
+| New CDK resources feeding Blocks, in your existing stack | **BlocksBackend** — drop the Construct in and wire `.handler` |
+| Blocks in its own stack (greenfield) | **BlocksStack** |
+| Use a table / bucket / pool / DB owned by another team or stack | **`fromExisting`** on the matching BB |
+| Service with no first-party BB (e.g. SQS, ElastiCache) | **Custom Building Block**, or raw CDK wired to `.handler` for a one-off |
+| Own a first-party BB's source outright | **Vendorize** (`blocks-vendorize`) |
+| Gradual CDK→Blocks migration | **BlocksBackend + `fromExisting`** — bind existing resources, retire old handlers as traffic shifts |

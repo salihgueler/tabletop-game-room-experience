@@ -6,6 +6,7 @@ import {
   Hosting,
   SandboxDisableDeletionProtection,
 } from "@aws-blocks/blocks/cdk";
+import { BlocksPresets } from "@aws-blocks/blocks/cdk";
 import { getSandboxId, getStackId } from "@aws-blocks/blocks/scripts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ const stackName = sandboxMode
 export const blocksStack = await BlocksStack.create(app, stackName, {
   backendHandlerPath: join(__dirname, "index.handler.ts"),
   backendCDKPath: join(__dirname, "index.ts"),
+  defaults: sandboxMode ? BlocksPresets.sandbox : BlocksPresets.production,
 });
 
 if (sandboxMode) {
@@ -42,7 +44,19 @@ if (sandboxMode) {
 if (!sandboxMode) {
   new Hosting(blocksStack, "Hosting", {
     root: join(__dirname, ".."),
-    buildCommand: "flutter build web --release",
+    // BLOCKS_API_URL is a COMPILE-TIME constant (String.fromEnvironment), so it has
+    // to be passed here — without it the bundle falls back to
+    // localBlocksApiUrl(), which on web is hard-coded to localhost:3001, and the
+    // deployed frontend can never reach its own backend.
+    //
+    // The value is same-origin on purpose. The deployed API's hostname is a
+    // CloudFormation attribute that does not exist until the stack is created,
+    // while this build runs during synth — so an absolute URL is impossible to
+    // inject here. Passing `api` below makes CloudFront proxy /aws-blocks/api to
+    // API Gateway on this same distribution, so the relative path resolves
+    // against whatever origin the app is served from.
+    buildCommand:
+      "flutter build web --release --dart-define=BLOCKS_API_URL=/aws-blocks/api",
     buildOutputDir: "build/web",
     api: blocksStack,
   });
