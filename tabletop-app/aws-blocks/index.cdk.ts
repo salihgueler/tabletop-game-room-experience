@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { RemovalPolicies, Mixins } from 'aws-cdk-lib';
 
 import { Hosting, BlocksStack, SandboxDisableDeletionProtection } from '@aws-blocks/blocks/cdk';
+import { BlocksPresets } from '@aws-blocks/blocks/cdk';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { getStackId, getSandboxId } from '@aws-blocks/blocks/scripts';
@@ -16,7 +17,8 @@ const projectRoot = app.node.tryGetContext('projectRoot') || process.cwd();
 const stackName = sandboxMode ? `${getStackId(projectRoot)}-${getSandboxId(projectRoot)}` : `${getStackId(projectRoot)}-prod`;
 export const blocksStack = await BlocksStack.create(app, stackName, {
   backendHandlerPath: join(__dirname, 'index.handler.ts'),
-  backendCDKPath: join(__dirname, 'index.ts')
+  backendCDKPath: join(__dirname, 'index.ts'),
+  defaults: sandboxMode ? BlocksPresets.sandbox : BlocksPresets.production
 });
 
 if (sandboxMode) {

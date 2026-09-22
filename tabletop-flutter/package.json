@@ -26,11 +26,11 @@
     "destroy": "tsx aws-blocks/scripts/destroy.ts"
   },
   "dependencies": {
-    "@aws-blocks/blocks": "*",
+    "@aws-blocks/blocks": "0.6.0",
     "zod": "^4.3.0"
   },
   "devDependencies": {
-    "@aws-blocks/core": "^0.3.0",
+    "@aws-blocks/core": "^0.5.0",
     "@types/node": "^20.0.0",
     "aws-cdk-lib": "^2.257.0",
     "constructs": "^10.6.0",

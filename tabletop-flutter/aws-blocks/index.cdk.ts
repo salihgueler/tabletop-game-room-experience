@@ -6,6 +6,7 @@ import {
   Hosting,
   SandboxDisableDeletionProtection,
 } from "@aws-blocks/blocks/cdk";
+import { BlocksPresets } from "@aws-blocks/blocks/cdk";
 import { getSandboxId, getStackId } from "@aws-blocks/blocks/scripts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ const stackName = sandboxMode
 export const blocksStack = await BlocksStack.create(app, stackName, {
   backendHandlerPath: join(__dirname, "index.handler.ts"),
   backendCDKPath: join(__dirname, "index.ts"),
+  defaults: sandboxMode ? BlocksPresets.sandbox : BlocksPresets.production,
 });
 
 if (sandboxMode) {
