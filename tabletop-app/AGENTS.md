@@ -129,7 +129,7 @@ live in [`CLAUDE.md`](CLAUDE.md).
 ## Extra notes
 
 - **Local vs deployed drift is expected.** Blocks run as in-memory/file mocks locally but
-  as real AWS services when deployed (Agent → SQS + Lambda + Bedrock, Realtime → API
+  as real AWS services when deployed (Agent → Bedrock AgentCore Runtime + Bedrock, Realtime → API
   Gateway WebSocket, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost always
   a Bedrock / IAM / model-availability issue — check CloudWatch first, not the code.
 - **Session length** is controlled by `SESSION_MINUTES` (default `15`) in `index.ts` —

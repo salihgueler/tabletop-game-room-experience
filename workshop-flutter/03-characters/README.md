@@ -60,6 +60,7 @@ Open `app/backend/aws-blocks/index.ts` and make sure `DistributedTable` is impor
 
    ```ts
    import {
+     ApiError,
      ApiNamespace,
      Scope,
      AuthBasic,

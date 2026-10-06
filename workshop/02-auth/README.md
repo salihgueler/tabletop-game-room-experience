@@ -54,7 +54,7 @@ request is mysteriously a 401 because the cookie never rode along.
 Update the blocks import to have `AuthBasic`:
 
 ```ts
-import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
+import { ApiError, ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
 ```
 
 Now, right after `const scope = new Scope("tt")`, construct the block:

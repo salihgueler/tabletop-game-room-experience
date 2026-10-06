@@ -53,6 +53,7 @@ disappears.
 
    ```ts
    import {
+     ApiError,
      ApiNamespace,
      Scope,
      AuthBasic,

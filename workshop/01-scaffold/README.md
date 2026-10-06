@@ -96,10 +96,17 @@ rest of the workshop makes each fake real.
 Open **`aws-blocks/index.ts`**. The top is already "real" AWS Blocks:
 
 ```ts
-import { ApiNamespace, Scope } from "@aws-blocks/blocks";
+import { ApiError, ApiNamespace, Scope } from "@aws-blocks/blocks";
 
 const scope = new Scope("tt"); // namespaces every resource this app creates
 ```
+
+`ApiError` is how the game tells a player what went wrong. Every error a player should
+see ("Not your turn", "Game not found") is thrown as
+`new ApiError(message, status, { name })`. The client gets the status, the message and the
+name. A plain `throw new Error(...)` reaches the client as a generic 500 `"Internal error"`
+(the real message is only logged on the server), so keep using `ApiError` for the rest of
+the workshop.
 
 At the very bottom, two exports define the whole API surface:
 

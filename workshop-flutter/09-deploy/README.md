@@ -1,8 +1,8 @@
 # Module 09 — Deploy to AWS (CDK `Hosting`)
 
 **Goal:** ship the finished app to AWS. Every mock's real counterpart — DynamoDB + JWT auth,
-DynamoDB tables with GSIs, API Gateway WebSocket, Bedrock via SQS/Lambda — comes online for
-the first time, fronted by CloudFront + S3 serving the Flutter web build.
+DynamoDB tables with GSIs, API Gateway WebSocket, Bedrock on AgentCore Runtime — comes
+online for the first time, fronted by CloudFront + S3 serving the Flutter web build.
 
 **Introduced:** CDK `Hosting`, the sandbox/prod deploy flow
 **You edit:** `aws-blocks/index.ts` — nothing (the backend is complete). You **do** edit
@@ -26,8 +26,10 @@ confusingly if missing:
   silently falls back to canned output (see the model-pinning gotcha below).
 - **A built Flutter web app** — step 3 covers this.
 
-> **Cost:** this provisions CloudFront, API Gateway, Lambda, DynamoDB and SQS. Idle cost is
-> small but not zero, and tearing a CloudFront distribution down takes 15–40 minutes
+> **Cost:** this provisions CloudFront, API Gateway, Lambda, DynamoDB and a Bedrock AgentCore
+> Runtime for the AI DM, plus a CloudWatch alarm and its SNS topic. The production preset
+> also turns on point-in-time recovery for the DynamoDB tables, which adds a small backup
+> charge. Idle cost is small but not zero, and tearing a CloudFront distribution down takes 15–40 minutes
 > (disable, then delete). Read step 6 before you start, not after.
 
 ---
@@ -55,7 +57,7 @@ Your code is identical; the runtime underneath swaps:
 | AuthBasic | file-backed JWT | DynamoDB + JWT |
 | DistributedTable | JSON in `.bb-data/` | DynamoDB (+ GSIs) |
 | Realtime | local WebSocket on :3001 | API Gateway WebSocket (WSS) |
-| Agent | Ollama / canned, in-process | **SQS → Lambda → Bedrock**, async |
+| Agent | Ollama / canned, in-process | **AgentCore Runtime → Bedrock**, async |
 
 The Agent row is the one that bites people: locally `stream()` round-trips in one process;
 deployed it crosses Lambda invocations and calls Bedrock. **"Works locally, breaks

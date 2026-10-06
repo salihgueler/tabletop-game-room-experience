@@ -53,7 +53,7 @@ real Block.
 Add the `AuthBasic` to the import in `backend/aws-blocks/index.ts`:
 
 ```ts
-import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
+import { ApiError, ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
 ```
 
 ### 2. Add the AuthBasic Building Block
