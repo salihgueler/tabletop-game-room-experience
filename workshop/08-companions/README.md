@@ -63,7 +63,7 @@ Only **two ideas** are genuinely new in this module:
   construction; the per-call `message` still carries the turn's specifics.)
 - **(b) Fuzzy action-validation** — `companionDecide` forces the model's chosen `action`
   onto a real entry from the server's `options` list before accepting it. That's the block
-  around L597–603 of `solution/index.ts`: exact case-insensitive match, or either string
+  around L577–582 of `solution/index.ts`: exact case-insensitive match, or either string
   containing the other, else the random valid fallback. Read those two things closely; skim
   the rest.
 
