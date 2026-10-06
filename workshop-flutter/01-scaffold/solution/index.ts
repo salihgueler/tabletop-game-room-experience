@@ -833,11 +833,18 @@ async function seedIfEmpty() {
 
 // The auth namespace the frontend imports as `authApi`. In the starter this is
 // the in-memory fake; Module 02 replaces it with `auth.createApi()`.
-export const authApi = new ApiNamespace(
-  scope,
-  "authApi",
-  (context) => fakeAuthApi,
-);
+// The methods are written inline (not `(context) => fakeAuthApi`) because the
+// spec generator reads types only from an inline object literal. A handler
+// that returns an object defined elsewhere is typed `unknown`, and the Dart
+// client loses SignUpInput, SignInInput and AuthUser.
+export const authApi = new ApiNamespace(scope, "authApi", (context) => ({
+  async getAuthState(): Promise<AuthState> {
+    return fakeAuthApi.getAuthState();
+  },
+  async setAuthState(input: AuthActionInput): Promise<AuthState> {
+    return fakeAuthApi.setAuthState(input);
+  },
+}));
 
 export const api = new ApiNamespace(scope, "api", (context) => ({
   // --- Reference data (no auth) ---
