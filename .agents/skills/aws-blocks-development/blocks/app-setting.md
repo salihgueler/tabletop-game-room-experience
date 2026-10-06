@@ -69,13 +69,20 @@ interface AppSettingOptions<T = string> {
   value?: T;                     // initial value (required for non-secrets)
   schema?: StandardSchemaV1<T>;  // Zod / Valibot / ArkType — typed + validated
   secret?: boolean;              // true → SSM SecureString
+  kmsKeyArn?: string;            // secrets only: customer-managed KMS key (default aws/ssm)
   name?: string;                 // explicit SSM parameter path (default `/${fullId}`)
   logger?: ChildLogger;
 }
 ```
 
-- A non-secret needs a `value`; a secret without a `value` gets a random initial
-  value generated locally.
+- A non-secret needs a `value`; a secret must **not** have one (a secret
+  without a `value` gets a random initial value generated locally). A secret
+  can't take a `schema` either, and `kmsKeyArn` needs `secret: true` and a
+  non-empty ARN.
+- Since `bb-app-setting@0.3.1` these combination rules are checked in the local
+  mock as well as at CDK synth, so `npm run dev` throws
+  `ValidationFailedException` for config that would fail at deploy. Before, a
+  non-secret with no `value` silently became `''` locally.
 - `put()` validates against `schema` (if any) and rejects values over **4 KB**
   (SSM standard-tier limit) with `ValidationFailed`.
 

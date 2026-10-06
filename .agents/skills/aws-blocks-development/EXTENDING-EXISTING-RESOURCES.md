@@ -104,7 +104,8 @@ resources — use the `BlocksBackend`/CDK wiring pattern for those.
 |---|---|---|---|
 | `KVStore` (`bb-kv-store`) | `KVStore.fromExisting(tableName: string): ExternalTableRef` | `table` | `ExternalTableRef` |
 | `DistributedTable` (`bb-distributed-table`) | `DistributedTable.fromExisting(tableName: string): ExternalTableRef` | `table` | `ExternalTableRef` |
-| `DistributedTable` (KMS) | `DistributedTable.fromKmsKey(keyArn: string): ExternalKmsKeyRef` | `encryption` | `ExternalKmsKeyRef` |
+| `DistributedTable` (KMS) | `DistributedTable.fromKmsKey(keyArn: string): ExternalKmsKeyRef` | `encryption` | `ExternalKmsKeyRef` (umbrella alias `DTExternalKmsKeyRef`) |
+| `KVStore` (KMS, `bb-kv-store@0.3.0`) | `KVStore.fromKmsKey(keyArn: string): ExternalKmsKeyRef` | `encryption` | `ExternalKmsKeyRef` |
 | `FileBucket` (`bb-file-bucket`) | `FileBucket.fromExisting(bucketName: string): ExternalBucketRef` | `bucket` | `ExternalBucketRef` |
 | `AuthCognito` (`bb-auth-cognito`) | `AuthCognito.fromExisting(userPoolId: string, clientId?: string): ExternalUserPoolRef` | `userPool` | `ExternalUserPoolRef` |
 | `Database` (`bb-data`) | `Database.fromExisting(config): ExternalDatabaseRef` (also the standalone `fromExisting` export) | `connection` | `ExternalDatabaseRef` |

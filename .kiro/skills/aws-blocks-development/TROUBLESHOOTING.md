@@ -48,6 +48,23 @@ Locally this means the dev server (`npm run dev`) is running.
 **PGlite `postmaster.pid` error**
 The previous dev server didn't shut down cleanly. Delete `.bb-data/` and restart.
 
+**Database / DistributedDatabase fails on the first local query after upgrading**
+`bb-data@0.3.1` / `bb-distributed-data@0.2.1` (in `@aws-blocks/blocks@0.7.0`)
+moved PGlite from 0.2 (embedded Postgres 16) to 0.5.8 (embedded Postgres 18).
+A `.bb-data` directory created by the old version still *looks* initialized, so
+nothing is recreated and the mismatch only shows up at the first query, with no
+automatic recovery. Delete that block's `.bb-data/` folder (or all of
+`.bb-data/`) and restart; local data is recreated by your migrations. CI starts
+clean and `.bb-data` is gitignored, so only existing local checkouts hit this.
+
+**`npm run dev` now rejects an `AppSetting` that used to work**
+Since `bb-app-setting@0.3.1` the local mock runs the same option checks as CDK
+synth and throws `ValidationFailedException` for: `secret` + `schema`, `schema`
+without `value`, `kmsKeyArn` without `secret: true` or empty, a `secret` with a
+`value`, `external` with a `value` or without `name`, and a non-secret with no
+`value`. The last one is the usual culprit: it used to become an empty string
+locally and only failed at deploy. Give it a `value` (or make it a secret).
+
 **DistributedTable `query()`: `Index 'X' not found`**
 Message built by the DistributedTable error `indexNotFound`. The
 `index` option on `query()` must be an **index name from the `indexes` config**,
@@ -68,9 +85,23 @@ Method format is `"namespace.methodName"` with params as a positional array. Do
 not curl per-method paths like `/api/greet`.
 
 **CORS errors in production**
-Set `CORS_ALLOWED_ORIGINS` on the Lambda with regex patterns (e.g.
-`https://.*\.example\.com`). The Hosting construct auto-adds the CloudFront
-domain; localhost is auto-allowed in dev/sandbox.
+Add the frontend origin to `defaults.allowedOrigins` (regex patterns, e.g.
+`https://.*\.example\.com`; they become `CORS_ALLOWED_ORIGINS`). The Hosting
+construct adds its own CloudFront origin; localhost is allowed in dev and by the
+sandbox preset.
+
+**CORS broke after upgrading to `@aws-blocks/blocks@0.7.0`**
+`core@0.6.0` anchors every allowlist entry as `^(?:<entry>)$`. An entry that
+used to match as a prefix, such as `^https://app\.example\.com` for
+`https://app.example.com:8443`, no longer does. Add the suffix you need:
+`^https://app\.example\.com(:\d+)?`. Also check that literal dots are escaped.
+
+**Client shows `500 "Internal error"` where it used to show your message**
+Since `core@0.6.0` only an `ApiError` or a Building Block error carries its
+message to the client. A plain `throw new Error('...')` (or a raw AWS SDK /
+database driver error) is logged server-side and replaced with a generic 500.
+Throw `new ApiError(message, status, { name })` for errors the user should see.
+See CORE-ARCHITECTURE.md § What reaches the client.
 
 **SSR auth failures (401 in server components)**
 Use `withAuth()` from `@aws-blocks/blocks/server` to forward cookies in
@@ -143,12 +174,13 @@ backend (`aws-blocks/index.ts`); the frontend reaches it through API methods.
 
 **`relation "..." does not exist`**
 This is a **raw PostgreSQL/PGlite error**, not a Blocks-defined one — Blocks does
-not produce this string. The `pg-error-translator` renames such errors to
-`DatabaseErrors.QueryFailed` (`name = 'QueryFailedException'`) but passes the
-Postgres **message** through verbatim (`bb-data/src/engines/pg-error-translator.ts`;
-error set on the Database block). Cause: migrations haven't run, or the
-table name is wrong. Migration files in `migrations/` need numeric prefixes (e.g.
-`001_create_users.sql`).
+not produce this string. The Database block re-tags such errors as
+`DatabaseErrors.QueryFailed` (`name = 'QueryFailedException'`). Since
+`@aws-blocks/blocks@0.7.0` the raw Postgres text appears **only in server logs**
+(as the error's `cause`); the client sees the stable message "The database query
+failed". Look in the dev-server output or CloudWatch for the real message. Cause:
+migrations haven't run, or the table name is wrong. Migration files in
+`migrations/` need numeric prefixes (e.g. `001_create_users.sql`).
 
 **Transaction rolled back**
 Any error inside `db.transaction()` triggers a rollback. Check for constraint
@@ -211,7 +243,15 @@ useEffect(() => {
 **Messages not arriving in production**
 Verify namespace and channel names match exactly, and that the channel token is
 still valid (tokens expire and are scoped to a specific namespace/channel — don't
-reuse across channels).
+reuse across channels). Since `bb-realtime@0.3.0` the client reconnects by
+itself after a drop, but messages published during the gap are lost (pub/sub is
+not durable): backfill in `onReconnect`. A subscription older than ~1h (channel
+token) or ~2h (connect token) cannot reconnect without a `refresh` callback and
+ends with `onDisconnect('error')`.
+
+**`publish` throws `ValidationFailed` for a large message**
+The limit is 128 KiB (131,072 bytes) for the whole serialized envelope, channel
+path included. Versions before `bb-realtime@0.3.0` wrongly capped it at 32 KB.
 
 ## Hosting & deployment
 
@@ -220,7 +260,7 @@ code below.
 
 **``AWS credentials could not be verified for `npm run <command>` (<errorName>).``**
 A pre-synth credential check (shipped in `@aws-blocks/blocks@0.4.0`, commit
-`0ac3879`, #424; still present at the current `0.6.0` pin) failed before `npm run sandbox` / `npm run deploy` provisioned
+`0ac3879`, #424; still present at the current `0.7.0` pin) failed before `npm run sandbox` / `npm run deploy` provisioned
 anything. It **fails fast only
 on credential-class errors** — the seven names in `CREDENTIAL_ERROR_NAMES`:
 `CredentialsProviderError`, `ExpiredToken`,
@@ -233,21 +273,51 @@ set (no region to probe), and it **warns and continues** on non-credential error
 deploy surface the real error).
 
 **`BuildOutputNotFoundError` — "Build output directory not found at …"**
-(`adapters/spa.ts`.) The SPA build output dir doesn't exist. Run your build first;
+The SPA build output dir doesn't exist. Run your build first;
 the adapter auto-detects `dist/`, `build/`, or `out/`, or pass an explicit
 `buildOutputDir`.
 
 **`BuildOutputEmptyError`**
-(`adapters/spa.ts`.) The output dir exists but is empty — your build likely failed
+The SPA output dir exists but is empty — your build likely failed
 silently. Run it locally and verify files land in the output directory.
 
 **`MissingIndexHtmlError` — "No index.html found in the build output directory."**
-(`adapters/spa.ts`.) The SPA adapter requires `index.html` in the build output.
+The SPA adapter requires `index.html` in the build output.
 SSR frameworks that don't emit one won't work as a plain SPA — use a standard
 Vite + React SPA build, or a supported SSR framework via the matching adapter.
 (SSR adapters throw their own output-missing errors instead:
 `SvelteKitBuildOutputMissingError`, `AstroBuildOutputMissingError`,
-`NitroOutputNotFoundError`, `OpenNextOutputNotFoundError`.)
+`NitroOutputNotFoundError`, `OpenNextOutputNotFoundError`.) An Astro
+server/hybrid build with no static assets leaves `dist/client` empty; since
+`hosting@0.4.0` that is valid (only `dist/server/entry.mjs` is required), so
+`AstroBuildOutputMissingError` for an empty `dist/client` means you are on an
+older version.
+
+**`SsrCacheKeyCredentialsRequiredError` at synth**
+`ssrDefaultTtl` is above 0 but no credential is in the SSR cache key
+(`hosting@0.4.0` fails closed). Add `cacheKeyCookies: ['<session cookie>']`
+and/or `cacheKeyHeaders: ['authorization']`, or remove `ssrDefaultTtl`. See
+`blocks/hosting.md` § SSR edge caching.
+
+**Synth error after upgrading: `snsTopicArn` / `monitoringTopic` does not exist**
+Both were removed in `hosting@0.4.0`. Use
+`monitoring: { subscriptions: [new EmailSubscription('oncall@example.com')] }`,
+and `hosting.monitoring.alarms` / `.alarmTopics` instead of `monitoringTopic`.
+
+**Synth warning: CloudFront alarm skipped**
+The stack is outside us-east-1 and its account is unresolved, so the us-east-1
+support stack for the CloudFront 5xx alarm can't be built. Set
+`env: { account, region }` on the stack.
+
+**Synth warning: end-of-life Node.js runtime**
+A compute pins `nodejs18.x` or `nodejs20.x`, both past their Lambda deprecation
+dates. It still synthesizes; move to `nodejs22.x` / `nodejs24.x` or drop the
+runtime option to use the default.
+
+**`cdk synth --strict` fails on a wrapped `KVStore`**
+`KVStore` with `table: KVStore.fromExisting(...)` now warns when you also pass
+`removalPolicy`, `deletionProtection`, `ttl`, `pointInTimeRecovery` or
+`encryption`; `--strict` turns the warning into a failure. Remove those options.
 
 **Site shows "Access Denied" right after deploy**
 CloudFront propagation takes a few minutes. Hard-refresh; if it persists, confirm
@@ -269,7 +339,7 @@ new Hosting(blocksStack, "Hosting", { api: blocksStack });
 ```
 
 **Custom domain not working — `InvalidCertificateRegionError`**
-(`constructs/dns_construct.ts`.) The ACM certificate must be in `us-east-1`, DNS
+The ACM certificate must be in `us-east-1`, DNS
 must point at CloudFront, and validation can take 10–15 min. Related DNS errors
 from the same construct: `MissingCertificateError`, `DuplicateDnsRecordsError`,
 `InvalidDomainConfigError`.
@@ -294,7 +364,8 @@ to an island become dead HTML. Compose the components within a single island fil
 instead of nesting islands.
 
 **Astro: 404 on subpath navigation in production**
-CloudFront + S3 doesn't resolve `/posts` → `/posts/index.html` for non-root paths
-with Astro's default `build.format: "directory"`. Use `build.format: "file"` in
-`astro.config.mjs` (generates `/posts.html`) and include the `.html` extension in
-internal links.
+Do **not** switch to `build.format: "file"`. The Hosting edge router resolves
+directory indexes (`/posts` → `/posts/index.html`) for Astro's default
+`output: 'static'` + `build.format: "directory"`. A 404 usually means the site is
+served under a sub-path: set Hosting `basePath` to match. See
+`blocks/hosting.md` § `basePath` and Astro subpaths.

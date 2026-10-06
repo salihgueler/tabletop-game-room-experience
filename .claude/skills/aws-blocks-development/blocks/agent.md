@@ -12,8 +12,9 @@ block); server-to-server calls that don't stream.
 Import `Agent`, `BedrockModels`, `OllamaModels`, and `AgentErrors` from
 `@aws-blocks/blocks`. `Agent` is **server-side only** — instantiate it in
 `aws-blocks/index.ts` (backend), never in frontend code (it throws
-`BrowserNotSupportedException` in a browser). The frontend uses the `useChat`
-hook or plain API calls.
+`BrowserNotSupportedException` in a browser). The frontend uses `createChat`
+(from `@aws-blocks/bb-agent/client`, new in `bb-agent@0.5.0`) or plain API
+calls. The older `useChat` hook still works but is deprecated.
 
 **Zod 4.x required** for tool `parameters` schemas specifically. (Other blocks
 accept any `@standard-schema/spec` validator; Agent tools need Zod 4.)
@@ -29,7 +30,7 @@ accept any `@standard-schema/spec` validator; Agent tools need Zod 4.)
 - Persistence model
 - Running locally
 - KnowledgeBase as a tool
-- Client hook — `useChat`
+- Client API: `createChat` (and the deprecated `useChat`)
 - Error handling
 - Best practices
 - What it provisions
@@ -106,7 +107,7 @@ stopSequences? }`.
   will fail on the non-empty bucket). Pass `'destroy'` for sandbox/ephemeral
   stacks; it pairs the bucket with `autoDeleteObjects`.
 - `structuredOutput` has been **removed** from `AgentConfig` (#479, `2cb9d74`);
-  it does not exist at the `0.6.0` pin. It was present but inert in `0.4.0` (no
+  it does not exist at the `0.7.0` pin. It was present but inert in `0.4.0` (no
   code path ever consumed it). Do not reference it — shape model output with tools
   or by parsing the streamed text instead.
 - **Per-turn cost caps (`maxLlmCalls`, `maxToolIterations`)** are shipped
@@ -289,8 +290,8 @@ Chunks arrive on the Realtime channel. These shapes are exact
 
 **Subscribe before you stream.** The agent emits chunks immediately after
 `stream()`, so a subscription that isn't ready yet loses the early chunks.
-Subscribe, await `established`, then send — or use the `useChat` hook, which
-handles the ordering:
+Subscribe, await `established`, then send — or use `createChat` on the client,
+which fuses subscribe and send so the race cannot happen:
 
 ```typescript
 const channel = await agent.getChannel(conversationId);
@@ -381,7 +382,8 @@ A non-`inferenceOnly` agent provisions:
 The two are distinct: the DistributedTable history is your app's message log;
 the FileBucket snapshots are Strands' internal agent state. Setting
 `inferenceOnly: true` skips both DistributedTables (no history, no
-`conversationId`), keeping only the FileBucket, Realtime, and AsyncJob.
+`conversationId`), keeping only the FileBucket and Realtime. The Agent no longer
+runs on an internal AsyncJob (that went away with the AgentCore Runtime move).
 
 Note the conversation strategy trims context **in memory** per call and does not
 delete stored history — the tables and snapshots retain the full conversation.
@@ -431,26 +433,90 @@ searchDocs: tool({
 }),
 ```
 
-## Client hook — `useChat`
+## Client API: `createChat`
 
-Import from `@aws-blocks/bb-agent/client`. `useChat` manages conversation state,
-the streaming subscription, and interrupt handling — including the
-subscribe-before-stream ordering, so the frontend doesn't have to. `useChat` is
-exported **only** from the `@aws-blocks/bb-agent/client` subpath — it is **not**
+`createChat`, `realtimeTransport`, `ChatMessage` and `ApprovalMetadata` are
+exported **only** from the `@aws-blocks/bb-agent/client` subpath. They are **not**
 re-exported from the `@aws-blocks/blocks` umbrella nor from the `@aws-blocks/bb-agent`
-main entry (the package's `.` export maps to the runtime/CDK builds; only the
-`./client` export maps to the hooks module). Import it from the subpath or it
-won't resolve. You supply an
-`api` object (`sendMessage`, `createConversation`, `getConversation`, `resume`), a
-`subscribe` callback that resolves a channel from a `channelId`, and change
-callbacks (`onMessagesChange`, `onInterrupt`). Then:
+main entry (the package's `.` export maps to the runtime/CDK builds; only
+`./client` maps to the client module). Import from the subpath or it won't resolve.
+
+`createChat` (`bb-agent@0.5.0`) hides the runtime behind one **transport**. For
+today's Lambda + Realtime runtime that is `realtimeTransport`, configured once.
+`api` is plain conversation CRUD. Wire your own backend method names:
 
 ```typescript
-import { useChat } from '@aws-blocks/bb-agent/client';
-const chat = useChat({ api, subscribe, onMessagesChange, onInterrupt });
+import { createChat, realtimeTransport } from '@aws-blocks/bb-agent/client';
+import { api } from 'aws-blocks'; // your typed backend client
+
+const transport = realtimeTransport({
+  subscribe: async (channelId, handler) => {
+    const { channel } = await api.agentGetChannel(channelId); // wraps agent.getChannel()
+    return channel.subscribe(handler);
+  },
+  sendMessage: (channelId, message, conversationId) =>
+    api.agentStream(message, conversationId ?? undefined, channelId),
+  resume: (channelId, responses, conversationId) =>      // responses: InterruptResponse[]
+    api.agentResume(channelId, responses, conversationId ?? undefined),
+});
+
+const chat = createChat({
+  transport,
+  api: {
+    createConversation:   () => api.agentCreateConversationId(),
+    getConversation:      (id) => api.agentGetConversation(id),
+    getPendingInterrupts: (id) => api.agentGetPendingInterrupts(id),
+  },
+  onMessagesChange: (msgs) => render(msgs),
+  onLoadingChange:  (loading) => setSpinner(loading),
+  onInterrupt: async (interrupts) => {
+    const decisions = await askUser(interrupts); // [{ interruptId, approved }]
+    await chat.sendMessage({ interruptResponses: decisions }); // same call resumes
+  },
+});
+
 await chat.sendMessage('Hello!');
-await chat.respondToInterrupt([{ interruptId: 'x', approved: true }]);
 ```
+
+Rules that matter:
+
+- **One call per turn.** `sendMessage` subscribes and runs together, so there is
+  no subscribe-before-send race. It resolves `true` when the turn was accepted
+  and `false` when it was dropped because a turn is already in flight. Resuming a
+  paused turn is the same `sendMessage({ interruptResponses })`; there is no
+  separate resume method.
+- **Power cases** drop to the primitives: `chat.run(message)` produces a turn
+  (returns `{ channelId }`) and `chat.subscribe({ channelId, observer })`
+  attaches a consumer, for fan-out or observer-only views.
+- **Factory, not a hook.** Create it once. In React hold it in a `useRef` built
+  lazily (`useRef<ReturnType<typeof createChat> | undefined>(undefined)`, then
+  `if (!ref.current) ref.current = createChat(...)`), pass `setMessages` /
+  `setIsLoading` as the callbacks, and call `chat.destroy()` in a `useEffect`
+  cleanup. In Next.js the component needs `'use client'`.
+- **Reconnect-safe with no app code.** `realtimeTransport` forwards Realtime's
+  reconnect callbacks. On reconnect `createChat` re-reads the conversation and
+  pending interrupts from the database, so a `done` or interrupt missed during
+  the gap is recovered, and a bounded failsafe stops `loading` from hanging. A
+  rejected send resets `loading`, calls `onError` and drops the empty bubble.
+- **Long turns past token TTLs.** Pass `refresh: (channelId) => Promise<descriptor>`
+  on `CreateChatOptions` so a reconnect re-mints the channel (~1h) and connect
+  (~2h) tokens. It must resolve to the **raw** channel descriptor from your
+  `getChannel` RPC, not a hydrated channel client.
+- **`ChatMessage` is a discriminated union on `role`.** On `user` / `assistant`,
+  `metadata` is `Record<string, JSONValue> | undefined`; narrowing to
+  `role === 'approval'` types it as `ApprovalMetadata` (`approved`, `trust`,
+  `toolName`, `input`). Narrow before reading approval fields. This replaced the
+  flat `metadata: Record<string, any>` the `/client` entry exported before
+  `bb-agent@0.5.0`, so old code that read `m.metadata.someKey` as `any` no longer
+  compiles until it narrows. History surfaces only `user`, `assistant` and
+  `approval` messages.
+
+### Deprecated: `useChat`
+
+`useChat` (same subpath) still works for existing code, with the same reconnect
+recovery and an optional `refresh`. New code should use `createChat`. Its
+`loadConversation` now projects non-object `metadata` on user/assistant rows to
+`undefined` and types approval metadata as `ApprovalMetadata`.
 
 ## Error handling
 
@@ -464,6 +530,7 @@ Catch with `isBlocksError(e, AgentErrors.X)`:
 | `StreamFailed` | `StreamFailedException` | Agent error during execution |
 | `InterruptRequired` | `InterruptRequiredException` | Agent paused for approval; also thrown by `resume()` with no `conversationId` / no responses |
 | `BrowserNotSupported` | `BrowserNotSupportedException` | Instantiated in a browser (server-side only) |
+| `InvalidUsage` | `InvalidUsageException` | Client-side precondition violated, e.g. `subscribe()` with no channel (`bb-agent@0.5.0`) |
 
 ## Best practices
 
@@ -486,6 +553,5 @@ Catch with `isBlocksError(e, AgentErrors.X)`:
 - IAM role with `bedrock:InvokeModel` / `InvokeModelWithResponseStream` and model
   discovery permissions
 
-RAG retrieval as a tool comes from the KnowledgeBase block; the underlying
-transport and background execution are the Realtime and AsyncJob blocks; protect
-agent endpoints with an auth block.
+RAG retrieval as a tool comes from the KnowledgeBase block; chunk delivery is the
+Realtime block; protect agent endpoints with an auth block.

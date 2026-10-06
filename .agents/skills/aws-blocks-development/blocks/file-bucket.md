@@ -16,6 +16,7 @@ indexes (DistributedTable), or serving a static site (Hosting handles S3 itself)
 - Presigned URLs and browser handles
 - Listing — `scan()` is an async iterable
 - Versioning
+- Key rules
 - Wrapping an existing bucket
 - Errors
 - Local mock vs AWS
@@ -132,6 +133,27 @@ await docs.get('report.pdf', { versionId: versions[1].versionId });
 await docs.restoreVersion('report.pdf', versions[1].versionId);
 ```
 
+An unknown `versionId` behaves the same locally and on AWS (`bb-file-bucket@0.3.0`):
+`get()` returns `null`, `delete()` is a silent no-op, and `restoreVersion()`
+throws `FileBucketErrors.VersionNotFound` (`NoSuchVersion`). Before 0.3.0 the AWS
+runtime threw raw S3 `InvalidArgument` / `InvalidRequest` errors instead.
+
+## Key rules
+
+As of `bb-file-bucket@0.3.0` keys are validated identically in local dev and on
+AWS (before, only the mock checked). A key is rejected with an error named
+`ValidationFailed` when it:
+
+- is empty or starts with `/`
+- has an empty segment (`a//b`, or a trailing `a/`)
+- contains ASCII control characters
+- has a `.` or `..` segment
+
+This applies to `get`, `put`, `delete`, `listVersions`, `restoreVersion`, and the
+URL and batch methods. If production already holds objects under such keys,
+re-key them before upgrading. There is no `FileBucketErrors` constant for this
+case; match on `e.name === 'ValidationFailed'`.
+
 ## Wrapping an existing bucket
 
 ```typescript
@@ -151,6 +173,7 @@ Match with `isBlocksError` from `@aws-blocks/core`.
 |---|---|---|
 | `FileBucketErrors.FileNotFound` | `NoSuchKey` | Surfaced by other operations (e.g. `restoreVersion` on a missing version). **Not** thrown by `get()`, which returns `null`. |
 | `FileBucketErrors.FileTooLarge` | `EntityTooLarge` | Object exceeds S3 size limits. |
+| `FileBucketErrors.VersionNotFound` | `NoSuchVersion` | `restoreVersion()` with an unknown `versionId` (`bb-file-bucket@0.3.0`). |
 
 ## Local mock vs AWS
 
@@ -159,9 +182,8 @@ dev server; versioning supported; CORS and lifecycle rules have no local effect.
 AWS: S3, presigned via `@aws-sdk/s3-request-presigner`.
 
 If a key segment can contain URL-shaped characters (e.g. an OIDC `userId` like
-`https://issuer:sub`), wrap it in `encodeURIComponent()` — the mock normalizes
-`//` via the filesystem, so an un-encoded `//` makes local `scan({ prefix })`
-miss the file even though it works against S3.
+`https://issuer:sub`), wrap it in `encodeURIComponent()`. An un-encoded `//`
+creates an empty segment, which is now rejected on both runtimes.
 
 ## What it provisions
 

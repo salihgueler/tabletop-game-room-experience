@@ -112,6 +112,8 @@ aws-blocks/migrations/
 They run in two different places, and this matters for debugging:
 
 - **Local dev** — on the **first query** (PGlite, persisted in `.bb-data/`).
+  `bb-data@0.3.1` ships PGlite 0.5.8 (Postgres 18); a `.bb-data` folder made by
+  an older version must be deleted once (see TROUBLESHOOTING.md).
 - **AWS** — via a **CustomResource migration Lambda during `cdk deploy`** (not on
   first request). A bad migration surfaces as a failed deploy, not a runtime
   error.

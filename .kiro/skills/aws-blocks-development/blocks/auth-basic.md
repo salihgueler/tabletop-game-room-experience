@@ -225,6 +225,35 @@ catch (e) { if (isBlocksError(e, AuthBasicErrors.InvalidCredentials)) { /* ... *
 `ApiError.name`, so `hasAuthError(state, AuthBasicErrors.InvalidCredentials)`
 works on a state returned from `setAuthState`.
 
+### The `AuthState` shape (shared by all three auth blocks)
+
+```typescript
+interface AuthState {
+  state: 'signedOut' | 'signedIn' | 'confirmingSignUp' | 'confirmingSignIn'
+       | 'confirmingMfa' | 'confirmingPasswordReset';
+  user?: AuthUser;          // present when state === 'signedIn'
+  actions: AuthAction[];    // what the UI can do from here
+  error?: string;           // human-facing message from the last action
+  errorName?: string;       // machine-readable, e.g. 'InvalidCredentialsException'
+  retriable?: boolean;      // resubmit on the SAME state (e.g. wrong MFA code)
+}
+```
+
+When `retriable` is true, keep the current form (and its hidden fields such as
+`session`) and show `error` inline rather than sending the user back to sign-in.
+The type lives in `@aws-blocks/auth-common`; AuthCognito and AuthOIDC consumers
+import it from there.
+
+### Authenticator form behavior
+
+- **Confirm steps keep the username** (`bb-auth-basic@0.1.10`). In
+  `confirmingSignUp` and `confirmingPasswordReset`, `username` is a **hidden**
+  field prefilled with the value just entered (as AuthCognito already did).
+  Before, it rendered as an empty visible field the user had to retype. A custom
+  form should do the same: carry the username, don't ask for it again.
+- **Enter submits from any field** (`auth-common@0.1.9`), not only the last
+  input, in every provider's `Authenticator`.
+
 ## What it provisions
 
 A DynamoDB table (usernames + bcrypt-hashed passwords and session records) and

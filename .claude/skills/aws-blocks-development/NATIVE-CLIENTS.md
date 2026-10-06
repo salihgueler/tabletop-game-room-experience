@@ -140,7 +140,18 @@ The runtime throws `NetworkException` (transport failures: timeout, DNS,
 connection refused — retry-safe) and `ApiException` (JSON-RPC error body from the
 backend — inspect `.code` / `.name` / `.message`). Both extend `BlocksException`,
 which is an `open class` (not sealed), so you can subclass it or catch the base
-type (`native/kotlin/runtime/src/commonMain/kotlin/com/aws/blocks/kotlin/exceptions/BlocksException.kt:10`).
+type. `ApiException.message` follows the server's wire rules (`core@0.6.0`): the
+real message for an `ApiError` or a Building Block error, a generic
+`"Internal error"` (code 500, no name) for anything else the backend threw.
+
+### Client user-agent attribution
+
+Native runtimes send `x-blocks-user-agent: aws-blocks-<lang>/<version>` on every
+RPC call. Since `core@0.6.0` the backend validates it (length-capped; a malformed
+value is dropped silently) and appends it to the AWS SDK user agent of the
+Building Blocks' own SDK calls. The Kotlin runtime already sends it; Swift and
+Dart are to follow. The header is in the CORS preflight allowlist, so a
+cross-origin client that sets it is not blocked. You do not configure anything.
 
 ### Encrypted cookie storage
 
