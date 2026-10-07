@@ -5,13 +5,13 @@
       "source": "dart-lang/skills",
       "sourceType": "github",
       "skillPath": "skills/dart-add-unit-test/SKILL.md",
-      "computedHash": "326a2b6cb57bcb4f40203e063a1060e9549a8cea0ece1a5c9a0d39a2f2b85bc8"
+      "computedHash": "55dabb37175bc8091a02b7d78d405f7e33173698c48a649ea29748f1186ac9c0"
     },
     "dart-build-cli-app": {
       "source": "dart-lang/skills",
       "sourceType": "github",
       "skillPath": "skills/dart-build-cli-app/SKILL.md",
-      "computedHash": "2c693ba718e23155fd9acd8d2e14f5c311258ed900131b2ad12fda46ae5eebfa"
+      "computedHash": "97f042ce6ff6f15fdba29b3acea44266f9e311fce8984002e1fd46bd25754cab"
     },
     "dart-collect-coverage": {
       "source": "dart-lang/skills",
@@ -65,7 +65,7 @@
       "source": "dart-lang/skills",
       "sourceType": "github",
       "skillPath": "skills/dart-use-pattern-matching/SKILL.md",
-      "computedHash": "86ea49e8f82ebcdbfd00579c0bcaca16d3f33839c96f9d3875bee95c553daa4b"
+      "computedHash": "a727055e721da627f2eb0fc21292fb33bafbf3d84a617bf5b06f6895021b50b5"
     },
     "dart-use-primary-constructors": {
       "source": "dart-lang/skills",
