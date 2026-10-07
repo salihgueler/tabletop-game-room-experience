@@ -149,5 +149,7 @@ runtime condition.
 
 One `AWS::Scheduler::Schedule` (EventBridge Scheduler) per CronJob, targeting the
 shared Lambda handler, plus a single per-stack EventBridge Scheduler IAM role
-with `lambda:InvokeFunction`. No dedicated Lambda per job — CronJob, AsyncJob and
-API routes share one handler.
+with `lambda:InvokeFunction`. Since `bb-cron-job@0.2.2` that role's trust policy
+only accepts schedules in the stack's own account and region (`aws:SourceAccount`
+plus an `aws:SourceArn` schedule-group pattern). No dedicated Lambda per job —
+CronJob, AsyncJob and API routes share one handler.

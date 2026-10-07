@@ -1,8 +1,8 @@
 # Module 09 — Deploy to AWS (CDK `Hosting`)
 
 **Goal:** ship the finished app to AWS. Every mock's real counterpart — Cognito-less auth
-on DynamoDB, DynamoDB tables, API Gateway WebSocket, Bedrock, SQS/Lambda — comes online for the
-first time, fronted by CloudFront + S3.
+on DynamoDB, DynamoDB tables, API Gateway WebSocket, Bedrock on AgentCore Runtime — comes online
+for the first time, fronted by CloudFront + S3.
 
 **Introduced:** CDK `Hosting`, the sandbox/prod deploy flow
 **Time:** ~45 minutes (plus AWS provisioning wait)
@@ -50,7 +50,7 @@ Your code is identical; the runtime underneath swaps:
 | AuthBasic        | file-backed JWT             | DynamoDB + JWT                    |
 | DistributedTable | JSON in `.bb-data/`         | DynamoDB (+ GSIs)                 |
 | Realtime         | local WebSocket on :3001    | API Gateway WebSocket (WSS)       |
-| Agent            | Ollama / canned, in-process | **SQS → Lambda → Bedrock**, async |
+| Agent            | Ollama / canned, in-process | **AgentCore Runtime → Bedrock**, async |
 
 The Agent row is the one that bites people: locally `stream()` round-trips in one process;
 deployed it crosses Lambda invocations and calls Bedrock. **"Works locally, breaks
@@ -98,8 +98,11 @@ npm run destroy          # tear down the production stack
 
 > **Two things to know before you deploy, not after.**
 >
-> **This costs money.** You are provisioning CloudFront, API Gateway, Lambda, DynamoDB and
-> SQS. Idle cost is small but not zero, and it accrues until you tear it down.
+> **This costs money.** You are provisioning CloudFront, API Gateway, Lambda, DynamoDB and a
+> Bedrock AgentCore Runtime for the AI DM, plus a CloudWatch alarm and its SNS topic. The
+> production preset also turns on point-in-time recovery for the DynamoDB tables, which adds
+> a small backup charge. Idle cost is small but not zero, and it accrues until you tear it
+> down.
 >
 > **`destroy` is slower and less complete than `sandbox:destroy`.** The relaxed removal
 > policies you read about above apply in **sandbox** mode — a production stack may keep

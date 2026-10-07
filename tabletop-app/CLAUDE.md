@@ -111,12 +111,12 @@ but as real AWS services when deployed:
 
 | Block        | Local                          | Deployed                             |
 |--------------|--------------------------------|--------------------------------------|
-| Agent        | Ollama or canned, in-process   | **SQS → Lambda → Bedrock**, async    |
+| Agent        | Ollama or canned, in-process   | **Bedrock AgentCore Runtime → Bedrock**, async |
 | Realtime     | local WebSocket on :3001       | API Gateway WebSocket (WSS)          |
 | DistributedTable | file mock                  | DynamoDB (+ GSIs)                    |
-| AsyncJob     | runs synchronously in-process  | separate SQS-triggered invocation    |
 
-The Agent's `stream()` enqueues an AsyncJob and `complete()` waits for a `done` chunk
-over Realtime. Locally that round-trips in one process; deployed it crosses Lambda
-invocations. Anything that works locally but not deployed is almost always a
+The Agent's `stream()` submits the turn and returns a `channelId` right away, and
+`complete()` waits for a `done` chunk over Realtime. Locally the agent loop runs in the
+dev-server process; deployed it runs on a Bedrock AgentCore Runtime and publishes chunks
+through API Gateway WebSocket. Anything that works locally but not deployed is almost always a
 Bedrock/IAM/model-availability issue — check CloudWatch, not the code, first.

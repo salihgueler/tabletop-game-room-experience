@@ -49,6 +49,7 @@ key, no index. (The lobby in module 04 needs an index — that's the next lesson
 
    ```ts
    import {
+     ApiError,
      ApiNamespace,
      Scope,
      AuthBasic,

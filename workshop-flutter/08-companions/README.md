@@ -49,7 +49,7 @@ The guard exists in **two places, and only one of them counts**:
 ```ts
 const host = state.players.find((p) => p.slot === 0);
 if (host?.userId !== user.username)
-  throw new Error("Only the host can advance a companion turn");
+  throw new ApiError("Only the host can advance a companion turn", 403, { name: "NotHost" });
 ```
 
 That server check is what makes it correct — it's the same shape as the one already on
@@ -231,7 +231,7 @@ async advanceBotTurn(gameId: string) {
   const state = await loadState(gameId);
   const host = state.players.find((p) => p.slot === 0);
   if (host?.userId !== user.username)
-    throw new Error("Only the host can advance a companion turn");
+    throw new ApiError("Only the host can advance a companion turn", 403, { name: "NotHost" });
   // ... rest of the method unchanged
 ```
 

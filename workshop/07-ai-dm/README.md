@@ -98,6 +98,7 @@ model rather than a preset alias that Bedrock can silently re-point.)
 
 ```ts
 import {
+  ApiError,
   ApiNamespace,
   Scope,
   AuthBasic,

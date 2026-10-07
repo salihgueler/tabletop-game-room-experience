@@ -147,10 +147,24 @@ These act on the **signed-in** user via `context`.
 | `fetchAuthSession(context, options?)` | `Promise<AuthSession>` — `{ tokens?: { idToken, accessToken }, userSub? }`; `{ forceRefresh: true }` rotates. Use only to call a non-Blocks AWS service that needs a Cognito JWT, not for identity checks. |
 | `fetchUserAttributes(context)` | `Promise<Partial<Record<attr, string>>>` — live fetch |
 
-`CognitoUser` is `{ userId, username, userSub, groups, attributes }`. A group
-change does not affect an existing session until the token refreshes
-(`requireRole` reads the `cognito:groups` claim), i.e. on next sign-in or
-`fetchAuthSession({ forceRefresh: true })`.
+`CognitoUser` is `{ userId, username, userSub, groups, attributes }`.
+
+**`requireRole` reads group membership live** (`bb-auth-cognito@0.1.11`): it calls
+`AdminListGroupsForUser` (paginated) on every guarded request, and the returned
+`CognitoUser.groups` reflects that live read. An `addUserToGroup` or
+`removeUserFromGroup` takes effect on the user's **next request**, with no
+re-login. Before 0.1.11 it trusted the `cognito:groups` token claim, so a newly
+added admin got 403 and a removed one kept access until the token refreshed.
+
+- Cost: one extra Cognito call per `requireRole` call.
+- `requireAuth`, `getCurrentUser` and `signIn` still return the **cached** claim
+  in `groups`. Use `requireRole` when membership must be current.
+- `cognito-idp:AdminListGroupsForUser` is now granted to the execution role
+  unconditionally; every other `Admin*` action still needs the `admin` opt-in.
+
+Cognito SDK failures reach the client with a BB-authored message keyed on the
+exception name, not the raw SDK text (`bb-auth-cognito@0.1.11`). `name`, status
+and `retriable` are unchanged.
 
 **Profile mutations:** `updatePassword(ctx, old, new)`,
 `updateUserAttributes(ctx, attrs)`, `updateUserAttribute(ctx, name, value)`,

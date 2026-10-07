@@ -91,7 +91,7 @@ Diagram: [`../designs/architecture.excalidraw`](../designs/architecture.excalidr
   `llama3.1:8b`** locally, and a canned provider as an offline fallback. Configured
   in `aws-blocks/index.ts`.
 - **Local vs deployed**: every block runs as an in-memory/file mock locally and as a
-  real AWS service when deployed (Agent → SQS + Lambda + Bedrock, Realtime → API Gateway
+  real AWS service when deployed (Agent → Bedrock AgentCore Runtime + Bedrock, Realtime → API Gateway
   WebSocket, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost
   always a Bedrock/IAM/model issue — check CloudWatch first.
 - The frontend imports the fully-typed `api` / `authApi` clients from the

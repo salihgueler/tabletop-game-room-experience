@@ -10,7 +10,7 @@
 //   3. Resolves each against the INSTALLED package's type surface: reads the
 //      package.json "types"/"exports" to find the .d.ts (falls back to API.md),
 //      and flags any identifier the skill mentions that is NOT found there.
-//   4. Prints a pinned-vs-installed version diff (skill pins 0.6.0 in SKILL.md
+//   4. Prints a pinned-vs-installed version diff (skill pins 0.7.0 in SKILL.md
 //      vs the installed @aws-blocks/blocks version).
 //
 // Exit codes: non-zero when misses are found. If no install is available it
@@ -24,7 +24,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SKILL_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const PINNED_VERSION = '0.6.0'; // must match the pin in SKILL.md
+const PINNED_VERSION = '0.7.0'; // must match the pin in SKILL.md
 
 // ---- args -----------------------------------------------------------------
 function parseArgs(argv) {
@@ -123,28 +123,106 @@ function resolveDts(nodeModules, root, sub) {
   };
 }
 
+// `export * from '<spec>'` — a d.ts that republishes another module's whole
+// surface. These MUST be followed: `@aws-blocks/blocks` is an umbrella whose
+// index.d.ts is little more than `export * from '@aws-blocks/core'`, so without
+// following them every inherited symbol (Scope, ApiNamespace, Hosting, ...)
+// reads as a miss and the guard fails a correct skill. `export * as ns from` is
+// deliberately NOT followed: it binds a namespace, not flat names.
+function extractStarReexports(text) {
+  const specs = [];
+  const re = /export\s+\*\s+from\s*['"]([^'"]+)['"]/g;
+  let m;
+  while ((m = re.exec(text)) !== null) specs.push(m[1]);
+  return specs;
+}
+
+// Resolve a relative star-re-export ('./stack-id.js') to its .d.ts sibling.
+function resolveLocalDts(baseDir, spec) {
+  const base = spec.replace(/\.m?js$/, '');
+  for (const cand of [`${base}.d.ts`, join(base, 'index.d.ts')]) {
+    const p = resolve(baseDir, cand);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+// Memo keyed by file/package. The Set is registered BEFORE recursing so an
+// import cycle resolves to the in-progress Set instead of recursing forever.
+const surfaceCache = new Map();
+function cachedSurface(key, fill) {
+  if (surfaceCache.has(key)) return surfaceCache.get(key);
+  const names = new Set();
+  surfaceCache.set(key, names);
+  fill(names);
+  return names;
+}
+
+function scanDeclarations(text, into) {
+  const re =
+    /\b(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class|interface|type|function|const|let|var|enum|namespace)\s+([A-Za-z_$][\w$]*)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) into.add(m[1]);
+  // `export { A, B as C }` re-exports
+  const re2 = /export\s*\{([^}]*)\}/g;
+  while ((m = re2.exec(text)) !== null) {
+    m[1]
+      .split(',')
+      .map((s) => s.trim().split(/\s+as\s+/).pop().trim())
+      .filter((s) => /^[A-Za-z_$][\w$]*$/.test(s))
+      .forEach((s) => into.add(s));
+  }
+}
+
+function starSurface(spec, baseDir, ctx) {
+  if (ctx.depth >= 6) return new Set(); // pathological nesting guard
+  const next = { ...ctx, depth: ctx.depth + 1 };
+  if (spec.startsWith('.')) {
+    const p = resolveLocalDts(baseDir, spec);
+    if (!p) return new Set();
+    return cachedSurface(`file:${p}`, (into) => {
+      for (const n of surfaceOf(p, null, next)) into.add(n);
+    });
+  }
+  // Only @aws-blocks/* is in scope; a third-party star re-export is not drift
+  // this guard can reason about.
+  if (!spec.startsWith('@aws-blocks/')) return new Set();
+  return rootUnionSurface(splitPkg(spec).root, next);
+}
+
+// Union every subpath surface of a package root. The umbrella re-exports many
+// symbols across subpaths (./cdk, ./ui, ./server, ...), so a symbol the skill
+// imports from the root may physically live in a subpath d.ts.
+function rootUnionSurface(root, ctx) {
+  return cachedSurface(`root:${root}`, (into) => {
+    const pkg = readJson(join(ctx.nodeModules, root, 'package.json'));
+    const subs = new Set(['.']);
+    if (pkg?.exports && typeof pkg.exports === 'object') {
+      for (const k of Object.keys(pkg.exports)) if (!k.includes('*')) subs.add(k);
+    }
+    for (const s of subs) {
+      const { dts, apiMd } = resolveDts(ctx.nodeModules, root, s);
+      for (const n of surfaceOf(dts, apiMd, ctx)) into.add(n);
+    }
+  });
+}
+
 // Gather the identifier "surface" of a package from its .d.ts and/or API.md.
 // Regex-only: collect exported/declared names — good enough to answer
 // "does the skill mention a symbol the install has never heard of?".
-function surfaceOf(dtsPath, apiMdPath) {
+// `ctx` ({ nodeModules, depth }) enables star-re-export following; omit it for
+// a single-file scan.
+function surfaceOf(dtsPath, apiMdPath, ctx) {
   const names = new Set();
-  const scan = (text) => {
-    const re =
-      /\b(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class|interface|type|function|const|let|var|enum|namespace)\s+([A-Za-z_$][\w$]*)/g;
-    let m;
-    while ((m = re.exec(text)) !== null) names.add(m[1]);
-    // `export { A, B as C }` re-exports
-    const re2 = /export\s*\{([^}]*)\}/g;
-    while ((m = re2.exec(text)) !== null) {
-      m[1]
-        .split(',')
-        .map((s) => s.trim().split(/\s+as\s+/).pop().trim())
-        .filter((s) => /^[A-Za-z_$][\w$]*$/.test(s))
-        .forEach((s) => names.add(s));
+  const scan = (text, baseDir) => {
+    scanDeclarations(text, names);
+    if (!ctx) return;
+    for (const spec of extractStarReexports(text)) {
+      for (const n of starSurface(spec, baseDir, ctx)) names.add(n);
     }
   };
-  if (dtsPath) scan(readFileSync(dtsPath, 'utf8'));
-  if (apiMdPath) scan(readFileSync(apiMdPath, 'utf8'));
+  if (dtsPath) scan(readFileSync(dtsPath, 'utf8'), dirname(dtsPath));
+  if (apiMdPath) scan(readFileSync(apiMdPath, 'utf8'), dirname(apiMdPath));
   return names;
 }
 
@@ -199,37 +277,19 @@ function main() {
     }
   }
 
-  // Union every subpath surface of a package root — the umbrella re-exports many
-  // symbols across subpaths (./cdk, ./ui, ./server, ...), so a symbol the skill
-  // imports from the root may physically live in a subpath d.ts. Checking against
-  // the union avoids false "misses" while still catching genuinely-unknown names.
-  const unionCache = new Map(); // root -> Set<symbol>
-  function rootUnionSurface(root) {
-    if (unionCache.has(root)) return unionCache.get(root);
-    const pkg = readJson(join(nodeModules, root, 'package.json'));
-    const subs = new Set(['.']);
-    if (pkg?.exports && typeof pkg.exports === 'object') {
-      for (const k of Object.keys(pkg.exports)) if (!k.includes('*')) subs.add(k);
-    }
-    const names = new Set();
-    for (const s of subs) {
-      const { dts, apiMd } = resolveDts(nodeModules, root, s);
-      for (const n of surfaceOf(dts, apiMd)) names.add(n);
-    }
-    unionCache.set(root, names);
-    return names;
-  }
+  // Star-re-export-aware surface context, shared across every lookup below.
+  const ctx = { nodeModules, depth: 0 };
 
   const misses = [];
   for (const [spec, { root, sub, ids }] of wanted) {
     const { dts, apiMd, version } = resolveDts(nodeModules, root, sub);
-    const union = rootUnionSurface(root);
+    const union = rootUnionSurface(root, ctx);
     if (!dts && !apiMd && union.size === 0) {
       console.log(`drift-guard: ${root} not installed (or no types/API.md) — skipping ${ids.size} id(s)`);
       continue;
     }
     // Exact subpath surface, falling back to the package-wide union.
-    const surface = dts || apiMd ? surfaceOf(dts, apiMd) : new Set();
+    const surface = dts || apiMd ? surfaceOf(dts, apiMd, ctx) : new Set();
     console.log(
       `drift-guard: ${spec}@${version ?? '?'} surface ${surface.size} (root union ${union.size}), ` +
         `checking ${ids.size} skill id(s)`,

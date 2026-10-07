@@ -54,7 +54,7 @@ request is mysteriously a 401 because the cookie never rode along.
 Update the blocks import to have `AuthBasic`:
 
 ```ts
-import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
+import { ApiError, ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
 ```
 
 Now, right after `const scope = new Scope("tt")`, construct the block:
@@ -204,7 +204,7 @@ client — and calls them on form submit. So the request path is
 `AuthScreen → api.js helper → authApi.setAuthState → AuthBasic`. It never imports the Blocks
 client directly, which is why swapping the fake for the real Block changed nothing here.
 
-**`app/src/App.jsx`** is where auth becomes app state (around L60-82). On mount it awaits
+**`app/src/App.jsx`** is where auth becomes app state (around L50-77). On mount it awaits
 `authApi.getAuthState()` once to hydrate the current session before rendering any screen —
 this is the reload-and-stay-signed-in behavior, and it's a plain `await` inside a
 `useEffect`, no different from fetching `/me` on boot. Then it subscribes:

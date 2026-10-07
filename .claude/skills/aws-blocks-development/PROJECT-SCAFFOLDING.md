@@ -48,16 +48,22 @@ files match (e.g. `nextjs` gives a `server.ts` that runs `next dev`).
 The template set is discovered from `templates/<name>/` folders (each ships a
 `package.json` with `blocksTemplate` + `blocksTemplateDescription`). Current set:
 
-| Template | Description (from its package.json) |
+| Template | Description (from its package.json, `create-blocks-app@0.2.0`) |
 |----------|-------------------------------------|
 | **default** | Vite + lit-html frontend with auth, DynamoDB, and realtime (safe default) |
-| **bare** | Minimal starter |
-| **react** | Client-side React (Vite) calling a Blocks backend |
-| **backend** | Headless API/backend, no frontend |
-| **nextjs** | Next.js 16 App Router, Server + Client Components calling Blocks |
-| **auth-cognito** | Cognito-based auth starter |
-| **amplify** | Overlay-only — auto-selected for Amplify Gen 2 projects; cannot be scaffolded fresh |
-| **demo** | Feature showcase |
+| **bare** | Vite + lit-html frontend with a single greet() API (smallest starter) |
+| **react** | Vite + React 19 frontend with auth, DynamoDB, and realtime todo app |
+| **backend** | Backend-only: Blocks API + CDK, no frontend (bring your own client) |
+| **api-only** | Headless JSON API service: public health check + auth-gated CRUD over a `DistributedTable`, no frontend (for a mobile/CLI/3rd-party client). New in 0.2.0 |
+| **sql** | PostgreSQL backend on the `Database` block: `.sql` migrations, a notebooks → notes foreign key (`ON DELETE CASCADE`), per-user ownership, parameterized `sql` queries, a transaction. PGlite locally, Aurora Serverless v2 on deploy. New in 0.2.0 |
+| **nextjs** | Next.js 16 App Router with Server + Client Components calling Blocks (local `npm run dev` runs Next with webpack) |
+| **auth-cognito** | Vite + vanilla-DOM frontend with Cognito passwordless email-OTP auth end-to-end |
+| **amplify** | Overlay for an existing Amplify Gen 2 app (auto-selected when detected); cannot be scaffolded fresh |
+| **demo** | AuthBasic + KVStore + DynamoDB priority-sorted todo (Vite, vanilla-DOM) |
+
+Pick `backend` for a bare stub you will replace, `api-only` when you want a
+working service skeleton (auth + CRUD) behind a non-web client, and `sql` when
+the data is relational.
 
 `amplify` is flagged `blocksTemplateOverlayOnly` and is rejected by fresh mode —
 it ships only an overlay snippet, not a standalone app.
@@ -212,6 +218,12 @@ hello-world. `aws-blocks/index.ts` defines:
 The frontend (`src/`) is lit-html, subscribes to the `todos` namespace, and
 reloads on change. Tests live in `test/e2e.test.ts`, run with `npm run test:e2e`.
 
+The scaffolded e2e tests start with a readiness check on
+`/.blocks-sandbox/config.json` that does not depend on the sample API, then test
+the sample API (`greet`, the todo CRUD, …). When you replace the sample API,
+update or delete those sample assertions (they carry a comment saying so); the
+readiness check keeps passing either way.
+
 ## npm scripts by template
 
 The root `package.json` scripts of a **fresh** Vite template (`default`):
@@ -233,7 +245,26 @@ The root `package.json` scripts of a **fresh** Vite template (`default`):
 | `vendorize` | `blocks-vendorize` |
 
 A production `destroy` script and `aws-blocks/scripts/destroy.ts` are shipped by
-every scaffoldable template — you do not write one by hand.
+every scaffoldable template — you do not write one by hand. Every template has a
+`spec` script (`react` gained it in `create-blocks-app@0.2.0`).
+
+### Detecting a finished deploy (`core@0.6.0`)
+
+On success, `npm run deploy` prints one stable **last line**:
+
+```
+BLOCKS_DEPLOYED url=<frontend url> api=<backend url>
+```
+
+A backend-only app omits `url=`. `npm run sandbox` prints the same token on
+success (always backend-only: `BLOCKS_DEPLOYED api=<backend url>`, since the
+sandbox serves the frontend locally). Scripts, CI steps and agents should grep
+for `BLOCKS_DEPLOYED` instead of parsing CloudFormation output or polling the
+stack. While a deploy runs, the heartbeat names the resource it is waiting on
+(e.g. `waiting on HostingDistribution (AWS::CloudFront::Distribution)`), warns
+when a resource rolls back, and prints the frontend URL early, so a deploy you
+had to kill has still told you where the app lives. The human-readable
+`Deployment complete!` lines are unchanged.
 
 ## Post-scaffold steps
 

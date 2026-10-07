@@ -27,6 +27,8 @@ Two primitives worth understanding now:
 - **`Scope("tt")`** — prefixes every resource name. Short ids keep Realtime channel paths, logs, and URLs readable.
 - **`ApiNamespace`** — wraps an object of async functions into an API surface. Every top-level `export` of an `ApiNamespace` becomes a callable method on the generated client.
 
+The game reports player-facing errors ("Not your turn", "Game not found") with `new ApiError(message, status, { name })`, which sends the status, message and name to the Flutter client. A plain `throw new Error(...)` arrives as a generic 500 `"Internal error"` (the real message is only logged on the server), so keep using `ApiError` for every error a player should read.
+
 ## Steps
 
 ### 1. Create the backend

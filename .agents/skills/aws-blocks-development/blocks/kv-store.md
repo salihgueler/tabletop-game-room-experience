@@ -43,12 +43,26 @@ await store.put('key', 'newValue', { ifValueEquals: 'oldValue' }); // optimistic
 await store.put('key', 'value', { ifNotExists: true });            // create-only
 await store.delete('key', { ifExists: true });
 await store.delete('key', { ifValueEquals: 'expected' });
+await store.delete('key', { ifExists: true, ifValueEquals: 'expected' }); // both must hold
 
 // Scan all entries (AsyncIterable) — collect with Array.fromAsync or for await
 for await (const { key, value } of store.scan()) {
   console.log(key, value);
 }
 ```
+
+How conditions combine:
+
+- **`put`**: `ifNotExists` + `ifValueEquals` together mean "create it, or update
+  it only if unchanged" (OR): the write fails only when the key exists **and**
+  the value differs.
+- **`delete`**: `ifExists` + `ifValueEquals` together must **both** hold (AND).
+  Before `bb-kv-store@0.3.0` the AWS runtime silently dropped the value check
+  when both were set, while the mock enforced it. `ifValueEquals: undefined` is
+  ignored (unconditional delete); `null` is a real condition.
+- A failed condition throws `KVStoreErrors.ConditionalCheckFailed`, which
+  reaches the client as status **409**, `retriable: true` for value conflicts and
+  not retriable for `ifNotExists` / `ifExists`.
 
 Data methods are runtime-only — call them inside a handler, not at the top level
 of `aws-blocks/index.ts` (top-level runs during CDK synth, where the block is an
@@ -73,8 +87,34 @@ interface KVStoreOptions<T = string> {
   table?: ExternalTableRef;              // wrap an existing table — see below
   removalPolicy?: 'destroy' | 'retain';
   deletionProtection?: boolean;
+  pointInTimeRecovery?: boolean | { retentionDays: number }; // bb-kv-store@0.3.0
+  encryption?: 'aws-managed' | 'customer-managed' | ExternalKmsKeyRef; // bb-kv-store@0.3.0
   logger?: ChildLogger;
 }
+```
+
+### Backups and encryption (`bb-kv-store@0.3.0`)
+
+These mirror `DistributedTable` and are ignored by the local mock.
+
+- **`pointInTimeRecovery`**: when omitted, follows `defaults.pointInTimeRecovery`:
+  **on** under `BlocksPresets.production`, off under `sandbox`. `true` uses the
+  35-day window, `{ retentionDays: n }` pins it (1–35), `false` turns it off.
+  Before 0.3.0 KVStore ignored the preset, so a production app had no PITR even
+  though the preset said otherwise. On upgrade, the next production deploy turns
+  PITR on for existing tables in place (no replacement), billed per GB-month of
+  table size.
+- **`encryption`**: `'aws-managed'` (default) uses the `aws/dynamodb` KMS key;
+  `'customer-managed'` provisions a dedicated CMK per table;
+  `KVStore.fromKmsKey(arn)` returns an `ExternalKmsKeyRef` to share one existing
+  key across stores. The default changed in 0.3.0: before, no SSE spec was
+  emitted (AWS-owned key). Upgrading applies the switch in place, and the
+  `aws/dynamodb` key adds per-request KMS charges.
+
+```typescript
+const key = KVStore.fromKmsKey('arn:aws:kms:us-east-1:111122223333:key/abcd-1234');
+const sessions = new KVStore(scope, 'sessions', { encryption: key, pointInTimeRecovery: { retentionDays: 7 } });
+const audit = new KVStore(scope, 'audit', { encryption: key });
 ```
 
 `table` and `fromExisting` are two halves of the **same** feature, not
@@ -87,6 +127,12 @@ const store = new KVStore(scope, 'legacy', {
   table: KVStore.fromExisting('my-existing-table'),
 });
 ```
+
+A wrapped table is not managed by Blocks, so its table-level options do nothing.
+Passing `removalPolicy`, `deletionProtection`, `ttl`, `pointInTimeRecovery` or
+`encryption` together with `table` **warns at synth** (`bb-kv-store@0.3.0`; before
+that only the last two warned). Under `cdk synth --strict` the warning fails the
+build, so drop those options from the wrapped-table call.
 
 ## TTL (per-item expiry)
 

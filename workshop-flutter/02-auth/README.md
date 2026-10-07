@@ -53,7 +53,7 @@ real Block.
 Add the `AuthBasic` to the import in `backend/aws-blocks/index.ts`:
 
 ```ts
-import { ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
+import { ApiError, ApiNamespace, Scope, AuthBasic } from "@aws-blocks/blocks";
 ```
 
 ### 2. Add the AuthBasic Building Block
@@ -72,11 +72,14 @@ const auth = new AuthBasic(scope, "auth", {
 Replace the below hand-rolled auth namespace:
 
 ```ts
-export const authApi = new ApiNamespace(
-  scope,
-  "authApi",
-  (context) => fakeAuthApi,
-);
+export const authApi = new ApiNamespace(scope, "authApi", (context) => ({
+  async getAuthState(): Promise<AuthState> {
+    return fakeAuthApi.getAuthState();
+  },
+  async setAuthState(input: AuthActionInput): Promise<AuthState> {
+    return fakeAuthApi.setAuthState(input);
+  },
+}));
 ```
 
 with the following:
@@ -190,12 +193,12 @@ Backend check — unauthenticated calls must now be rejected:
 curl -s -X POST http://localhost:3001/aws-blocks/api \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"api.getCharacter","params":[],"id":1}'
-# → {"error":{"code":500,"message":"Authentication required",
+# → {"error":{"code":401,"message":"Authentication required",
 #              "data":{"name":"SessionExpiredException"}},...}
 #
 # Note the shape: the HTTP status is 200 and the failure is carried in the JSON-RPC
-# `error` object, whose `code` is 500 — the generic server-error code — not 401.
-# What proves the guard works is the message, not the number.
+# `error` object. Its `code` is the error's status (401 for a missing session), and
+# `data.name` tells the client which error it was.
 ```
 
 Flutter check:

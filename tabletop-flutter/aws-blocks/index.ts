@@ -13,6 +13,7 @@
  *                         canned fallback offline)
  */
 import {
+  ApiError,
   ApiNamespace,
   Scope,
   AuthBasic,
@@ -780,7 +781,7 @@ async function syncLobbyStatus(state: GameState) {
 
 async function loadState(gameId: string): Promise<GameState> {
   const state = await gameStates.get({ gameId });
-  if (!state) throw new Error("Game not found");
+  if (!state) throw new ApiError("Game not found", 404, { name: "GameNotFound" });
   return state;
 }
 
@@ -1145,7 +1146,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   }) {
     const user = await auth.requireAuth(context);
     const character = await characters.get({ userId: user.username });
-    if (!character) throw new Error("Choose a character first");
+    if (!character) throw new ApiError("Choose a character first", 400, { name: "CharacterRequired" });
 
     const gameId = uid();
     const scenario = (SCENARIOS as readonly string[]).includes(input.scenario)
@@ -1228,7 +1229,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       }),
     );
     const game = all.find((g) => g.accessCode && g.accessCode === accessCode);
-    if (!game) throw new Error("No game found for that access code");
+    if (!game) throw new ApiError("No game found for that access code", 404, { name: "AccessCodeNotFound" });
     return { gameId: game.gameId };
   },
 
@@ -1256,7 +1257,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   async joinGame(gameId: string) {
     const user = await auth.requireAuth(context);
     const character = await characters.get({ userId: user.username });
-    if (!character) throw new Error("Choose a character first");
+    if (!character) throw new ApiError("Choose a character first", 400, { name: "CharacterRequired" });
     const state = await loadState(gameId);
 
     if (state.players.some((p) => p.userId === user.username)) {
@@ -1286,7 +1287,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     const state = await loadState(gameId);
     const host = state.players.find((p) => p.slot === 0);
     if (host?.userId !== user.username)
-      throw new Error("Only the host can start the game");
+      throw new ApiError("Only the host can start the game", 403, { name: "NotHost" });
     if (state.roomPhase === "live") return { gameId };
     fillOpenSeatsWithAi(state);
     await beginAdventure(state);
@@ -1306,12 +1307,12 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
     // resolving the action.
     if (await finalizeIfExpired(state)) return await saveAndBroadcast(state);
     if (state.roomPhase !== "live")
-      throw new Error("The game has not started yet");
+      throw new ApiError("The game has not started yet", 409, { name: "GameNotStarted" });
     const actor = state.players[state.turnIndex];
-    if (state.phase !== "player") throw new Error("Not ready for an action");
+    if (state.phase !== "player") throw new ApiError("Not ready for an action", 409, { name: "NotReadyForAction" });
     // Only the human who owns the CURRENT seat may act.
     if (actor.seat !== "human" || actor.userId !== user.username)
-      throw new Error("Not your turn");
+      throw new ApiError("Not your turn", 409, { name: "NotYourTurn" });
 
     await resolveAction(state, action);
     await advanceTurn(state);

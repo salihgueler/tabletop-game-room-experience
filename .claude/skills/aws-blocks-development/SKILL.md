@@ -10,11 +10,12 @@ it with no codegen, both defined in one `aws-blocks/` workspace and deployed wit
 CDK. This file is the map — it routes you to the right block file and the
 top-level references; per-block API detail lives in those files, not here.
 
-**Pinned version.** This skill targets published `@aws-blocks/blocks@0.6.0`
-(2026-09-17, npm `latest`). Every API claim here is written against that release.
+**Pinned version.** This skill targets published `@aws-blocks/blocks@0.7.0`
+(2026-10-05, npm `latest`). Every API claim here is written against that release.
 Individual Building Blocks version independently under the umbrella (e.g.
-`bb-agent@0.4.1`, `bb-data@0.3.0`, `core@0.5.0`, `hosting@0.3.1`); when a claim is
-version-sensitive it names the component version inline.
+`bb-agent@0.5.0`, `bb-kv-store@0.3.0`, `bb-realtime@0.3.0`, `core@0.6.0`,
+`hosting@0.4.0`); when a claim is version-sensitive it names the component
+version inline.
 
 ## Contents
 
@@ -52,9 +53,13 @@ Templates (run `--help` for the live list — the CLI reads each template's
 `blocksTemplateDescription`, so it is the source of truth): `default`
 (Vite + lit-html, auth + DynamoDB + realtime), `react`, `nextjs` (App Router,
 SSR), `demo` (todo + auth), `auth-cognito`, `amplify` (add to an Amplify Gen 2
-app), `backend` (API-only, no frontend), `bare` (minimal). Adding to an existing
+app), `backend` (bare backend stub, no frontend), `api-only` (headless JSON API:
+public health check + auth-gated `DistributedTable` CRUD), `sql` (PostgreSQL on
+the `Database` block with `.sql` migrations, foreign keys and a transaction),
+`bare` (minimal). `api-only` and `sql` are new in `create-blocks-app@0.2.0`.
+Adding to an existing
 project or Amplify app: run it in the project root (`npx @aws-blocks/create-blocks-app .`).
-See PROJECT-SCAFFOLDING.md for what fresh vs. existing-project mode does.
+See [PROJECT-SCAFFOLDING.md](PROJECT-SCAFFOLDING.md) for what fresh vs. existing-project mode does.
 
 **Which auth?** All three implement one `BlocksAuth` interface, so the frontend
 UI code is identical across them.
@@ -81,25 +86,29 @@ UI code is identical across them.
 
 Read the block file when you work with that block; each is self-contained.
 Core (`api-namespace`, `raw-route`) and the JSON-RPC wire model are in
-CORE-ARCHITECTURE.md.
+[CORE-ARCHITECTURE.md](CORE-ARCHITECTURE.md).
 
-| Category | Blocks (→ `blocks/<name>.md`) |
+| Category | Blocks |
 |---|---|
-| Core / API | `api-namespace`, `raw-route` |
-| Auth | `auth-basic`, `auth-cognito`, `auth-oidc` |
-| Data | `kv-store`, `distributed-table`, `database`, `distributed-database` |
-| Storage | `file-bucket` |
-| Messaging | `realtime`, `email-client` |
-| Compute | `async-job`, `cron-job` |
-| AI | `agent`, `knowledge-base` |
-| Config | `app-setting` |
-| Observability | `logger`, `metrics`, `tracer`, `dashboard` |
-| Hosting / CI-CD | `hosting`, `pipeline` |
+| Core / API | [api-namespace](blocks/api-namespace.md), [raw-route](blocks/raw-route.md) |
+| Auth | [auth-basic](blocks/auth-basic.md), [auth-cognito](blocks/auth-cognito.md), [auth-oidc](blocks/auth-oidc.md) |
+| Data | [kv-store](blocks/kv-store.md), [distributed-table](blocks/distributed-table.md), [database](blocks/database.md), [distributed-database](blocks/distributed-database.md) |
+| Storage | [file-bucket](blocks/file-bucket.md) |
+| Messaging | [realtime](blocks/realtime.md), [email-client](blocks/email-client.md) |
+| Compute | [async-job](blocks/async-job.md), [cron-job](blocks/cron-job.md) |
+| AI | [agent](blocks/agent.md), [knowledge-base](blocks/knowledge-base.md) |
+| Config | [app-setting](blocks/app-setting.md) |
+| Observability | [logger](blocks/logger.md), [metrics](blocks/metrics.md), [tracer](blocks/tracer.md), [dashboard](blocks/dashboard.md) |
+| Hosting / CI-CD | [hosting](blocks/hosting.md), [pipeline](blocks/pipeline.md) |
 
-Top-level references: CORE-ARCHITECTURE.md (Scope, ApiNamespace, JSON-RPC, error
-model, CORS, `withAuth` SSR), PROJECT-SCAFFOLDING.md, TESTING-REFERENCE.md,
-EXTENDING-EXISTING-RESOURCES.md (adopting existing AWS resources),
-COMPOSITION-RECIPES.md, NATIVE-CLIENTS.md (Swift/Kotlin/Dart), TROUBLESHOOTING.md.
+Top-level references: [CORE-ARCHITECTURE.md](CORE-ARCHITECTURE.md) (Scope,
+ApiNamespace, JSON-RPC, error model, CORS, `withAuth` SSR),
+[PROJECT-SCAFFOLDING.md](PROJECT-SCAFFOLDING.md),
+[TESTING-REFERENCE.md](TESTING-REFERENCE.md),
+[EXTENDING-EXISTING-RESOURCES.md](EXTENDING-EXISTING-RESOURCES.md) (adopting
+existing AWS resources), [COMPOSITION-RECIPES.md](COMPOSITION-RECIPES.md),
+[NATIVE-CLIENTS.md](NATIVE-CLIENTS.md) (Swift/Kotlin/Dart),
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## Package entry points (subpath exports)
 
@@ -178,7 +187,7 @@ const result = await api.greet(); // fully typed, no codegen
 
 Every method is a public endpoint by default — gate the ones that need it with
 `requireAuth`. Full API model (JSON-RPC wire format, error handling, SSR): see
-CORE-ARCHITECTURE.md.
+[CORE-ARCHITECTURE.md](CORE-ARCHITECTURE.md).
 
 ## Verification workflow
 
@@ -235,7 +244,10 @@ tmux kill-session -t blocks
 
 For a **sandbox** the deploy takes 2–3 minutes (CDK / CloudFormation) — same
 detached-poll pattern, and **always `npm run sandbox:destroy` (or `npm run destroy`)
-when you're done** so you don't leave AWS resources running.
+when you're done** so you don't leave AWS resources running. For `sandbox` and
+`deploy`, poll for the line starting `BLOCKS_DEPLOYED` (e.g.
+`BLOCKS_DEPLOYED url=https://… api=https://…`): it is printed last, only on
+success, and carries the URLs.
 
 ## Deployment
 
@@ -252,12 +264,15 @@ scaffolded `index.cdk.ts` constructs `Hosting` only when not in sandbox mode.
 `aws-blocks/index.cdk.ts` (production frontend via Hosting):
 
 ```typescript
-import { Hosting, BlocksStack } from '@aws-blocks/blocks/cdk';
+import { Hosting, BlocksStack, BlocksPresets } from '@aws-blocks/blocks/cdk';
 import { join } from 'node:path';
 
+const sandboxMode = app.node.tryGetContext('sandboxMode') === 'true';
 const blocksStack = await BlocksStack.create(app, 'my-app', {
   backendHandlerPath: join(__dirname, 'index.handler.ts'),
   backendCDKPath: join(__dirname, 'index.ts'),
+  // Required. Start from a preset; override fields with a spread.
+  defaults: sandboxMode ? BlocksPresets.sandbox : BlocksPresets.production,
 });
 
 new Hosting(blocksStack, 'Hosting', {
@@ -286,23 +301,35 @@ the full RPC endpoint — `http://localhost:3000/aws-blocks/api`, never `/api`:
 
 SSR cookie forwarding (so a signed-in user's session reaches the API during
 render) is handled by `withAuth` from `@aws-blocks/blocks/server` — see the
-`withAuth (SSR)` section of CORE-ARCHITECTURE.md.
+`withAuth (SSR)` section of [CORE-ARCHITECTURE.md](CORE-ARCHITECTURE.md).
 
 ### Production checklist
 
 Before a real `deploy`, confirm each of these:
 
-- **CORS:** set `CORS_ALLOWED_ORIGINS` explicitly (comma-separated anchored
-  regexes) — never a wildcard. The Hosting construct is same-origin so it needs
-  none; a separate frontend origin does. See CORE-ARCHITECTURE.md § CORS.
-- **Rate limiting / WAF:** API Gateway throttling and AWS WAF are **not** added
-  by the framework — wire them via CDK for any public-facing app.
+- **CORS:** list extra origins in `defaults.allowedOrigins` (anchored regexes;
+  each entry must match the whole origin as of `core@0.6.0`). Never use a wildcard.
+  The Hosting construct is same-origin so it needs none; a separate frontend
+  origin does. See [CORE-ARCHITECTURE.md](CORE-ARCHITECTURE.md) § CORS.
+- **Rate limiting / WAF:** API Gateway stage throttling comes from
+  `defaults.throttling` (production preset 1000 rps / 2000 burst, sandbox
+  200 / 400); raise it with a spread if you expect more. AWS WAF is **not** added
+  for the API; wire it via CDK for a public-facing app (Hosting has its own `waf`
+  prop for the CloudFront side).
 - **Cross-domain auth:** pass `crossDomain: true` to an auth constructor when the
   frontend and API are on different domains (AuthCognito/AuthOIDC set
   `SameSite=None; Secure; Partitioned`; AuthBasic sets `SameSite=None; Secure`).
 - **Monitoring:** Hosting `monitoring` is **on by default** (`{ enabled: true }`) —
-  confirm you haven't disabled it, and set `snsTopicArn` to route CloudFront 5xx /
-  SSR Lambda alarms to your own topic. See `blocks/hosting.md`.
+  confirm you haven't disabled it, and add `monitoring.subscriptions` (e.g. an
+  `EmailSubscription`) so CloudFront 5xx / SSR Lambda alarms reach someone. For a
+  stack outside us-east-1, set `env: { account, region }` or the CloudFront alarm
+  is skipped. `snsTopicArn` was removed in `hosting@0.4.0`. See `blocks/hosting.md`.
+- **Errors:** throw `ApiError` for anything the client should see. A plain
+  `throw new Error('...')` from an API method reaches the client as a generic
+  `500 "Internal error"` (`core@0.6.0`). See CORE-ARCHITECTURE.md.
+- **KVStore cost:** under the `production` preset every `KVStore` now has
+  Point-in-Time Recovery on and uses the `aws/dynamodb` KMS key (`bb-kv-store@0.3.0`),
+  which adds backup storage and KMS request charges.
 - **IAM:** do not hand-write broad `*` IAM policies — each block already grants
   least-privilege scoped to its own resources.
 
@@ -340,7 +367,9 @@ enough.
   e.g. a constant partition key — for hot paths.
 - **Realtime channel budget:** the full channel path
   `{fullId}/{namespace}/{channel}` must be ≤ **1024 UTF-8 bytes** (DynamoDB
-  sort-key limit) and each published message ≤ **32768 bytes**. Keep Scope IDs
+  sort-key limit) and each published message ≤ **131,072 bytes (128 KiB)**,
+  envelope included (`bb-realtime@0.3.0`; earlier versions capped it at 32 KB).
+  Keep Scope IDs
   short so the path fits — there is no separate namespace-length limit.
 - **Secrets live in `AppSetting`, not `.env`.** Store API keys / credentials with
   `new AppSetting(scope, id, { secret: true })` — never hardcode them or read them
@@ -358,9 +387,9 @@ enough.
 
 ## More references
 
-- Project setup & templates → PROJECT-SCAFFOLDING.md
-- Testing patterns → TESTING-REFERENCE.md
-- Brownfield / existing AWS resources → EXTENDING-EXISTING-RESOURCES.md
-- Multi-block recipes → COMPOSITION-RECIPES.md
-- Common errors & fixes → TROUBLESHOOTING.md
-- Native mobile/desktop clients → NATIVE-CLIENTS.md
+- Project setup & templates → [PROJECT-SCAFFOLDING.md](PROJECT-SCAFFOLDING.md)
+- Testing patterns → [TESTING-REFERENCE.md](TESTING-REFERENCE.md)
+- Brownfield / existing AWS resources → [EXTENDING-EXISTING-RESOURCES.md](EXTENDING-EXISTING-RESOURCES.md)
+- Multi-block recipes → [COMPOSITION-RECIPES.md](COMPOSITION-RECIPES.md)
+- Common errors & fixes → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- Native mobile/desktop clients → [NATIVE-CLIENTS.md](NATIVE-CLIENTS.md)

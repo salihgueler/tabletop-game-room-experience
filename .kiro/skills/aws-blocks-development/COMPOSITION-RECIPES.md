@@ -44,7 +44,7 @@ locking) — a concurrent writer bumps `version`, the condition fails, and `put`
 throws `ConditionalCheckFailedException`.
 
 ```typescript
-import { ApiNamespace, Scope, AuthBasic, DistributedTable } from "@aws-blocks/blocks";
+import { ApiNamespace, ApiError, Scope, AuthBasic, DistributedTable } from "@aws-blocks/blocks";
 import crypto from "node:crypto";
 import { z } from "zod";
 
@@ -88,7 +88,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   async toggleTodo(todoId: string) {
     const user = await auth.requireAuth(context);
     const todo = await todos.get({ userId: user.username, todoId });
-    if (!todo) throw new Error("Not found");
+    if (!todo) throw new ApiError("Todo not found", 404, { name: "TodoNotFoundException" });
     await todos.put(
       { ...todo, done: !todo.done, version: todo.version + 1 },
       { ifFieldEquals: { version: todo.version } },   // fails if a concurrent write bumped version
@@ -178,8 +178,9 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
 }));
 ```
 
-The client subscribes to `result.channelId` for streaming chunks; the
-`@aws-blocks/blocks/react` `useChat` hook wires that up.
+The client subscribes to `result.channelId` for streaming chunks; on the
+frontend, `createChat` + `realtimeTransport` from `@aws-blocks/bb-agent/client`
+wire that up (see `blocks/agent.md`).
 
 ---
 
@@ -283,7 +284,7 @@ Two API-shape corrections drive the structure:
   typed objects directly (no manual `JSON.parse`).
 
 ```typescript
-import { ApiNamespace, Scope, AuthCognito, DistributedTable, KVStore } from "@aws-blocks/blocks";
+import { ApiNamespace, ApiError, Scope, AuthCognito, DistributedTable, KVStore } from "@aws-blocks/blocks";
 import crypto from "node:crypto";
 import { z } from "zod";
 
@@ -321,7 +322,7 @@ const flags = new KVStore<{ betaFeatures: boolean }>(scope, "flags", {
 async function resolveTenant(context: any) {
   const user = await auth.requireAuth(context);
   const tenantId = user.attributes["custom:tenantId"];
-  if (!tenantId) throw new Error("User has no tenant assignment");
+  if (!tenantId) throw new ApiError("User has no tenant assignment", 403, { name: "NoTenantException" });
   return { user, tenantId, tenantKey: `tenant#${tenantId}` };
 }
 

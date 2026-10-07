@@ -73,6 +73,7 @@ modules, unchanged.
 
 ```ts
 import {
+  ApiError,
   ApiNamespace,
   Scope,
   AuthBasic,

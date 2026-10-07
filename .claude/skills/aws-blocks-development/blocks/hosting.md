@@ -24,10 +24,13 @@ detects the framework, deploys `config.json`, wires the API proxy).
 
 There is a **separate** L3 surface — the `defineHosting` / `HostingProps` type
 from `@aws-blocks/hosting` — with a wider option set (`environment`,
-`storage.encryption`, `cdn.ssrDefaultTtl`, `compute.warmup`, `compute.tracing`,
-`storage.inventory`). Those are NOT props of the construct documented here; do
-not pass them to `new Hosting(...)`. When a caller means the L3, they are in a
-different API. This file is the core construct only.
+`storage.encryption`, `compute.warmup`, `compute.tracing`, `storage.inventory`).
+Those are NOT props of the construct documented here; do not pass them to
+`new Hosting(...)`. When a caller means the L3, they are in a different API.
+This file is the core construct only. (SSR edge caching is the exception: the
+core construct gained top-level `ssrDefaultTtl` / `cacheKeyCookies` /
+`cacheKeyHeaders` in `core@0.6.0` and forwards them to the L3 `cdn` config. See
+"SSR edge caching" below.)
 
 ## Contents
 
@@ -40,6 +43,7 @@ different API. This file is the core construct only.
 - WAF
 - Content-Security-Policy (the default, and why passing your own is risky)
 - On-by-default cost/behaviour: `monitoring` and `skewProtection`
+- SSR edge caching: `ssrDefaultTtl` and the cache key
 - Other options: `buildCache`, `errorPages`, `logging`, `geoRestriction`, `quotas`
 - What there is NO surface for (VPC)
 - Deploy commands
@@ -96,8 +100,14 @@ interface HostingProps {
   buildCache?: { enabled: boolean; bucket?: cdk.aws_s3.IBucket };
   errorPages?: { notFound?: string; serverError?: string };
   logging?: { enabled: boolean; retentionDays?: number };  // default retention 90
-  monitoring?: { enabled?: boolean; snsTopicArn?: string };  // ON by default
+  monitoring?: {                                            // ON by default
+    enabled?: boolean;
+    subscriptions?: Array<EmailSubscription | UrlSubscription>; // aws-cdk-lib/aws-sns-subscriptions
+  };
   skewProtection?: { enabled: boolean; maxAge?: number };    // ON by default
+  ssrDefaultTtl?: cdk.Duration;       // default 0; > 0 needs a credential in the cache key
+  cacheKeyCookies?: string[];         // session cookie name(s); max 8
+  cacheKeyHeaders?: string[];         // e.g. ['authorization']; 'accept-encoding' rejected
 }
 ```
 
@@ -237,15 +247,78 @@ Two options default to **on** and change cost/behaviour silently — know they a
 there:
 
 - **`monitoring` (default `{ enabled: true }`)** — wires CloudWatch alarms
-  (CloudFront 5xx, SSR Lambda errors/throttles, revalidation DLQ) to an SNS topic.
-  If `snsTopicArn` is omitted, it **creates** an SNS topic (surfaced as
-  `hosting.monitoringTopic`). Costs a few cents/month per alarm. Opt out with
-  `monitoring: { enabled: false }`.
+  (CloudFront 5xx, SSR Lambda errors/throttles, revalidation DLQ) to SNS alarm
+  topics that it always **creates**. Costs a few cents/month per alarm. Opt out
+  with `monitoring: { enabled: false }`.
+  - **Get notified** with `monitoring.subscriptions` (endpoint subscriptions
+    only, as of `hosting@0.4.0`):
+    ```typescript
+    import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
+    new Hosting(blocksStack, 'Hosting', {
+      root, buildCommand: 'npm run build', api: blocksStack,
+      monitoring: { subscriptions: [new subs.EmailSubscription('oncall@example.com')] },
+    });
+    ```
+    Each subscription is attached to **every** alarm topic, so one list covers
+    all alarms in both regions.
+  - **Off-region stacks.** `AWS/CloudFront` metrics publish only in us-east-1,
+    so a stack in any other region gets a synthesized
+    `<stackName>-CfMonitoring-<addr>` support stack in us-east-1 holding the
+    CloudFront 5xx alarm and its own encrypted topic. That stack needs a
+    resolved account: set `env: { account, region }`. With an unresolved account
+    (single-synth multi-account pipeline) the CloudFront alarm is skipped with a
+    synth warning and the other alarms are kept.
+  - **Route to an existing / central topic:** there is no prop for that. Use
+    the construct attribute:
+    `hosting.monitoring?.alarms.forEach((a) => a.addAlarmAction(new cw_actions.SnsAction(myTopic)))`.
+  - **Lambda / SQS subscribers:** add them on the regional topic with
+    `hosting.monitoring?.alarmTopics[0].addSubscription(...)`. They do not fan
+    out to the us-east-1 CloudFront topic.
+  - **Removed in `hosting@0.4.0` / `core@0.6.0`:** the `monitoring.snsTopicArn`
+    prop and the `hosting.monitoringTopic` attribute. Code using either no longer
+    compiles; migrate to `subscriptions` and `hosting.monitoring`
+    (`{ alarms, alarmTopics }`).
 - **`skewProtection` (default `{ enabled: true }`)** — a cookie (`__dpl`) pins a
   mid-session viewer to the build they started on, preventing asset mismatch
   during a rolling deploy. `maxAge` defaults to 86400s (24h). Keep `maxAge` ≤ the
   build retention window, or a returning viewer can be pinned to a
   lifecycle-deleted build prefix and get a 403.
+
+## SSR edge caching: `ssrDefaultTtl` and the cache key
+
+By default (`ssrDefaultTtl` = 0) SSR responses are not cached at the edge.
+Setting `ssrDefaultTtl` above 0 makes an SSR response with no `Cache-Control`
+header cacheable and **shared** at CloudFront, which ignores `Vary`. Without a
+credential in the cache key, one user's page could be served to another.
+
+As of `hosting@0.4.0` synth **fails closed**: `ssrDefaultTtl > 0` (an unresolved
+token counts as `> 0`) throws `SsrCacheKeyCredentialsRequiredError` unless you
+set `cacheKeyCookies` and/or `cacheKeyHeaders`:
+
+```typescript
+new Hosting(blocksStack, 'Hosting', {
+  root, buildCommand: 'npm run build', api: blocksStack, framework: 'nextjs',
+  ssrDefaultTtl: cdk.Duration.seconds(60),
+  cacheKeyCookies: ['session'],        // your auth cookie name(s)
+  cacheKeyHeaders: ['authorization'],  // if clients send bearer tokens
+});
+```
+
+- At most **8** caller cookies (CloudFront allows 10, 2 are reserved for Next.js
+  preview mode); `'accept-encoding'` is rejected as a header (brotli/gzip
+  handles it). The caps are only raisable through the L3 `quotas` budget, not
+  through this construct's `quotas` prop.
+- On a static-only deploy (no SSR compute) the three options do nothing and
+  synth warns that they are ignored.
+- Compute deploys send every request through one default behavior, so the edge
+  router strips the configured cookies and `authorization` on static and image
+  routes. Shared assets keep a shared cache entry; SSR routes are keyed per
+  credential.
+- The guard only covers `ssrDefaultTtl`. A route that sets cookies, or varies
+  per user without being in the cache key, must still send
+  `Cache-Control: private`.
+- To opt out, remove `ssrDefaultTtl` (and keep personalized routes on
+  `Cache-Control: private`).
 
 ## Other options
 
@@ -312,10 +385,12 @@ SSR Lambda (OpenNext or LWA), image-optimization Lambda, CloudFront Functions /
 Lambda@Edge for routing and skew protection, an ACM-backed alias + Route 53
 records (custom domain), a WAF WebACL (`waf.enabled`), a build-cache bucket
 (`buildCache`), an access-log bucket (`logging`), and CloudWatch alarms + an SNS
-topic (`monitoring`, on by default).
+topics (`monitoring`, on by default; plus a us-east-1 support stack for the
+CloudFront alarm when the app is deployed in another region).
 
 Public members on the construct: `bucket`, `distribution`, `url`, `ssrFunction`
-(the SSR Lambda, if any), `buildCacheBucket`, and `monitoringTopic`.
+(the SSR Lambda, if any), `buildCacheBucket`, and `monitoring`
+(`{ alarms, alarmTopics }`, present when monitoring is enabled).
 
 Related blocks: ApiNamespace is the backend Hosting proxies to; FileBucket is for
 user file uploads, which Hosting does not serve.

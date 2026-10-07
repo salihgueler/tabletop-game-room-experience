@@ -72,7 +72,7 @@ at module top level (which runs during synth); call them inside a handler.
 | Member | Returns | Description |
 |---|---|---|
 | `subscribe(handler)` | `RealtimeSubscription` | Listen for messages (simple form). |
-| `subscribe({ onMessage, onDisconnect? })` | `RealtimeSubscription` | With disconnect handling. |
+| `subscribe({ onMessage, onDisconnect?, onReconnect?, refresh? })` | `RealtimeSubscription` | With lifecycle callbacks and optional token re-minting on reconnect (`onReconnect` / `refresh` added in `bb-realtime@0.3.0`). |
 | `toJSON()` | descriptor | Serializes for the wire (called by `JSON.stringify`). |
 
 Channel handles have **no** `publish()` — publishing always goes through
@@ -104,7 +104,7 @@ Authorize in your API; only hand back a channel handle if allowed:
 export const api = new ApiNamespace(scope, 'api', (context) => ({
   async joinRoom(roomId: string) {
     const user = await auth.requireAuth(context);
-    if (!canAccessRoom(user, roomId)) throw new Error('Forbidden');
+    if (!canAccessRoom(user, roomId)) throw new ApiError('Forbidden', 403, { name: 'ForbiddenException' });
     return rt.getChannel('chat', roomId);
   },
 }));
@@ -154,17 +154,46 @@ try {
 }
 ```
 
-API Gateway caps a WebSocket connection at 2 hours. Handle disconnects:
+API Gateway caps a WebSocket at 2 hours and drops it after 10 idle minutes.
+Since `bb-realtime@0.3.0` the **production** client transport reconnects on any
+unexpected close (even a clean `1000`/`1005`) with exponential backoff and
+resubscribes every active channel by replaying its stored token, as the local
+mock already did. A ~9-minute ping avoids the idle timeout. You do not
+re-subscribe by hand for an ordinary drop. Only your own `unsubscribe()` of the
+last channel ends the connection for good.
 
 ```typescript
 const sub = channel.subscribe({
   onMessage: (msg) => { /* ... */ },
   onDisconnect: (reason) => {          // 'client' | 'timeout' | 'error' | 'unknown'
     if (reason === 'client') return;   // we called unsubscribe()
-    // re-fetch channel (fresh tokens), re-subscribe, backfill from your store
+    // fires on EVERY drop; 'error' means a resubscribe was rejected or retries ran out
   },
+  onReconnect: () => {
+    // fires once per reconnect, after THIS channel's resubscribe is re-confirmed.
+    // Pub/sub is not durable: re-read your store to backfill the gap.
+  },
+  // Optional: re-mint tokens before each reconnect so the subscription outlives
+  // the channel token (~1h) and connect token (~2h). Call a server method that
+  // re-authorizes and returns the RAW descriptor (wire object with `__blocks`).
+  refresh: async () => ({ ...(await api.refreshRoom('room-1')), __blocks: 'realtime/channel' }),
 });
 ```
+
+- Callbacks are per channel: a channel whose resubscribe is rejected gets
+  `onDisconnect('error')` and no `onReconnect`, and never sees a sibling
+  channel's rejection.
+- **Without `refresh`** a reconnect replays the stored tokens, so recovery stops
+  working once the descriptor is older than ~1h (channel token) or ~2h (connect
+  token; `$connect` is rejected). That surfaces as a terminal
+  `onDisconnect('error')`: re-fetch the channel and subscribe again.
+- With `refresh`, every channel on the connection re-mints in parallel. A
+  `refresh` that rejects or times out falls back to the stored token; only when
+  all channels fail do you get `onDisconnect('error')`. The server method behind
+  `refresh` issues a new channel token, so give it the same authorization check
+  as the method that issued the first one.
+- `RealtimeChannelDescriptor` is exported from `@aws-blocks/bb-realtime` for
+  typing `refresh`.
 
 ## Limits — channel path and message size
 
@@ -175,9 +204,12 @@ enforced, both raising `ValidationFailed`:
   `{fullId}/{namespace}/{channel}`, where `fullId` is the scope-chain prefix.
   This is the DynamoDB sort-key limit (the connections table keys on the channel).
   Checked by `validateChannelPath` on `publish`, `subscribe`, and `getChannel`.
-- **Each published message ≤ 32768 bytes.** Checked by `validatePublishSize`
-  against the full serialized envelope `{ type, channel, data }`, i.e. the
-  channel path and JSON overhead count toward the 32 KB, not just `data`.
+- **Each published message ≤ 131,072 bytes (128 KiB).** Checked by
+  `validatePublishSize` against the full serialized envelope
+  `{ type, channel, data }`, so the channel path and JSON overhead count toward
+  the limit, not just `data`. This is API Gateway's per-message quota; the
+  32 KB figure is its per-frame quota, which it reassembles. Before
+  `bb-realtime@0.3.0` the block wrongly rejected anything over 32 KB.
 
 Keep scope IDs and namespace/channel names short: the `fullId` prefix, namespace,
 and channel all spend from the same 1024-byte path budget, so deep scope chains
@@ -199,7 +231,7 @@ try {
 
 | Constant | `error.name` | Cause |
 |---|---|---|
-| `RealtimeErrors.ValidationFailed` | `ValidationFailedException` | Data failed the namespace schema, or exceeded the 1024-byte path / 32768-byte message limit |
+| `RealtimeErrors.ValidationFailed` | `ValidationFailedException` | Data failed the namespace schema, or exceeded the 1024-byte path / 131,072-byte (128 KiB) message limit |
 | `RealtimeErrors.PublishFailed` | `PublishFailedException` | Fan-out failed (AWS only) |
 | `RealtimeErrors.ConnectionFailed` | `ConnectionFailedException` | WebSocket connect or subscribe rejected (e.g. token rejected, empty signing secret) |
 | `RealtimeErrors.UnsupportedCompute` | `UnsupportedComputeException` | the resolved compute is not Lambda (thrown at synth) |
@@ -220,7 +252,8 @@ the three constants above while throwing a fourth name is deliberate.
 - **Publish through the API**, not channel handles — keeps auth in one place.
 - **Use channels for dynamic scoping** (`room-123`, `user-456`), and keep IDs
   short to protect the 1024-byte path budget.
-- **Keep payloads well under 32 KB** — the envelope counts toward the limit.
+- **Keep payloads small** (hard cap 128 KiB including the envelope); larger
+  messages cost more latency. Send a key and let clients fetch big data.
 - **One Realtime instance per domain**, with multiple namespaces for message types.
 - **Unsubscribe on unmount** — leaked subscriptions hold the WebSocket open.
 
