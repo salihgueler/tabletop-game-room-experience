@@ -48,7 +48,7 @@ files match (e.g. `nextjs` gives a `server.ts` that runs `next dev`).
 The template set is discovered from `templates/<name>/` folders (each ships a
 `package.json` with `blocksTemplate` + `blocksTemplateDescription`). Current set:
 
-| Template | Description (from its package.json, `create-blocks-app@0.2.0`) |
+| Template | Description (from its package.json, `create-blocks-app@0.4.0`) |
 |----------|-------------------------------------|
 | **default** | Vite + lit-html frontend with auth, DynamoDB, and realtime (safe default) |
 | **bare** | Vite + lit-html frontend with a single greet() API (smallest starter) |
@@ -158,17 +158,23 @@ The scripts it adds are:
 ## Deploy posture and stack identity
 
 Deploy posture is set in `aws-blocks/index.cdk.ts`, not a config file. The
-scaffolded entry reads a `sandboxMode` CDK context flag and picks a preset:
+scaffolded entry reads the `sandboxMode` and `previewMode` CDK context flags and
+picks presets (frontend templates, `create-blocks-app@0.4.0`):
 
 ```typescript
+const sandboxMode = app.node.tryGetContext('sandboxMode') === 'true';
+// `npm run sandbox:preview` also sets previewMode: a sandbox with hosting in preview shape.
+const previewMode = app.node.tryGetContext('previewMode') === 'true';
+
 export const blocksStack = await BlocksStack.create(app, stackName, {
   backendHandlerPath: join(__dirname, 'index.handler.ts'),
   backendCDKPath: join(__dirname, 'index.ts'),
   defaults: sandboxMode ? BlocksPresets.sandbox : BlocksPresets.production,
 });
 
-if (!sandboxMode) {
+if (!sandboxMode || previewMode) {
   new Hosting(blocksStack, 'Hosting', {
+    ...(previewMode ? HostingPresets.preview : HostingPresets.production),
     root: join(__dirname, '..'),
     buildCommand: 'npm run build',
     buildOutputDir: 'dist',
@@ -178,8 +184,9 @@ if (!sandboxMode) {
 ```
 
 `BlocksPresets.sandbox` vs `BlocksPresets.production` carry the removal-policy /
-deletion-protection posture — that is the real "deploy config", and Hosting is
-only constructed on a production deploy.
+deletion-protection posture — that is the real "deploy config". Hosting is
+constructed on a production deploy and on a preview sandbox
+(`npm run sandbox:preview`), never on a plain `npm run sandbox`.
 
 Stack identity comes from `.blocks/config.json`'s `stackId`. The stack name is
 derived from it via `getStackName` / `getStackId` (from `@aws-blocks/blocks/scripts`):
@@ -231,15 +238,20 @@ The root `package.json` scripts of a **fresh** Vite template (`default`):
 | Script | Purpose |
 |--------|---------|
 | `dev` / `dev:server` | `tsx watch aws-blocks/scripts/server.ts` (local dev) |
+| `dev:stop` | `tsx aws-blocks/scripts/stop.ts` (stops the dev server by its recorded PID; `--port <n>` for a non-default port) |
 | `build` | `tsc && vite build` (`next build` for the nextjs template) |
 | `preview` | `vite preview` |
 | `typecheck` | `tsc --noEmit` |
 | `spec` | `blocks-generate-spec` |
 | `sandbox` | `tsx aws-blocks/scripts/sandbox.ts` |
+| `sandbox:deploy` | `tsx aws-blocks/scripts/sandbox.ts --deploy-only` (deploy once, exit) |
+| `sandbox:preview` | `tsx aws-blocks/scripts/sandbox.ts --preview` (sandbox + hosting in `HostingPresets.preview` shape; see [blocks/hosting.md](blocks/hosting.md)) |
 | `sandbox:destroy` | `tsx -C cdk aws-blocks/scripts/sandbox-destroy.ts` |
 | `sandbox:console` | `tsx aws-blocks/scripts/console.ts` |
 | `cleanup` | `tsx aws-blocks/scripts/cleanup.ts` |
 | `deploy` | `tsx aws-blocks/scripts/deploy.ts` |
+| `secret` | `tsx aws-blocks/scripts/secret.ts` |
+| `typegen` | `tsx aws-blocks/scripts/typegen.ts` |
 | `destroy` | `tsx aws-blocks/scripts/destroy.ts` |
 | `test:e2e` | `tsx -C browser test/e2e.test.ts` |
 | `vendorize` | `blocks-vendorize` |
@@ -247,6 +259,21 @@ The root `package.json` scripts of a **fresh** Vite template (`default`):
 A production `destroy` script and `aws-blocks/scripts/destroy.ts` are shipped by
 every scaffoldable template — you do not write one by hand. Every template has a
 `spec` script (`react` gained it in `create-blocks-app@0.2.0`).
+
+What `create-blocks-app@0.4.0` changed in every scaffolded app:
+
+- `dev:stop` and `sandbox:deploy` in every template except `amplify` (which
+  gets `stop.ts` only). `sandbox:preview` only in templates with a frontend:
+  `default`, `bare`, `react`, `nextjs`, `demo`, `auth-cognito`. `api-only`,
+  `backend` and `sql` have no frontend to host.
+- The frontend templates' `index.cdk.ts` add `Hosting` for a preview sandbox
+  (`if (!sandboxMode || previewMode)`) and spread `HostingPresets.preview` or
+  `HostingPresets.production`.
+- The generated `gitignore` now ignores secrets and key material: dotenv files
+  (except `.env.example`), `*.pem`, `*.key`, `*.p12`, a `credentials` file at
+  any depth (not a `credentials/` directory) and `.aws/`.
+- Dependency floors rose (for example `aws-cdk-lib ^2.273.0`, `zod ^4.6.7`,
+  `typescript ^5.9.3`).
 
 ### Detecting a finished deploy (`core@0.6.0`)
 
@@ -256,9 +283,10 @@ On success, `npm run deploy` prints one stable **last line**:
 BLOCKS_DEPLOYED url=<frontend url> api=<backend url>
 ```
 
-A backend-only app omits `url=`. `npm run sandbox` prints the same token on
-success (always backend-only: `BLOCKS_DEPLOYED api=<backend url>`, since the
-sandbox serves the frontend locally). Scripts, CI steps and agents should grep
+A backend-only app omits `url=`. `npm run sandbox` and `npm run sandbox:deploy`
+print the same token on success (backend-only: `BLOCKS_DEPLOYED api=<backend url>`,
+since a plain sandbox serves the frontend locally). `npm run sandbox:preview`
+adds the hosted preview site's `url=`. Scripts, CI steps and agents should grep
 for `BLOCKS_DEPLOYED` instead of parsing CloudFormation output or polling the
 stack. While a deploy runs, the heartbeat names the resource it is waiting on
 (e.g. `waiting on HostingDistribution (AWS::CloudFront::Distribution)`), warns

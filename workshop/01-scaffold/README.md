@@ -65,9 +65,11 @@ cp ../01-scaffold/solution/server.ts         aws-blocks/scripts/server.ts # see 
 
 Three problems might trip you up if you skip copying these files:
 
-- **① Lambda handler form.** The scaffolder emits `createLambdaHandler(backend)`, but the
-  installed library expects the **lazy factory** `createLambdaHandler(() => import('./index.js'))`.
-  The direct form fails `tsc`. Our `index.handler.ts` uses the working form.
+- **① Lambda handler form.** The library expects the **lazy factory**
+  `createLambdaHandler(() => import('./index.js'))`, which loads the deployed config into
+  `process.env` before your backend is imported. Current scaffolders already emit it; our
+  copy adds a comment saying why. Older ones emitted `createLambdaHandler(backend)`, which
+  fails `tsc`.
 - **② Dev server topology.** The `react` template's `server.ts` runs a _combined_ server
   (it spawns Vite itself on one origin). This workshop uses the **split** model — backend
   on `:3001`, Vite on `:3000` with a proxy (see `vite.config.js`) — because it keeps the
@@ -271,8 +273,8 @@ what lets one component work unchanged against both.
 
 - **CLI says "aws-blocks/ already exists. Aborting."** — you already scaffolded (or copied
   a backend in). Delete `aws-blocks/` first, or just proceed with what's there.
-- **`tsc` error on `index.handler.ts` (`createLambdaHandler`)** — you kept the scaffolder's
-  handler; copy ours (gotcha ①, the lazy-factory form).
+- **`tsc` error on `index.handler.ts` (`createLambdaHandler`)** — an older scaffolder wrote
+  the direct form; copy ours (gotcha ①, the lazy-factory form).
 - **Frontend loads on `:3000` but the API 404s / server is on `:3000`** — you kept the
   template's combined `server.ts`; copy ours (gotcha ②, `port: 3001`).
 - **`Cannot find package 'typescript'`** — `npm i -D typescript`

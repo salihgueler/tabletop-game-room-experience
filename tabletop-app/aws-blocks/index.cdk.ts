@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { RemovalPolicies, Mixins } from 'aws-cdk-lib';
 
-import { Hosting, BlocksStack, SandboxDisableDeletionProtection } from '@aws-blocks/blocks/cdk';
+import { Hosting, BlocksStack, SandboxDisableDeletionProtection, registerConfig } from '@aws-blocks/blocks/cdk';
 import { BlocksPresets } from '@aws-blocks/blocks/cdk';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -31,7 +31,9 @@ if (sandboxMode) {
 
   // Tell the runtime that cookies need cross-domain attributes (frontend on
   // localhost, API on API Gateway — different registrable domains).
-  blocksStack.handler.addEnvironment('BLOCKS_SANDBOX', 'true');
+  // registerConfig replaces the removed `blocksStack.handler.addEnvironment`
+  // (Blocks 0.8.0); it is loaded into process.env before index.ts is imported.
+  registerConfig(blocksStack, 'BLOCKS_SANDBOX', 'true');
 }
 
 // Add static site hosting only when deploying (not in sandbox mode)

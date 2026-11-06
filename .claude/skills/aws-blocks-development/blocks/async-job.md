@@ -1,8 +1,10 @@
 # AsyncJob
 
 Fire-and-forget background work: `submit()` returns immediately, the handler
-runs later on its own Lambda. On AWS it is an SQS queue plus a DLQ feeding the
-shared Lambda handler; locally the handler runs in-process on the next tick.
+runs later. On AWS it is an SQS queue plus a DLQ feeding the shared Lambda
+handler by default, or a container (AWS Fargate) when you pass a container
+`Compute` (`bb-async-job@0.3.0`); locally the handler runs in-process on the next
+tick.
 
 **Use it for** sending email, processing an upload, calling a slow external API —
 anything that must not block the API response.
@@ -15,6 +17,7 @@ responding (do it inline).
 
 - Import and minimal example
 - `AsyncJobOptions`
+- Running on a container compute
 - The handler contract: at-least-once, idempotent, batched
 - Partial batch failure: throw the one you want redelivered
 - `submit` and `submitBatch` — and the throw-on-partial-failure trap
@@ -49,7 +52,7 @@ a failure throws `ValidationFailed`. Without a schema the payload is sent as-is.
 ## `AsyncJobOptions`
 
 ```typescript
-interface AsyncJobOptions<T> {
+interface AsyncJobBaseOptions<T> {
   handler: (payload: T, context: AsyncJobContext) => Promise<void>;   // required
   schema?: StandardSchemaV1<T>;
   maxRetries?: number;                  // default 3
@@ -57,8 +60,30 @@ interface AsyncJobOptions<T> {
   maxBatchingWindowSeconds?: number;    // default 5
   trackStatus?: boolean;                // default false
   logger?: ChildLogger;
+  timeoutSeconds?: number;              // new in 0.9.0, wall-clock limit per delivery
 }
+
+// The compute arm is a discriminated union on `compute`:
+type AsyncJobOptions<T> = AsyncJobBaseOptions<T> & (
+  | { compute: ComputeProvider<'container'>; maxConcurrencyPerCPU?: number }
+  | { compute?: ComputeProvider<'serverless'>; maxConcurrencyPerCPU?: never }
+);
 ```
+
+`ComputeProvider` is what a `Compute` block is; you pass a `Compute`, never
+spell the type. There is no compute type parameter, so `new AsyncJob<Payload>(…)`
+with a container compute compiles.
+
+- `compute` (new in `0.9.0`) picks where the handler runs. Omit it to use the
+  scope's compute, then the app's default serverless compute.
+- `timeoutSeconds` (new in `0.9.0`) is the wall-clock limit for one delivery. On
+  a container the runtime terminates the job's worker at the deadline; on
+  serverless it is bounded by the function timeout. It must fit under the
+  compute's `maxTimeoutSeconds` where one exists.
+- `maxConcurrencyPerCPU` (container only) sets in-flight deliveries per vCPU.
+  The per-instance count is `max(1, ceil(maxConcurrencyPerCPU × vcpu))`. Higher
+  for IO-bound work, 1 for CPU-bound. Setting it without a container `compute`
+  is a compile error and a synth error.
 
 - `maxRetries` (default **3**) is the SQS `maxReceiveCount`: after this many
   deliveries fail, the message goes to the DLQ. It counts deliveries of *one*
@@ -70,6 +95,32 @@ interface AsyncJobOptions<T> {
   batch before invoking. Range 0–300; out-of-range throws `InvalidOption` at
   synth. Higher fills batches more completely (lower cost) at the price of
   latency.
+
+## Running on a container compute
+
+```typescript
+import { AsyncJob, Compute } from '@aws-blocks/blocks';
+
+const worker = new Compute(scope, 'worker', {
+  type: 'container',
+  size: { vcpu: 1, memory: 2048 },
+  scaling: { minInstances: 1, maxInstances: 10 },
+});
+
+new AsyncJob(scope, 'reports', {
+  compute: worker,
+  timeoutSeconds: 60 * 30,   // may run 30 minutes, enforced by the runtime
+  maxConcurrencyPerCPU: 4,   // up to 4 × vCPU deliveries at once per instance
+  handler: async (payload) => { /* … */ },
+});
+```
+
+Use a container for work that outgrows Lambda's 15-minute ceiling or needs more
+memory. On a container, delivery moves from the SQS-to-Lambda event source to a
+poller the container starts itself, and each delivery runs in its own worker
+thread, so `timeoutSeconds` is enforced. Adding a container
+also creates the backend's shared VPC; see [compute](compute.md) for sizes,
+scaling and the VPC rule.
 
 ## The handler contract: at-least-once, idempotent, batched
 
@@ -227,7 +278,7 @@ Import `AsyncJobErrors` from `@aws-blocks/blocks`; match with `isBlocksError`.
 | `Timeout` | `AsyncJobTimeoutException` | `waitUntilComplete` gave up before a terminal state |
 | `StatusNotTracked` | `StatusNotTrackedException` | `getStatus`/`waitUntilComplete` without `trackStatus: true` |
 | `InvalidOption` | `InvalidOptionException` | `batchSize`/`maxBatchingWindowSeconds` out of range (thrown at synth) |
-| `UnsupportedCompute` | `UnsupportedComputeException` | the resolved compute is not Lambda (thrown at synth) |
+| `UnsupportedCompute` | `UnsupportedComputeException` | the resolved compute (the job's own, or its scope's) is not a Lambda or container compute, or belongs to another backend (thrown at synth) |
 
 For a payload over 256 KB, store the blob in FileBucket or KVStore and put a
 reference key in the job payload.
@@ -237,4 +288,6 @@ reference key in the job payload.
 An SQS queue, an SQS DLQ (14-day retention, `maxReceiveCount = maxRetries`), an
 SQS event source on the shared Lambda handler with `reportBatchItemFailures`
 always on, and — only with `trackStatus: true` — a DynamoDB status table. There
-is no dedicated Lambda per job; AsyncJob, CronJob and API routes share one.
+is no dedicated Lambda per job; AsyncJob, CronJob and API routes share one,
+unless a job is given its own `Compute`. A job on a container compute has no
+Lambda event source: the container polls the queue.

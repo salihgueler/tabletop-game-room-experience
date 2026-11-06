@@ -289,6 +289,31 @@ testing). As of **`@aws-blocks/blocks@0.4.0`** (commit `9bd5b3e`, #354) the stub
 IdP rejects reserved OAuth response params (e.g. `code`, `state`) smuggled into
 the `redirect_uri`, closing a callback-forgery hole.
 
+**`stubIdp()` is local and sandbox only (breaking in `bb-auth-oidc@0.3.0` /
+`@aws-blocks/blocks@0.9.0`).** Synth fails when a non-sandbox stack configures a
+`stubIdp` provider, and deployed compute mounts the stub IdP routes only in a
+sandbox. Pick providers by deployment type so the same code works everywhere:
+
+```typescript
+import { AuthOIDC, google, stubIdp, getDeploymentType } from '@aws-blocks/blocks';
+
+const providers =
+  getDeploymentType() === 'production'
+    ? [google({ clientId, clientSecret })]
+    : [stubIdp({ name: 'google' })];
+
+const auth = new AuthOIDC(scope, 'auth', { providers });
+```
+
+`getDeploymentType()` returns `'local' | 'sandbox' | 'production'` (type
+`DeploymentType`) and reads the same value at synth and at runtime (deployed as
+`BLOCKS_DEPLOYMENT_TYPE`). After upgrading, restart `npm run sandbox` once: its
+first full deploy writes `BLOCKS_DEPLOYMENT_TYPE`, and a `cdk watch` hotswap alone
+does not, so the stub routes return 404 until that deploy runs.
+
+The local mock's cookie-signing secret is now random per project, stored (mode
+0600) under `.bb-data/`, so local sessions survive dev-server restarts.
+
 ## What it provisions
 
 A Lambda OIDC callback handler, a DynamoDB table for server-side sessions, the

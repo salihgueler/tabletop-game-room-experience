@@ -33,14 +33,30 @@ Nested scopes namespace their resources under the parent's ID chain. Keep IDs
 short — they compose into resource names and into the Realtime channel path,
 which has a 1024-byte budget.
 
+`ScopeOptions` is `{ parent?, bbName?, bbVersion?, compute? }`. `compute` (new
+in `core@0.8.0`) places every `ApiNamespace`, `AsyncJob` and `CronJob` created
+under the scope, and under its child scopes, on one `Compute`:
+
+```typescript
+import { Scope, Compute } from '@aws-blocks/blocks';
+
+const reportsCompute = new Compute(scope, 'reports-compute', { type: 'serverless', memory: 4096 });
+const reports = new Scope('reports', { parent: scope, compute: reportsCompute });
+```
+
+Give the `Compute` and the child `Scope` different ids when they share a parent.
+The nearest setting wins: a block's own `compute`, then the nearest scope's, then
+the app default. See [compute](blocks/compute.md).
+
 ---
 
 ## ApiNamespace
 
 Type-safe RPC with automatic frontend/backend integration. Methods become
 callable from the frontend with full TypeScript types — no codegen. The
-constructor is exactly `(scope, name, handler)` — three positional args; there is
-no options object and no auth parameter.
+constructor is `(scope, name, handler, options?)`. The only option is
+`{ compute }` (new in `core@0.8.0`), which runs the namespace on its own
+serverless `Compute`; there is no auth parameter.
 
 ```typescript
 export const api = new ApiNamespace(scope, 'api', (context) => ({
@@ -72,13 +88,42 @@ carries `headers`, `status`, and `send()`.
 
 ## Wire protocol — JSON-RPC 2.0
 
-**Single POST endpoint:** `/aws-blocks/api`.
+**POST endpoint:** `/aws-blocks/api` is the base URL. As of
+`@aws-blocks/blocks@0.9.0` the typed client POSTs to
+`/aws-blocks/api/{namespace}` (the backend export name), so the gateway can
+route each namespace to the compute that hosts it. The bare `/aws-blocks/api`
+still works and always reaches the default compute.
 
-| Environment | URL |
+| Environment | Base URL |
 |---|---|
 | Local dev | `http://localhost:3000/aws-blocks/api` |
 | Sandbox | `http://localhost:3000/aws-blocks/api` (proxied to the deployed Lambda) |
 | Deployed | `https://<api-id>.execute-api.<region>.amazonaws.com/prod/aws-blocks/api` |
+
+A per-namespace path must be exactly `/aws-blocks/api/{namespace}` and name the
+same namespace as the body's `method`, or the request is rejected with `-32600`.
+
+**Client options.** `ApiNamespaceClientOptions` (and `generateClient(config)`)
+take `{ url?, retryStaleConnection? }`:
+
+- `url` is the **base** URL (for example `https://d123.cloudfront.net/aws-blocks/api`).
+  The client appends `/{namespace}` itself. Passing a URL that already ends in
+  the namespace is not supported. **Migration from 0.8.0:** if you passed a
+  namespace-qualified URL, pass the base instead.
+- `retryStaleConnection` (default `true`, Node only): when `fetch` fails before
+  response headers arrive with `TypeError: fetch failed` caused by
+  `UND_ERR_SOCKET`, `ECONNRESET` or `EPIPE`, the client resends **once** on a new
+  connection. Delivery becomes at-least-once: in a rare crash-before-reply case
+  the method runs twice. Keep state-changing methods idempotent, or pass
+  `false` for at-most-once. Timeouts, aborts, HTTP errors and JSON-RPC errors are
+  never retried. Browsers are unchanged.
+
+**Proxies and deploy order.** A frontend built with 0.9.0 calls
+`/aws-blocks/api/{namespace}`, which needs the gateway resource 0.9.0 adds.
+Deploy the backend before, or together with, the new client; an older gateway
+may answer 403. A custom proxy or rewrite in front of the API (nginx, a
+framework rewrite, your own CloudFront behavior) must forward the whole
+`/aws-blocks/api/*` subtree, not only `/aws-blocks/api`. `Hosting` already does.
 
 **Request:** `{ "jsonrpc": "2.0", "method": "<namespace>.<method>", "params": [...args], "id": 1 }`
 
@@ -110,7 +155,7 @@ call.
 error whose `name` is `PayloadTooLarge` and whose code is the real HTTP status
 `413` (so `e.status === 413` and `isBlocksError(e, 'PayloadTooLarge')` both work).
 This guard shipped in the core RPC parser in the **0.4.0** release
-(PR #390, `5bfae0a`) and is still present at the current **0.7.0** pin; it was
+(PR #390, `5bfae0a`) and is still present at the current **0.9.0** pin; it was
 **not** in `0.3.1`. In production API Gateway also
 rejects oversized bodies at the edge; the same limit is enforced in the parser so
 the dev/mock server behaves identically.
@@ -299,6 +344,8 @@ From `@aws-blocks/blocks/ui` — framework-agnostic (vanilla DOM):
 | `AccountMenuBar(api)` | Header bar: username + Sign Out, or Sign In |
 | `onAuthChange(api, cb)` | Subscribe to auth changes (same window + cross-tab) |
 | `broadcastAuthChange(user)` | Broadcast changes from a custom auth UI |
+| `submitAuthAction(api, input)` | For a custom auth form: calls `setAuthState`, then notifies `onAuthChange` / `AuthenticatedContent` only on a real signed-in or signed-out transition. Returns the `AuthState`; check `.retriable` to show an inline error. Browser only. Re-exported here in `0.9.0` |
+| `StatusMessage(options?)` | Themed status line. Returns `{ element, set(kind, text?) }`; `kind` is `'idle' \| 'loading' \| 'success' \| 'error'`. The element is a polite ARIA live region (`role="status"`). Options: `{ kind?, text?, testId? }`. New in `0.9.0` |
 
 ```typescript
 import { Authenticator, AuthenticatedContent, onAuthChange } from '@aws-blocks/blocks/ui';
@@ -309,6 +356,21 @@ document.getElementById('main')!.appendChild(
   AuthenticatedContent(authApi, (user) => { /* render */ }),
 );
 onAuthChange(authApi, (user) => console.log(user ? 'in' : 'out'));
+```
+
+A custom sign-in form with a status line:
+
+```typescript
+import { StatusMessage, submitAuthAction } from '@aws-blocks/blocks/ui';
+import { authApi } from 'aws-blocks';
+
+const status = StatusMessage();
+form.append(status.element);
+
+status.set('loading', 'Signing in…');
+const next = await submitAuthAction(authApi, { action: 'signIn', username, password });
+if (next.retriable) status.set('error', next.error ?? 'Sign-in failed');
+else status.set('idle');
 ```
 
 ---
@@ -355,20 +417,25 @@ token at build time and is filled in during deploy.
 - Frontend served locally, proxied to the deployed backend
   (`BLOCKS_API_URL` set by `sandbox.ts`, so the dev server proxies to it).
 - Config auto-discovered from `/.blocks-sandbox/config.json`.
+- `npm run sandbox:preview` is the hosted variant: same sandbox stack plus
+  Hosting in `HostingPresets.preview` shape, deployed once, no local dev server
+  (see `blocks/hosting.md`).
 
 ---
 
 ## Common mistakes
 
-1. **REST-style endpoints.** There is no `GET /api/getData`. Every call is
-   `POST /aws-blocks/api` via JSON-RPC; the namespace is in `method`, not the URL.
+1. **REST-style endpoints.** There is no `GET /api/getData`. Every call is a
+   JSON-RPC `POST` to `/aws-blocks/api/{namespace}` (or the bare
+   `/aws-blocks/api`); the body's `method` names `namespace.method`.
 2. **Not exporting the API.** The frontend only sees `export`ed symbols from
    `aws-blocks/index.ts`.
 3. **Expecting non-200 on error.** JSON-RPC errors are HTTP 200 with an `error`
    body — check the body, then branch on `isBlocksError(e, name)`.
 4. **Forgetting `requireAuth`.** Every method is public by default.
 5. **Passing auth to the `ApiNamespace` constructor.** It takes
-   `(scope, name, handler)` only; auth is per-method.
+   `(scope, name, handler, options?)`, and `options` only holds `compute`;
+   auth is per-method.
 6. **Reaching for `Database` when `DistributedTable` suffices** — Aurora has cold
    starts and an idle floor; DynamoDB scales to zero.
 7. **Blocking the API with long work** — offload to `AsyncJob`.

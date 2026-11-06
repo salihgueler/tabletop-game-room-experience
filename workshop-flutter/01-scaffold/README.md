@@ -61,10 +61,10 @@ npm install -D @aws-blocks/core                 # see problem ⑤
 
 Five problems might trip you up if you skip copying these files:
 
-- **① Lambda handler form.** The scaffolder emits `createLambdaHandler(backend)`, but
-  the library expects the lazy factory
-  `createLambdaHandler(() => import('./index.js'))`. Our `index.handler.ts` uses the
-  working form.
+- **① Lambda handler form.** The library expects the lazy factory
+  `createLambdaHandler(() => import('./index.js'))`. Current scaffolders already emit
+  it; our copy adds a comment saying why. Older ones emitted
+  `createLambdaHandler(backend)`, which fails `tsc`.
 - **② Dev server topology.** This workshop uses the **split** model — backend on
   `:3001`, Flutter app calling it directly — because the session cookie goes to the
   API origin and there is no Vite proxy. Our `server.ts` sets `port: 3001`.
@@ -272,8 +272,8 @@ you can read any generated symbol the rest of the workshop throws at you.
 
 ## Troubleshooting
 
-- **`tsc` error on `index.handler.ts` (`createLambdaHandler`)** — you kept the
-  scaffolder's handler; copy ours (gotcha ①, the lazy-factory form).
+- **`tsc` error on `index.handler.ts` (`createLambdaHandler`)** — an older scaffolder
+  wrote the direct form; copy ours (gotcha ①, the lazy-factory form).
 - **Port 3001 already in use** — the React workshop's backend also defaults to
   `:3001`. Stop it before running this one; the two apps do not share data.
 - **Android can't reach backend** — the emulator maps `10.0.2.2` to your host's

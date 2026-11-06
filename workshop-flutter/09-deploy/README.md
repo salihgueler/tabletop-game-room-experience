@@ -6,7 +6,7 @@ online for the first time, fronted by CloudFront + S3 serving the Flutter web bu
 
 **Introduced:** CDK `Hosting`, the sandbox/prod deploy flow
 **You edit:** `aws-blocks/index.ts` — nothing (the backend is complete). You **do** edit
-`aws-blocks/index.cdk.ts` once, in step 1, to add `Hosting`.
+`aws-blocks/index.cdk.ts` once, in step 1, to add `Hosting` and the sandbox auth flag.
 **You'll know you're done when:** your CloudFront URL serves the Flutter web app, you can
 register, create a character, play a turn, and see Realtime updates in a second tab.
 
@@ -69,32 +69,51 @@ the code, first.**
 > **Working directory:** every fence below starts from `workshop-flutter/app/`. The `cd`
 > lines are written so you can paste them in order from there.
 
-### 1. Add `Hosting` to the CDK file
+### 1. Add `Hosting` and the sandbox auth flag to the CDK file
 
-The scaffolder generated `aws-blocks/index.cdk.ts` with the backend stack only — it has
+The scaffolder generated `aws-blocks/index.cdk.ts` with the backend stack only. It has
 **no `Hosting` construct**, so a deploy right now would give you a working API and no
-website. Adding `Hosting` is this module's one code change.
+website. It also no longer sets `BLOCKS_SANDBOX`, the flag your `auth` block reads for
+`crossDomain`. Adding both is this module's one code change.
 
-Open `backend/aws-blocks/index.cdk.ts`. `Hosting` ships in the module the file already
-imports from, so just add it to the existing import:
+Open `backend/aws-blocks/index.cdk.ts`. `Hosting` and `registerConfig` ship in the module
+the file already imports from, so add them to the existing import:
 
 ```ts
-import { BlocksStack, BlocksPresets, Hosting } from "@aws-blocks/blocks/cdk";
+import { BlocksStack, BlocksPresets, Hosting, registerConfig } from "@aws-blocks/blocks/cdk";
 ```
 
-Then, at the end of the file, add the block — note it is **skipped in sandbox mode**,
-because the sandbox deliberately has no front end:
+Then, at the end of the file, add the two blocks:
 
 ```ts
+if (sandboxMode) {
+  // The Flutter app calls API Gateway directly from another origin, so the
+  // session cookie needs cross-domain attributes in the sandbox.
+  registerConfig(blocksStack, "BLOCKS_SANDBOX", "true");
+}
+
 if (!sandboxMode) {
   new Hosting(blocksStack, "Hosting", {
     root: join(__dirname, "..", ".."),
-    buildCommand: "flutter build web --release",
+    buildCommand:
+      "flutter build web --release --dart-define=BLOCKS_API_URL=/aws-blocks/api",
     buildOutputDir: "build/web",
     api: blocksStack,
   });
 }
 ```
+
+**Why `registerConfig`:** it adds `BLOCKS_SANDBOX=true` to the config every Blocks
+function loads into `process.env` before your `index.ts` runs, so `crossDomain` sees it.
+Older templates wrote `blocksStack.handler.addEnvironment(...)` here; `handler` was
+removed in AWS Blocks 0.8.0, so that line no longer compiles.
+
+**Why the `--dart-define`:** `BLOCKS_API_URL` is read with `String.fromEnvironment`, so it
+is fixed when the bundle is built. Without it the deployed web app falls back to
+`http://localhost:3001/aws-blocks/api` and never reaches its own backend. The relative
+path works because CloudFront serves the API on the same origin as the app.
+
+`Hosting` is **skipped in sandbox mode**, because the sandbox deliberately has no front end.
 
 **Why `join(__dirname, "..", "..")`:** this file lives at `app/backend/aws-blocks/`, so two
 levels up is `app/` — your Flutter project root, the directory that contains `build/web`.
@@ -115,9 +134,9 @@ cd backend
 npm run sandbox
 ```
 
-The sandbox sets `BLOCKS_SANDBOX=true`, which flips auth's `crossDomain` — essential for
-Flutter clients, including mobile on another origin, where the frontend and API live on
-different registrable domains. Without it, session cookies are rejected cross-origin.
+The `if (sandboxMode)` block from step 1 sets `BLOCKS_SANDBOX=true`, which flips auth's
+`crossDomain`. Flutter web on `localhost` and the API on API Gateway live on different
+registrable domains, so without it the browser rejects the session cookie.
 
 **Run Flutter against the sandbox** (second terminal, from `app/`):
 
@@ -234,8 +253,9 @@ provisioned resources.
   CloudFormation or IAM.
 - `Hosting` fronts the Flutter web build with CloudFront + S3; the backend is Lambda + API
   Gateway.
-- The sandbox's `BLOCKS_SANDBOX=true` flips `crossDomain` on auth — essential for Flutter
-  clients on a different origin (including mobile).
+- `registerConfig(blocksStack, "BLOCKS_SANDBOX", "true")` in sandbox mode flips
+  `crossDomain` on auth, which Flutter web needs when it calls API Gateway from another
+  origin.
 - The local ↔ deployed swap is transparent _except_ for the Agent's async Bedrock path —
   the first place to look when deployed behavior differs.
 - LLM fallbacks that hide errors make model problems invisible; pin current model ids and
@@ -251,8 +271,11 @@ provisioned resources.
   (visible in the CloudFormation stack outputs). Client falls back to polling if WSS fails.
 - **AI generic on deployed but fine locally** — the model-pinning gotcha. Lambda logs are
   your first stop.
-- **Auth cookies rejected in sandbox** — `crossDomain` is not flipping. Confirm
-  `BLOCKS_SANDBOX=true` is set in the sandbox environment.
+- **Auth cookies rejected in sandbox** — `crossDomain` is not flipping. Confirm the
+  `registerConfig(blocksStack, "BLOCKS_SANDBOX", "true")` block from step 1 is in
+  `index.cdk.ts`, then restart `npm run sandbox`.
+- **Deployed web app calls `localhost:3001`** — the `Hosting` `buildCommand` is missing
+  `--dart-define=BLOCKS_API_URL=/aws-blocks/api`.
 
 ---
 

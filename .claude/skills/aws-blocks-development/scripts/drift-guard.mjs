@@ -10,7 +10,7 @@
 //   3. Resolves each against the INSTALLED package's type surface: reads the
 //      package.json "types"/"exports" to find the .d.ts (falls back to API.md),
 //      and flags any identifier the skill mentions that is NOT found there.
-//   4. Prints a pinned-vs-installed version diff (skill pins 0.7.0 in SKILL.md
+//   4. Prints a pinned-vs-installed version diff (skill pins 0.9.0 in SKILL.md
 //      vs the installed @aws-blocks/blocks version).
 //
 // Exit codes: non-zero when misses are found. If no install is available it
@@ -24,7 +24,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SKILL_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const PINNED_VERSION = '0.7.0'; // must match the pin in SKILL.md
+const PINNED_VERSION = '0.9.0'; // must match the pin in SKILL.md
 
 // ---- args -----------------------------------------------------------------
 function parseArgs(argv) {
@@ -163,8 +163,12 @@ function scanDeclarations(text, into) {
     /\b(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class|interface|type|function|const|let|var|enum|namespace)\s+([A-Za-z_$][\w$]*)/g;
   let m;
   while ((m = re.exec(text)) !== null) into.add(m[1]);
-  // `export { A, B as C }` re-exports
-  const re2 = /export\s*\{([^}]*)\}/g;
+  // `export { A, B as C }` and `export type { A, B }` re-exports. The optional
+  // `type` keyword MUST be allowed: a d.ts republishes another package's types
+  // as `export type { SecretOptions, ... } from '@aws-blocks/bb-secret'`, and
+  // matching only the value form made every type-only re-export read as a miss,
+  // failing a correct skill (hit on the four Secret option types at 0.8.0).
+  const re2 = /export\s*(?:type\s*)?\{([^}]*)\}/g;
   while ((m = re2.exec(text)) !== null) {
     m[1]
       .split(',')

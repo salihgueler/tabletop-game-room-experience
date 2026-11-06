@@ -103,6 +103,53 @@ database driver error) is logged server-side and replaced with a generic 500.
 Throw `new ApiError(message, status, { name })` for errors the user should see.
 See CORE-ARCHITECTURE.md § What reaches the client.
 
+**A `RawRoute` now returns a generic 500 where it used to show the real error**
+`0.8.0` extends the same sanitizer to the RawRoute uncaught-exception path, which
+previously forwarded a driver/SDK error's raw name and message to the client. A
+Building Block error or an `ApiError` keeps its name and message; everything else
+collapses to `500 "Internal error"`, with the full error still logged
+server-side. Your own deliberate `ctx.response` writes are untouched. Related: an
+`ApiError` built with the default name no longer emits `name: "ApiError"` on the
+wire — status is detected via `isApiErrorLike`, not a name compare.
+
+**`cdk synth` fails with `does not provide an export named 'InterruptError'`**
+Some runtime values were missing from their package's `cdk` entry point, so a
+backend file importing one crashed synth at load time. Fixed in `0.8.0`, which
+adds to the `cdk` entries: `InterruptError` (`bb-agent`),
+`BatchSubmitFailedError` (`bb-async-job`), `SessionStore`
+(`bb-auth-cognito`), and `RLSEnabledDatabase` + `PgClientEngine` (`bb-data`).
+On an older release, import the value from the runtime entry instead.
+
+**`cognitoFederated()` fails at `cdk synth` with `CannotFindAsset`**
+The published `bb-auth-oidc` was missing the bundled IdP-registration Lambda
+(`dist/idp-registration-lambda/index.js`), so any app using `cognitoFederated()`
+failed to synthesize — both the Cognito-hosted domain prefix and custom domains.
+Fixed in `0.8.0`; upgrade rather than working around it.
+
+**`BlocksStack.handler` / `BlocksBackend.handler` / `Scope.handler` is not a function**
+All three were removed in `0.8.0`. Grant to `executionRole` and inject config
+with `registerConfig()` — the full before/after table is in
+[EXTENDING-EXISTING-RESOURCES.md](EXTENDING-EXISTING-RESOURCES.md) § Wiring your
+own resources. `LambdaCompute.apiGateway` / `.apiUrl` went with them; read
+`gateway` / `apiUrl` / `publicApiUrl` off the stack.
+
+**OIDC sessions signed out once after upgrading to `0.8.0`, locally only**
+`AuthOIDC` now names cookies with the same expression as the AWS runtime, fixing
+a helper that walked one scope too far and produced a leading-dash ID (cookies
+named `oidc_-my-app-auth`, and a cookie-secret / Cognito env var name that did
+not match what the CDK side wrote). The default dev-server case changes to
+`oidc_my-app-auth`. A deployed Lambda always has `BLOCKS_STACK_NAME` set and is
+unaffected.
+
+**`RealtimeWsUrl` stack output missing after `0.8.0` (BlocksBackend only)**
+Shared Blocks synth state is now keyed on the owning backend root rather than
+the enclosing `cdk.Stack`, so two `BlocksBackend`s in one stack stay
+independent. An app that embeds a `BlocksBackend` in a customer stack and uses
+realtime or cron sees those resources re-parent, which CloudFormation treats as
+a replacement (neither carries persistent data). The realtime WebSocket URL
+changes and its output key becomes `BlocksRealtimeWsUrl<hash>` — update scripts
+that read it by name. Single-`BlocksStack` apps are byte-identical.
+
 **SSR auth failures (401 in server components)**
 Use `withAuth()` from `@aws-blocks/blocks/server` to forward cookies in
 server-rendered pages. It throws when no cookies are found — wrap in try/catch
@@ -260,13 +307,25 @@ code below.
 
 **``AWS credentials could not be verified for `npm run <command>` (<errorName>).``**
 A pre-synth credential check (shipped in `@aws-blocks/blocks@0.4.0`, commit
-`0ac3879`, #424; still present at the current `0.7.0` pin) failed before `npm run sandbox` / `npm run deploy` provisioned
+`0ac3879`, #424; still present at the current `0.8.0` pin) failed before `npm run sandbox` / `npm run deploy` provisioned
 anything. It **fails fast only
-on credential-class errors** — the seven names in `CREDENTIAL_ERROR_NAMES`:
+on credential-class errors** — the seven names in `CREDENTIAL_FAILURES`
+(renamed from `CREDENTIAL_ERROR_NAMES` and moved to
+`core/scripts/credential-guidance.ts` in `0.8.0`, where each name now also
+classifies the failure as `unavailable` / `expired` / `rejected`):
 `CredentialsProviderError`, `ExpiredToken`,
 `ExpiredTokenException`, `InvalidClientTokenId`, `UnrecognizedClientException`,
 `SignatureDoesNotMatch`, `TokenRefreshRequired`. Fix: refresh your credentials
-(re-auth / `aws sso login` / renew the token) and re-run. Two non-blocking cases:
+(re-auth / `aws sso login` / renew the token) and re-run. As of `0.8.0` the
+message names the **profile** and the exact command that fixes its credentials:
+sign-up plus `aws login` guidance for a profile with no credentials (with an AWS
+CLI install/update hint when the installed CLI has no `aws login`), `aws login`
+or `aws sso login` for an expired session, and source-specific guidance for
+access keys, `credential_process`, web identity and environment credentials.
+Credentials from outside the AWS config files (an instance role, say) get a
+check-that-source hint rather than sign-up guidance. When AWS cannot be reached
+at all, including the SSO portal, the deploy still continues and the warning
+says so. Two non-blocking cases:
 it **skips with a warning** when neither `AWS_REGION` nor `AWS_DEFAULT_REGION` is
 set (no region to probe), and it **warns and continues** on non-credential errors
 (network, throttling, `AccessDenied` — the identity resolved, so it lets the

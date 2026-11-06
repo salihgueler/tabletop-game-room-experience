@@ -262,6 +262,27 @@ the three constants above while throwing a fourth name is deliberate.
 A local WebSocket server on the dev server port; no external services. Messages
 are delivered via an in-process EventEmitter between handlers and subscribers.
 
+**Hardened in `bb-realtime@0.4.0` / `core@0.7.0`** so the local surface matches
+the deployed one and is not reachable from the network or other websites:
+
+- **A client-sent `publish` is rejected.** The deployed WebSocket has no client
+  publish, and the local server previously broadcast one to every subscriber
+  with no authorization. Publish from the server with `Realtime.publish()`.
+- **The `/realtime` upgrade checks `Origin`.** WebSocket handshakes are exempt
+  from CORS, so without this any page the developer visited could open
+  `ws://localhost:3000/realtime` (cross-site WebSocket hijacking). Allowed: a
+  loopback origin on any port; the concrete host opted into via
+  `BLOCKS_DEV_HOST`; and under a wildcard opt-in (`BLOCKS_DEV_HOST=0.0.0.0`) a
+  same-origin page reached by **IP literal**. DNS names are deliberately not
+  accepted under the wildcard — a same-origin check against a name is defeated
+  by DNS rebinding, so set `BLOCKS_DEV_HOST` to the name instead. A non-browser
+  client that sends no `Origin` still connects.
+- **Local tokens are signed with a per-process random secret.** `LOCAL_TOKEN_SECRET`
+  was a constant published in the repo, so local tokens were forgeable; it is now
+  generated per process (and its type is `string`, no longer a literal).
+- The dev server itself binds `127.0.0.1` — see SKILL.md § Running the dev
+  server & sandbox safely.
+
 ## What it provisions
 
 The first Realtime instance in a stack creates shared infrastructure; later ones
