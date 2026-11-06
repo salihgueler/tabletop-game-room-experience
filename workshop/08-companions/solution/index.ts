@@ -32,8 +32,9 @@ const scope = new Scope("tt");
 
 // ─── Auth (AuthBasic) ────────────────────────────────────────────────────────
 // Real username/password auth. `crossDomain` is only needed when the frontend
-// and API live on different registrable domains (the sandbox deploy in module 09
-// sets BLOCKS_SANDBOX=true); locally the Vite proxy keeps everything same-origin.
+// and API live on different registrable domains. Locally the Vite proxy, and in
+// the module 09 sandbox the dev server proxy, keep everything same-origin, so it
+// stays off unless BLOCKS_SANDBOX=true is set.
 const auth = new AuthBasic(scope, "auth", {
   passwordPolicy: { minLength: 8 },
   crossDomain: process.env.BLOCKS_SANDBOX === "true",

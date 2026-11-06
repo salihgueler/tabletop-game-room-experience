@@ -61,6 +61,21 @@ pass an arbitrarily long array. Results come back in input order, one entry per
 message, with per-message `status`. A whole chunk that fails at the API level
 marks each of its messages `failed` with the mapped error.
 
+## Changed in `0.9.0` (`bb-email-client@0.2.0`)
+
+- **The deployed client validates every message before calling SES**, the same
+  way the local one does: every address (To, CC, BCC, `fromAddress`, `replyTo`),
+  at most 50 recipients, at most 40 MB. Addresses SES used to accept but the
+  validator rejects, such as quoted local parts (`"john.doe"@example.com`) or
+  non-ASCII domains, now make `send()` throw `InvalidInputException` and make
+  `sendBatch()` mark the message `failed`.
+- **`sendBatch()` sends a message without `html` as plain text only**, like
+  `send()`. It used to reuse `body` as the HTML part. Messages with `html` go out
+  in separate calls first; `results` stays in input order.
+- **The execution role gets only `ses:SendEmail` and `ses:SendBulkEmail`.** If
+  your code calls the SES SDK directly (for example `SendRawEmail` for
+  attachments), grant that action yourself.
+
 ## Errors
 
 Match with `isBlocksError` from `@aws-blocks/core`.

@@ -107,7 +107,7 @@ stopSequences? }`.
   will fail on the non-empty bucket). Pass `'destroy'` for sandbox/ephemeral
   stacks; it pairs the bucket with `autoDeleteObjects`.
 - `structuredOutput` has been **removed** from `AgentConfig` (#479, `2cb9d74`);
-  it does not exist at the `0.7.0` pin. It was present but inert in `0.4.0` (no
+  it does not exist at the `0.8.0` pin. It was present but inert in `0.4.0` (no
   code path ever consumed it). Do not reference it — shape model output with tools
   or by parsing the streamed text instead.
 - **Per-turn cost caps (`maxLlmCalls`, `maxToolIterations`)** are shipped
@@ -205,6 +205,13 @@ must enable access to the chosen model in the Bedrock console **for the deploy
 region**. Missing access does not fail `cdk synth` or `cdk deploy` — it surfaces
 at **runtime** as `AgentErrors.ModelUnavailable` when the health check can't
 resolve the model. Enable model access before the first real turn.
+
+Since `bb-agent@0.7.0` (umbrella `0.9.0`), a refusal Bedrock returns at
+**invoke** time (the health check passed, but the account has not submitted
+Anthropic's one-time use case details, has not activated the model's AWS
+Marketplace subscription, or is not entitled to the model) also surfaces as
+`AgentErrors.ModelUnavailable`, with a message that says which of these to fix.
+Catch it with `isBlocksError(e, AgentErrors.ModelUnavailable)`.
 
 ## Tools
 
@@ -333,6 +340,15 @@ interface Message {          // returned by getConversation
   contentType: 'text' | 'image' | 'audio' | 'video' | 'document';
   createdAt: number;
   metadata: MessageMetadata; // JSON-parsed
+}
+
+interface MessageMetadata {
+  toolName?: string;
+  toolInput?: JSONValue;     // was `string` before bb-agent@0.6.0
+  toolOutput?: JSONValue;    // was `string` before bb-agent@0.6.0
+  usage?: TokenUsage;
+  latencyMs?: number;
+  error?: string;
 }
 
 interface Conversation {     // returned by listConversations

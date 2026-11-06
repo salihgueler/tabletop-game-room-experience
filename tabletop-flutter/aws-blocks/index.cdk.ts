@@ -4,6 +4,7 @@ import { Mixins, RemovalPolicies } from "aws-cdk-lib";
 import {
   BlocksStack,
   Hosting,
+  registerConfig,
   SandboxDisableDeletionProtection,
 } from "@aws-blocks/blocks/cdk";
 import { BlocksPresets } from "@aws-blocks/blocks/cdk";
@@ -35,9 +36,11 @@ if (sandboxMode) {
   RemovalPolicies.of(blocksStack).destroy();
   Mixins.of(blocksStack).apply(new SandboxDisableDeletionProtection());
 
-  // Tell the runtime that cookies need cross-domain attributes (frontend on
-  // localhost, API on API Gateway — different registrable domains).
-  blocksStack.handler.addEnvironment("BLOCKS_SANDBOX", "true");
+  // Tell the runtime that cookies need cross-domain attributes (Flutter app on
+  // localhost or a device, API on API Gateway: different registrable domains).
+  // registerConfig replaces the removed `blocksStack.handler.addEnvironment`
+  // (Blocks 0.8.0); it is loaded into process.env before index.ts is imported.
+  registerConfig(blocksStack, "BLOCKS_SANDBOX", "true");
 }
 
 // Add static site hosting only when deploying (not in sandbox mode)

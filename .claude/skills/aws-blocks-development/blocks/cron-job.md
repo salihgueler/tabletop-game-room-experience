@@ -2,7 +2,8 @@
 
 Scheduled task execution on a recurring `rate(...)` or `cron(...)` expression.
 On AWS it is an EventBridge Scheduler schedule targeting the shared Lambda
-handler; locally it fires in-process (see the trap below).
+handler (or a serverless `Compute` you assign); locally it fires in-process (see
+the trap below).
 
 **Use it for** periodic work: cleanup, report generation, data sync, cache
 warming, health checks.
@@ -69,8 +70,26 @@ interface CronJobOptions<T = void> {
   description?: string;
   timezone?: string;    // IANA tz for cron(...) expressions; rate(...) ignores it. default UTC
   input?: T;            // static payload passed on every invocation
+  compute?: ComputeProvider<'serverless'>;  // new in bb-cron-job@0.4.0 (0.9.0)
   logger?: ChildLogger;
 }
+```
+
+`compute` gives the job its own function, for example more memory or a longer
+timeout than the API's. Pass a `type: 'serverless'` `Compute`
+([compute](compute.md)); a `container` compute is a type error, and a container
+inherited from the job's `Scope` fails synth. Without it the job uses its scope's
+compute, then the app default:
+
+```typescript
+import { CronJob, Compute } from '@aws-blocks/blocks';
+
+const batch = new Compute(scope, 'batch', { type: 'serverless', memory: 2048, maxTimeoutSeconds: 900 });
+new CronJob(scope, 'nightly', {
+  schedule: 'cron(0 2 * * ? *)',
+  compute: batch,
+  handler: async () => { /* … */ },
+});
 ```
 
 `input` is a **static** value baked into the schedule at synth time and passed
@@ -143,7 +162,7 @@ runtime condition.
 | `InvalidSchedule` | `InvalidScheduleExpression` | `schedule` is not a valid `rate(...)` or `cron(...)` expression |
 | `InvalidTimezone` | `InvalidTimezoneExpression` | `timezone` is not a valid IANA timezone |
 | `ScheduleNotSupported` | `ScheduleNotSupportedInMock` | the schedule can't be simulated by the local mock |
-| `UnsupportedCompute` | `UnsupportedComputeException` | the resolved compute is not Lambda |
+| `UnsupportedCompute` | `UnsupportedComputeException` | the resolved compute (the job's own, or its scope's) is not serverless, or belongs to another backend |
 
 ## What it provisions
 
@@ -152,4 +171,7 @@ shared Lambda handler, plus a single per-stack EventBridge Scheduler IAM role
 with `lambda:InvokeFunction`. Since `bb-cron-job@0.2.2` that role's trust policy
 only accepts schedules in the stack's own account and region (`aws:SourceAccount`
 plus an `aws:SourceArn` schedule-group pattern). No dedicated Lambda per job —
-CronJob, AsyncJob and API routes share one handler.
+CronJob, AsyncJob and API routes share one handler, unless a job is given its own
+`Compute`. As of `0.9.0` each schedule gets permission to invoke the function it
+targets. Before, the shared scheduler role could invoke only the first job's
+function, so a job on another function was refused at run time.

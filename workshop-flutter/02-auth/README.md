@@ -33,7 +33,8 @@ device (or in a web sandbox) at a **different origin** from the API, the session
 cookie needs `SameSite=None; Secure`. Setting
 `crossDomain: process.env.BLOCKS_SANDBOX === "true"` enables this only in deployed
 sandboxes (`process.env` is Node's environment-variable map, the equivalent of Dart's
-`Platform.environment`). Locally, the Dart HTTP client and the backend share
+`Platform.environment`). Module 09 sets `BLOCKS_SANDBOX` for the sandbox in
+`index.cdk.ts`. Locally, the Dart HTTP client and the backend share
 `localhost:3001`, so same-origin rules apply normally.
 
 The Flutter UI never changes: `GameRepository.authenticate()` already calls

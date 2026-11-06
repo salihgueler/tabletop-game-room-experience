@@ -6,7 +6,7 @@ situation:
 
 | Pattern | When |
 |---------|------|
-| **`BlocksBackend` / `BlocksStack`** | Run the Blocks Lambda + API Gateway alongside (or as) your CDK stacks, and wire your own CDK resources to its `.handler` |
+| **`BlocksBackend` / `BlocksStack`** | Run the Blocks Lambda + API Gateway alongside (or as) your CDK stacks, and wire your own CDK resources to its `executionRole` |
 | **`fromExisting` on a BB** | Point a Blocks Building Block at a pre-deployed AWS resource — keeps the typed runtime API and mocks, skips provisioning |
 | **Custom Building Block** | Author your own BB when no first-party one fits |
 | **Vendorize** | Eject a first-party BB's source into `vendor/` and own it (`blocks-vendorize`) |
@@ -14,15 +14,17 @@ situation:
 ## Contents
 
 - BlocksStack vs BlocksBackend
+- Wiring your own resources (`executionRole`, `registerConfig`)
 - `fromExisting` — adopting pre-deployed resources
 - Custom Building Block structure
 - Decision matrix
 
 ## BlocksStack vs BlocksBackend
 
-Both expose the same `.handler` (the shared Lambda) and `.apiUrl` / `.gateway`.
-Both are created by an **async** static factory and imported from
-`@aws-blocks/blocks/cdk` (re-exported from `@aws-blocks/core/cdk`).
+Both expose the same `executionRole` (the shared role every Blocks compute
+assumes) and `apiUrl` / `publicApiUrl` / `gateway`. Both are created by an
+**async** static factory and imported from `@aws-blocks/blocks/cdk` (re-exported
+from `@aws-blocks/core/cdk`).
 
 - **`BlocksStack`** is a whole `cdk.Stack` — greenfield, or Blocks isolated in its
   own deploy unit.
@@ -47,7 +49,7 @@ entry (`backendCDKPath`) to enumerate blocks at synth time.
 ```typescript
 import * as cdk from 'aws-cdk-lib';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
-import { BlocksBackend, BlocksPresets } from '@aws-blocks/blocks/cdk';
+import { BlocksBackend, BlocksPresets, registerConfig } from '@aws-blocks/blocks/cdk';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -66,16 +68,56 @@ class MyExistingStack extends cdk.Stack {
       defaults: BlocksPresets.sandbox,
     });
 
-    // Wire IAM + env on the handler — identical surface to BlocksStack.
-    queue.grantSendMessages(stack.blocks.handler);
-    stack.blocks.handler.addEnvironment('WORK_QUEUE_URL', queue.queueUrl);
+    // Wire IAM + config — identical surface to BlocksStack.
+    queue.grantSendMessages(stack.blocks.executionRole);
+    registerConfig(stack.blocks, 'WORK_QUEUE_URL', queue.queueUrl);
     return stack;
   }
 }
 ```
 
 Greenfield equivalent (`BlocksStack.create(app, 'my-app', { backendHandlerPath, backendCDKPath, defaults })`)
-returns a stack whose `.handler` you wire the same way.
+returns a stack you wire the same way.
+
+## Wiring your own resources (`executionRole`, `registerConfig`)
+
+`BlocksStack.handler`, `BlocksBackend.handler` and `Scope.handler` were
+**removed in `0.8.0`**. They returned the *default* compute's Lambda, so
+anything wired through them reached only that one function rather than every
+compute the app runs on. Use the stack-wide equivalents, which reach all of
+them:
+
+| Removed in `0.8.0` | Use instead |
+|---|---|
+| `blocksStack.handler.addEnvironment('KEY', value)` | `registerConfig(blocksStack, 'KEY', value)` |
+| `resource.grantRead(blocksStack.handler)` | `resource.grantRead(blocksStack.executionRole)` |
+| `blocksStack.handler.addToRolePolicy(statement)` | `blocksStack.executionRole.addToPrincipalPolicy(statement)` |
+| `this.handler` inside a custom Building Block | `this.executionRole` / `registerConfig(this, …)` |
+| `handler.addEnvironment('CORS_ALLOWED_ORIGINS', …)` | `defaults: { ...BlocksPresets.production, allowedOrigins: [...] }` |
+
+Both `registerConfig` and `executionRole` come from `@aws-blocks/blocks/cdk`
+(and `@aws-blocks/core/cdk`). `registerConfig` can be called from a Building
+Block constructor or from app code after `create()` resolves.
+
+**Precedence differs from `addEnvironment`.** `addEnvironment` wrote a real
+Lambda environment variable, so the last call won. `registerConfig` entries are
+serialized to a JSON config object in S3 and loaded into `process.env` at cold
+start **only for keys that are not already set** — so a real environment
+variable of the same name always wins, including one the framework sets itself
+(`NODE_ENV`, `BLOCKS_STACK_NAME`). When that happens with a differing value the
+compute logs a warning at cold start naming the ignored keys (names only, never
+values). The S3 indirection is also what sidesteps Lambda's ~4 KB env limit.
+
+Config is plain JSON in a private bucket, so it is not a secret store: use
+`Secret` (or `AppSetting` with `secret: true` for a low-value secret).
+
+**`LambdaCompute.apiGateway` and `LambdaCompute.apiUrl` are gone too.** A
+single shared REST API is now built once at the stack level and fronts the
+default compute, instead of each compute owning a gateway. Read `gateway`,
+`apiUrl` and `publicApiUrl` off the `BlocksStack` / `BlocksBackend`. Existing
+deployments keep their REST API and `execute-api` URL: the shared gateway is
+built in the default compute's construct scope under the same construct ids, so
+the synthesized logical IDs are unchanged.
 
 ## `fromExisting` — adopting pre-deployed resources
 
@@ -173,10 +215,12 @@ identical option/result types.
   `@aws-blocks/core/cdk`; in the runtime/mock layers import `Scope` (and
   `ScopeParent`) from `@aws-blocks/core`. `getMockDataDir` is imported from
   `@aws-blocks/core/bb-utils`.
-- `Scope` gives you `this.handler` (the shared Lambda), `this.fullId`, and CDK tree
-  integration. In `index.cdk.ts`, call `this.handler.addToRolePolicy(...)` to grant
-  permissions and `this.handler.addEnvironment(key, value)` to inject config the
-  runtime reads. Convention: `BLOCKS_${fullId}_*`.
+- `Scope` gives you `this.executionRole` (the shared role every Blocks compute
+  assumes), `this.fullId`, and CDK tree integration. In `index.cdk.ts`, call
+  `this.executionRole.addToPrincipalPolicy(...)` to grant permissions and
+  `registerConfig(this, key, value)` to inject config the runtime reads.
+  Convention: `BLOCKS_${fullId}_*`. (`this.handler` was removed in `0.8.0` — it
+  reached only the default compute.)
 - **Stub runtime methods in the CDK layer with `synthGuard(blockName, methodName)`**
   — it throws a clear error if a runtime method is called during synth.
 - **`getMockDataDir(this)`** resolves to `<cwd>/.bb-data/{fullId}/` for mock
@@ -196,9 +240,9 @@ identical option/result types.
 
 | Scenario | Approach |
 |----------|----------|
-| New CDK resources feeding Blocks, in your existing stack | **BlocksBackend** — drop the Construct in and wire `.handler` |
+| New CDK resources feeding Blocks, in your existing stack | **BlocksBackend** — drop the Construct in and wire `executionRole` / `registerConfig` |
 | Blocks in its own stack (greenfield) | **BlocksStack** |
 | Use a table / bucket / pool / DB owned by another team or stack | **`fromExisting`** on the matching BB |
-| Service with no first-party BB (e.g. SQS, ElastiCache) | **Custom Building Block**, or raw CDK wired to `.handler` for a one-off |
+| Service with no first-party BB (e.g. SQS, ElastiCache) | **Custom Building Block**, or raw CDK wired to `executionRole` for a one-off |
 | Own a first-party BB's source outright | **Vendorize** (`blocks-vendorize`) |
 | Gradual CDK→Blocks migration | **BlocksBackend + `fromExisting`** — bind existing resources, retire old handlers as traffic shifts |

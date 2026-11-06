@@ -13,7 +13,7 @@ app; RawRoute complements it, it doesn't replace it.
 ## Contents
 
 - Import and minimal example
-- Constructor — exactly `(scope, name, handler)`
+- Constructor: `(scope, name, handler, options?)`
 - Authentication is per method, not constructor-wired
 - Methods, arguments, and the frontend call
 - The `context` object
@@ -49,14 +49,44 @@ import { api } from 'aws-blocks';
 const result = await api.greet('world', 3); // { message: string }
 ```
 
-## Constructor — exactly `(scope, name, handler)`
+## Constructor: `(scope, name, handler, options?)`
 
-The constructor is three positional arguments: `new ApiNamespace(scope, name,
-handler)`. `scope` is required; `handler` is `(context) => ({ ...methods })`.
+The constructor is `new ApiNamespace(scope, name, handler, options?)`. `scope`
+is required; `handler` is `(context) => ({ ...methods })`. The optional fourth
+argument (`ApiNamespaceOptions`, new in `core@0.8.0` / `@aws-blocks/blocks@0.9.0`)
+has exactly one field, `compute`, which places the namespace on its own
+`Compute` (see below).
 
-There is **no** options object and **no** `{ auth }` argument. A four-argument
-form like `new ApiNamespace(scope, name, { auth }, handler)` does not exist, and
-neither does a `withAuth()` method.
+There is **no** `{ auth }` option. A form like
+`new ApiNamespace(scope, name, { auth }, handler)` does not exist (the handler is
+always the third argument), and neither does a `withAuth()` method.
+
+### Running a namespace on its own compute
+
+```typescript
+import { ApiNamespace, Compute } from '@aws-blocks/blocks';
+
+const reportsCompute = new Compute(scope, 'reports-compute', { type: 'serverless', memory: 4096 });
+
+export const reports = new ApiNamespace(scope, 'reports', (context) => ({
+  async build(month: string) { /* … */ },
+}), { compute: reportsCompute });
+```
+
+- Only a `serverless` compute can serve a namespace. A `container` compute is a
+  type error.
+- Without `compute`, the namespace uses its scope's compute (`Scope` option
+  `compute`), then the app's default compute.
+- Routing follows the **export name** (`reports` above), not the second
+  argument. The client calls `POST /aws-blocks/api/reports` and the shared
+  gateway sends that path to the namespace's compute.
+- API calls stay capped at about 29 seconds by API Gateway, whatever the
+  compute's `maxTimeoutSeconds`. Put longer work in an `AsyncJob`.
+- A separate compute is placement, not isolation: every compute runs the same
+  bundle under the app's one execution role.
+- In local dev every namespace still runs in the one dev server.
+
+Full `Compute` options: [compute](compute.md).
 
 ## Authentication is per method, not constructor-wired
 
@@ -141,16 +171,31 @@ export const adminApi  = new ApiNamespace(scope, 'admin',  (context) => ({ /* ..
 
 Frontend: `import { publicApi, adminApi } from 'aws-blocks';`
 
+The generated client names each namespace by its **export name** (`publicApi`,
+`adminApi`), and uses that name in both the request path and the JSON-RPC
+`method`.
+
 ## Wire protocol and the RPC endpoint
 
-All calls are JSON-RPC 2.0 over a **single POST to `/aws-blocks/api`** (the
+All calls are JSON-RPC 2.0 over POST under `/aws-blocks/api` (the
 `BLOCKS_RPC_PREFIX` constant — namespaced under `/aws-blocks` so it never
-shadows framework `/api/*` SSR routes). The `method` is `namespace.methodName`:
+shadows framework `/api/*` SSR routes). The `method` is `namespace.methodName`.
+
+As of `@aws-blocks/blocks@0.9.0` the typed client POSTs to a **per-namespace
+path**, `/aws-blocks/api/{namespace}`, where `{namespace}` is the backend export
+name. This is what lets one gateway route different namespaces to different
+computes:
 
 ```
-POST /aws-blocks/api
-{ "jsonrpc": "2.0", "method": "public.greet", "params": ["world", 3], "id": 1 }
+POST /aws-blocks/api/publicApi
+{ "jsonrpc": "2.0", "method": "publicApi.greet", "params": ["world", 3], "id": 1 }
 ```
+
+The body still carries `namespace.method`, and that is what the server
+dispatches. The path namespace must match it exactly, or the request is rejected
+with `-32600` Invalid Request. The bare `POST /aws-blocks/api` still works for
+raw HTTP callers and older native clients, and always runs on the default
+compute.
 
 `params` may be an array (positional, the normal case) or an object (its values
 are taken in order). On error the response carries `error.code` = the HTTP status
@@ -175,6 +220,9 @@ the dev/mock server enforces the same limit. This guard was **not** in the
 
 ## What it provisions
 
-- API Gateway HTTP API with the single `/aws-blocks/api` POST route
+- Routes on the stack's one shared API Gateway REST API: `/aws-blocks/api` and
+  `/aws-blocks/api/{proxy+}` reach the default compute, and each namespace on a
+  non-default compute gets its own literal `/aws-blocks/api/{namespace}` resource
+  that reaches that compute's function
 - The shared Blocks handler Lambda (JSON-RPC dispatch)
-- IAM execution role
+- IAM execution role (one role shared by every compute)

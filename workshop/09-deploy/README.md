@@ -27,8 +27,10 @@ const blocksStack = await BlocksStack.create(app, stackName, {
   defaults: sandboxMode ? BlocksPresets.sandbox : BlocksPresets.production,
 });
 
-if (!sandboxMode) {
+// `npm run sandbox:preview` sets previewMode: a sandbox that also hosts the front end.
+if (!sandboxMode || previewMode) {
   new Hosting(blocksStack, "Hosting", {
+    ...(previewMode ? HostingPresets.preview : HostingPresets.production),
     root: join(__dirname, ".."),
     buildCommand: "npm run build",
     buildOutputDir: "dist",
@@ -69,11 +71,21 @@ cd app
 npm run sandbox          # provisions an ephemeral stack, watches for changes
 ```
 
-The sandbox sets `BLOCKS_SANDBOX=true`, which flips two things you already coded for:
+Two things are different in the sandbox:
 
-- **`auth`'s `crossDomain`** turns on (frontend on localhost, API on API Gateway are
-  different registrable domains, so the session cookie needs cross-domain attributes).
-- Removal policies are relaxed so `sandbox:destroy` can tear everything down cleanly.
+- **The browser still talks to one origin.** The local dev server proxies
+  `/aws-blocks/api` to the deployed API Gateway, so the session cookie stays
+  same-origin and `auth`'s `crossDomain` stays off. The scaffolder no longer sets
+  `BLOCKS_SANDBOX`, so the `crossDomain: process.env.BLOCKS_SANDBOX === "true"` line
+  you wrote in module 02 evaluates to `false` here, which is what you want.
+- Removal policies are relaxed (`BlocksPresets.sandbox`) so `sandbox:destroy` can tear
+  everything down cleanly.
+
+Want to see the built front end on AWS without a production deploy? Run
+`npx tsx aws-blocks/scripts/sandbox.ts --preview`. It deploys the same sandbox plus
+`Hosting` in a cheap preview shape (API Gateway in front, no CloudFront) and prints its
+URL. In a fresh project this is `npm run sandbox:preview`, but adding Blocks to an
+existing project does not add that script. `npm run sandbox:destroy` removes it.
 
 Play a turn against the sandbox. If AI narration is generic, that's the model gotcha
 below — the game still runs.

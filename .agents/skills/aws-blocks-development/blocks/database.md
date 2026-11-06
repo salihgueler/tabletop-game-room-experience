@@ -17,6 +17,7 @@ FK/RLS/triggers and with multi-region writes (DistributedDatabase).
 - Imports and where each symbol lives
 - Minimal example
 - `DatabaseOptions`
+- Backups and encryption (`bb-data@0.4.0`)
 - Migrations — local vs AWS
 - Kysely query builder
 - `bb-data pull` — codegen and adopting an existing Postgres
@@ -84,6 +85,8 @@ interface DatabaseOptions {
   postgresVersion?: string;           // e.g. '16.13' (default '16.13')
   removalPolicy?: 'destroy' | 'retain' | 'snapshot';
   rlsPolicy?: 'enforce';
+  storageEncryptionKeyArn?: string;   // customer-managed KMS key — bb-data@0.4.0
+  pointInTimeRecovery?: boolean | { retentionDays: number }; // bb-data@0.4.0
   logger?: ChildLogger;
 }
 ```
@@ -96,6 +99,57 @@ Reach for them by situation:
 - **A pinned engine version** — `postgresVersion: '16.13'` (must be
   `MAJOR.MINOR`, validated at synth).
 - **Bigger/smaller Aurora** — `minCapacity` / `maxCapacity` in ACUs.
+
+### Backups and encryption (`bb-data@0.4.0`)
+
+**`pointInTimeRecovery`** controls automated backups, which are also the
+point-in-time-recovery window. One knob, since the recovery window only means
+anything when backups are on:
+
+- `true` — enable backups with the standard **15-day** window.
+- `{ retentionDays: n }` — pin the window. Aurora requires an integer **1–35**;
+  out of range warns at synth and falls back to 15.
+- `false` — Aurora **cannot** disable automated backups (cluster minimum is 1
+  day), so this clamps to 1 day rather than turning them off.
+
+Omitted, it follows `defaults.pointInTimeRecovery` (on under `production`, off
+under `sandbox` — and a `false` default lands on the 1-day minimum per the
+clamp). A per-block value always wins. The PostgreSQL engine log is also
+exported to CloudWatch Logs, with retention from `defaults.logRetention`.
+
+**Storage encryption at rest is opt-in**, via the
+`@aws-blocks/bb-data:encryptStorageByDefault` context flag — which
+`create-blocks-app` now sets in every template's `cdk.json`, so a newly
+scaffolded project encrypts by default with the AWS-managed `aws/rds` key.
+`storageEncryptionKeyArn` (the ARN of a customer-managed key) turns encryption
+on regardless of the flag and also encrypts the cluster's auto-generated
+credentials secret. With neither set, the `StorageEncrypted` property is left
+**unset** and a synth warning explains how to opt in.
+
+The key is referenced by ARN rather than a `kms.IKey` because `Database`
+resolves to a runtime entry point that must not import `aws-cdk-lib`. Blocks
+*imports* the key and cannot modify its policy, so the key must already allow:
+`kms:CreateGrant` + `kms:DescribeKey` for the deploying principal (RDS grants
+against it to encrypt the volume), and `kms:Decrypt` for the principal reading
+the credentials secret over the Data API. Same account and region as the
+cluster.
+
+> ⚠️ **Turning encryption on for an already-deployed unencrypted cluster
+> replaces it, destructively.** RDS cannot encrypt a cluster in place, so
+> CloudFormation creates a **new, empty** encrypted cluster and repoints the
+> stack. The migration CustomResource does **not** re-run on a cluster swap (its
+> only properties are the service token and the migrations hash, neither of
+> which changes), so the new cluster comes up with **no schema**. Under
+> `production` (RETAIN) the old cluster is orphaned; under `sandbox` (DESTROY)
+> it and its data are deleted. The reverse — dropping the flag from a project
+> that already deployed encrypted — replaces it symmetrically. The only safe
+> route is snapshot, restore with encryption enabled, then cut over. Review the
+> diff and snapshot first.
+
+Backup-retention and log-export changes alter synthesized cluster properties, so
+upgrading an existing stack to `bb-data@0.4.0` shows a CloudFormation diff.
+`iamAuthentication` stays intentionally off — access is exclusively via the RDS
+Data API.
 
 ## Migrations
 
@@ -223,6 +277,25 @@ Locally (PGlite), the role must exist or queries fail with
 `role "authenticated" does not exist` — create it in a migration
 (`CREATE ROLE authenticated;`).
 
+**PostgreSQL 16+ (including Aurora) needs a role grant** (`bb-data@0.5.0`). The
+database user must be a member of each RLS role, so add this to a migration
+after creating the roles:
+
+```sql
+GRANT authenticated TO CURRENT_USER;
+GRANT anon TO CURRENT_USER;
+```
+
+Without it the role switch is refused and `withRLS()` fails with a 500
+`QueryFailed`; the server log names the missing grant.
+
+**`claims` can't override `sub` or `role`** (breaking in `bb-data@0.5.0`). In
+`withRLS({ userId, role, claims })`, `request.jwt.claims.sub` always comes from
+`userId` and `role` always from `role`, so a policy reading either claim sees the
+server-derived value. Other claims still pass through. If you relied on
+`claims.sub` or `claims.role`, pass the value as `userId` / `role` or use a
+different claim name.
+
 > **`rlsPolicy: 'enforce'` scopes ONLY `db.crud()`.** The generated CRUD methods
 > always route through `withRLS()`, but raw `db.query()` / `db.execute()` /
 > `db.transaction()` **bypass RLS** and run unscoped unless you explicitly call
@@ -259,6 +332,26 @@ try {
 | `DatabaseErrors.TransactionFailed` | `TransactionFailedException` |
 | `DatabaseErrors.UniqueConstraintViolation` | `UniqueConstraintViolationException` |
 | `DatabaseErrors.SerializationFailure` | `SerializationFailureException` |
+| `DatabaseErrors.PermissionDenied` | `PermissionDeniedException` (403) |
+| `DatabaseErrors.CheckViolation` | `CheckViolationException` (400) |
+| `DatabaseErrors.NotNullViolation` | `NotNullViolationException` (400) |
+| `DatabaseErrors.ForeignKeyViolation` | `ForeignKeyViolationException` (409) |
+
+**Named 4xx errors (breaking in `bb-data@0.5.0` / `@aws-blocks/blocks@0.9.0`).**
+These Postgres failures used to surface as a generic 500 `QueryFailed`. On every
+engine (local PGlite, `pg`, Data API) they now map to:
+
+| Postgres error | SQLSTATE | Error | HTTP |
+|---|---|---|---|
+| RLS rejection, or no grant for the role | `42501` | `PermissionDenied` | 403 |
+| Check constraint | `23514` | `CheckViolation` | 400 |
+| Not-null constraint | `23502` | `NotNullViolation` | 400 |
+| Foreign key | `23503` | `ForeignKeyViolation` | 409 |
+
+Each carries a fixed message (the driver text stays server-side as `cause`) and
+none is retriable. They cross the wire, so the client can match them with
+`isBlocksError` too. Code that matched these with `DatabaseErrors.QueryFailed`,
+or treated them as 500s, must match the new names.
 
 <details><summary>PGlite array-column quirk</summary>
 
@@ -273,3 +366,13 @@ VPC with isolated subnets (no NAT), RDS Proxy for connection pooling, a Secrets
 Manager secret with auto-rotated credentials, a CustomResource migration Lambda,
 and IAM grants (`rds-data:*`, `secretsmanager:GetSecretValue`) to the app Lambda.
 Connecting via `fromExisting()` skips all provisioning.
+
+**VPC placement (`0.9.0`).** A `Database` joins only a VPC you pass as
+`defaults.vpc.network`. It never joins the shared VPC Blocks derives when you add
+a container `Compute`, because moving an existing Aurora cluster into a new VPC
+is a CloudFormation replacement that destroys the database. With no customer VPC
+it keeps building its own, as before. See [compute](compute.md).
+
+A script that imports the backend under local dev (seed script, one-off CLI,
+test) now exits when it finishes; before `0.9.0` the local engine held the
+process open.

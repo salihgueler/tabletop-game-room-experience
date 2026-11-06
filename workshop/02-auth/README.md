@@ -47,8 +47,9 @@ in the file — the API namespace, the per-request gate — hangs off this `auth
 
 The one detail that reaches the client: `crossDomain` decides whether the session cookie is
 scoped to a single origin or allowed across domains. Locally the Vite dev proxy makes the
-API same-origin, so it stays `false` and the browser sends the cookie automatically; only
-module 09's sandbox flips it on. Get this wrong and sign-in "succeeds" but every following
+API same-origin, so it stays `false` and the browser sends the cookie automatically. Module
+09's sandbox is same-origin too (the dev server proxies the deployed API), so it stays
+`false` there as well. Get this wrong and sign-in "succeeds" but every following
 request is mysteriously a 401 because the cookie never rode along.
 
 Update the blocks import to have `AuthBasic`:
@@ -64,8 +65,8 @@ const scope = new Scope("tt");
 
 const auth = new AuthBasic(scope, "auth", {
   passwordPolicy: { minLength: 8 },
-  // Needed only when frontend and API are on different domains (module 09's
-  // sandbox sets BLOCKS_SANDBOX=true). Locally the Vite proxy is same-origin.
+  // Needed only when frontend and API are on different domains. Locally and in
+  // the module 09 sandbox, a proxy keeps them same-origin.
   crossDomain: process.env.BLOCKS_SANDBOX === "true",
 });
 ```

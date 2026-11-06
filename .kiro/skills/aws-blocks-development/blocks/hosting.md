@@ -10,9 +10,10 @@ backend, with an optional custom domain, WAF, and per-request CSP.
 
 **Don't use it for** an API-only backend (omit Hosting entirely — the backend
 deploys without it), for serving user-uploaded files (that is FileBucket), or in
-sandbox mode. The scaffolded `index.cdk.ts` only constructs Hosting when
-`!sandboxMode`, so `npm run sandbox` is backend-only and Hosting is a
-production-deploy concern.
+a plain sandbox. The scaffolded `index.cdk.ts` constructs Hosting when
+`!sandboxMode || previewMode`, so `npm run sandbox` is backend-only. The
+exception is `npm run sandbox:preview`, which deploys Hosting in
+`HostingPresets.preview` shape (see "Preview shape" below).
 
 ## Which `Hosting` this is
 
@@ -39,13 +40,15 @@ core construct gained top-level `ssrDefaultTtl` / `cacheKeyCookies` /
 - Framework detection and the `framework` values
 - SSR runtime: OpenNext vs the Lambda Web Adapter
 - The API proxy — why `api` is effectively required
+- Front doors (`frontDoor`): CloudFront, ALB, API Gateway, stacked, none, custom
+- Preview shape: `HostingPresets` and `npm run sandbox:preview`
 - Custom domain
 - WAF
 - Content-Security-Policy (the default, and why passing your own is risky)
 - On-by-default cost/behaviour: `monitoring` and `skewProtection`
 - SSR edge caching: `ssrDefaultTtl` and the cache key
 - Other options: `buildCache`, `errorPages`, `logging`, `geoRestriction`, `quotas`
-- What there is NO surface for (VPC)
+- What there is NO surface for (an SSR function in a VPC)
 - Deploy commands
 - What it provisions
 
@@ -85,6 +88,16 @@ interface HostingProps {
   backendConfig?: Record<string, unknown>;  // extra public keys in config.json
 
   compute?: ComputeConfig;            // SSR Lambda: memorySize, timeout, ...
+  frontDoor?: HostingFrontDoor | CloudFrontOverRouterFrontDoor;  // default CloudFront (see "Front doors")
+  imageOptimization?: boolean;        // default true; false needs the apiGateway door
+  incrementalRegeneration?: boolean;  // default true; Next.js ISR infra
+  edgeRoutes?: 'edge' | 'regional';   // Next.js `runtime: 'edge'` routes
+  buildId?: 'per-deploy' | 'fixed';   // default 'per-deploy'; 'fixed' needs a door with no edge cache
+  buildRetentionDays?: number;        // default 30; superseded builds only
+  secretStore?: KindStoreOptions;     // `secret()` prefix/stage/cacheTtlSeconds
+  configStore?: KindStoreOptions;     // `config()` prefix/stage/cacheTtlSeconds
+
+  // Deprecated top-level aliases of frontDoor.features (still work, see "Front doors"):
   domain?: HostingDomainConfig;
   waf?: HostingWafConfig;
   retainOnDelete?: boolean;           // default false
@@ -111,11 +124,50 @@ interface HostingProps {
 }
 ```
 
-`ComputeConfig` (SSR only): `memorySize` (MB, default 512), `timeout`
+`ComputeConfig` (SSR only): `memorySize` (MB, default 1024 unless the framework
+adapter sets its own), `timeout`
 (`cdk.Duration` or a plain number of seconds, default 30 — a number outside 1–900
 throws `compute.timeout must be between 1-900 seconds`),
 `reservedConcurrency`, `imageOptimization.reservedConcurrency`, and
-`logRetention` (default `TWO_WEEKS`).
+`logRetention` (default `ONE_MONTH`).
+
+**`compute.type`** (`hosting@0.5.0`, umbrella `0.9.0`): `'lambda'` (default)
+runs the SSR server as a Lambda function behind API Gateway, in every Region.
+`'web-function'` runs the framework's own Node.js server directly on AWS Lambda
+Web Functions behind CloudFront origin access control, with no API Gateway and
+no Lambda Web Adapter. Each execution environment serves many concurrent
+requests and is billed for active CPU, so I/O-bound SSR gets fewer cold starts.
+Limits for `'web-function'`:
+
+- Needs an HTTP-server build (Astro, SvelteKit, Nitro `node-server`, OpenNext
+  `node` wrapper). The built-in adapters produce one automatically.
+- Only in us-east-1, us-east-2, us-west-2, ap-northeast-1 and eu-west-1.
+- Node.js 24, Arm64, 2 GB per environment. `memorySize`, `reservedConcurrency`,
+  `provisionedConcurrency` and `warmup` do not apply; tune with
+  `compute.webFunction` (for example `{ maxEnvironments: 20 }`).
+- Sandbox deploys skip CloudFormation Express Mode after the first deploy, so
+  they take a full deploy each time.
+
+```typescript
+new Hosting(blocksStack, 'Hosting', {
+  root: join(__dirname, '..'),
+  api: blocksStack,
+  compute: { type: 'web-function', webFunction: { maxEnvironments: 20 } },
+});
+```
+
+The props from `frontDoor` down to `configStore` are in umbrella `0.9.0`. From
+`domain` down to `cacheKeyHeaders`, every prop is now a deprecated alias of
+`frontDoor.features.<same name>`. The aliases still compile and synthesize the
+same template on the default CloudFront door. New code should use
+`frontDoor.features`.
+
+`buildRetentionDays` only expires builds a newer deploy replaced; the live build
+is never expired. It must be at least `skewProtection.maxAge` in days, or synth
+throws `InvalidSkewProtectionMaxAgeError`. `secretStore` / `configStore` default
+to the Blocks `/blocks/secrets` and `/blocks/config` prefixes; set `prefix` to
+namespace per app, `stage` for per-stage values with a shared fallback, or
+`cacheTtlSeconds` to pick up a rotated value on a warm function.
 
 There is **no `apiUrl` string prop** and there never was — pass the backend stack
 via `api`. There is **no `spaFallback` prop** (it is an internal adapter field,
@@ -170,6 +222,152 @@ site. Without it, the frontend has no API URL to call.
 `config.json` is deployed to `/.blocks-sandbox/config.json` and served no-cache;
 client code reads it for API discovery. `backendConfig` keys are merged into it
 and are **publicly readable** — never put secrets there.
+
+The CloudFront behaviors above describe the default door. Every other door
+except `'none'` also serves `/aws-blocks/*` and the raw routes on the app's own
+origin, so cookie sign-in works with no CORS (see "Front doors").
+
+## Front doors (`frontDoor`, umbrella `0.9.0`)
+
+`Hosting` no longer hard-codes CloudFront. `frontDoor` picks the public entry
+point. Omit it and you get the same CloudFront distribution as before.
+
+| `frontDoor` | What serves the app | Notes |
+|---|---|---|
+| omitted, `'cloudfront'` or `{ features }` | Global CloudFront CDN (default) | All features below |
+| `{ kind: 'alb', vpc?, internal?, certificate? }` | Regional Application Load Balancer, no CDN | Buffered SSR responses. HTTPS needs `certificate` + `features.domain` (adds a port 80 → 443 redirect and Route 53 aliases) |
+| `{ kind: 'apiGateway', api?: 'http' \| 'rest', certificate? }` | Amazon API Gateway, no CDN, no VPC, scales to zero | `'http'` (default) buffers SSR responses (about 6 MB each). `'rest'` streams them and **requires** `features.domain`, else synth throws `RestFrontDoorNeedsDomainError` |
+| `{ kind: 'stacked', edge: 'cloudfront', router: 'alb', vpc?, internal?, certificate? }` | CloudFront edge in front of a full ALB router | Edge serves static routes from S3; API and dynamic routes go through the ALB, which admits only the edge (secret header + CloudFront prefix list) |
+| `'none'` | S3 website bucket over HTTP | Static site / SPA only; an app with a server fails synth. The browser calls the API cross-origin |
+| `{ kind: 'custom', door, wiringCheck? }` | Your own door | Write it with `defineFrontDoor({ service, build(scope, input) })` from `@aws-blocks/hosting/constructs` |
+
+The ALB and API Gateway doors have no edge cache, skew protection or geo
+restriction. A plain-HTTP door warns at synth
+(`PlainHttpFrontDoor`).
+
+**Settings go in `features`, typed per door.** A setting the chosen door does
+not implement is a type error:
+
+- CloudFront: `domain`, `waf`, `logging`, `monitoring`, `skewProtection`,
+  `geoRestriction`, `priceClass`, `contentSecurityPolicy`, `ssrDefaultTtl`,
+  `cacheKeyCookies`, `cacheKeyHeaders`, `responseHeadersPolicy`, `quotas`.
+- ALB: `domain` (no `wwwRedirect`), `waf` (a REGIONAL web ACL), `logging`,
+  `monitoring` (`enabled` only).
+- API Gateway: `domain` (no `wwwRedirect`).
+- Stacked, per layer: `edge: { waf: { webAclArn }, contentSecurityPolicy }`
+  (a CLOUDFRONT-scoped web ACL) and `router: { domain, waf, logging, monitoring }`.
+- Custom: `domain`, `waf`, `logging`, `monitoring`, `geoRestriction`,
+  `skewProtection`, handed to your door as `input.features`.
+- `'none'`: no settings.
+
+```typescript
+// CloudFront default, settings moved under features
+new Hosting(blocksStack, 'Hosting', {
+  root, api: blocksStack,
+  frontDoor: { features: { waf: { enabled: true }, domain: { domainName: 'app.example.com', hostedZone: 'example.com' } } },
+});
+
+// Regional ALB with WAF and access logs
+new Hosting(blocksStack, 'Hosting', {
+  root, api: blocksStack,
+  frontDoor: { kind: 'alb', features: { waf: { enabled: true }, logging: { enabled: true } } },
+});
+```
+
+Synth fails, naming the problem, when:
+
+- a setting is set both top-level and in `features`
+  (`FrontDoorSettingConflictError`);
+- a top-level alias is set that the chosen door does not implement
+  (`UnsupportedFrontDoorSettingError`);
+- the door is unknown, takes no such option, or a value has the wrong shape
+  (`UnsupportedFrontDoorError`, `InvalidFrontDoorOptionError`,
+  `InvalidFrontDoorSettingError`).
+
+**API URL and trusted origin.** Only a CloudFront-backed door (the default, or
+the stacked edge) takes over the backend's API front-door role, so
+`apiFrontDoor: 'cloudfront'` builds no second distribution there. Behind the
+ALB, API Gateway or a custom door, the API keeps its own distribution and
+`ApiUrl` stays on it for native clients. `BLOCKS_PUBLIC_ORIGIN` (the OIDC
+callback origin, and the scheme that sets the session cookie's `Secure`) belongs
+to whichever door serves `/aws-blocks/*` to browsers.
+
+## Preview shape: `HostingPresets` and `npm run sandbox:preview`
+
+`HostingPresets` (from `@aws-blocks/blocks/cdk`) are plain bundles of `Hosting`
+props, the hosting counterpart of `BlocksPresets`. Spread one **first**, then
+override:
+
+```typescript
+import { Hosting, HostingPresets } from '@aws-blocks/blocks/cdk';
+
+new Hosting(blocksStack, 'Hosting', {
+  ...(previewMode ? HostingPresets.preview : HostingPresets.production),
+  root: join(__dirname, '..'),
+  api: blocksStack,
+});
+
+// a preview that keeps image optimization
+new Hosting(blocksStack, 'Hosting', { ...HostingPresets.preview, imageOptimization: true, root, api: blocksStack });
+```
+
+`HostingPresets.production` is `{}` (today's defaults). `HostingPresets.preview`
+is a fast, cheap, disposable shape for pull-request previews, per-branch
+sandboxes and demos:
+
+| Prop | Value | Effect |
+|---|---|---|
+| `frontDoor` | `{ kind: 'apiGateway' }` | HTTP API door, no CloudFront; buffered SSR responses |
+| `imageOptimization` | `false` | No image function; image endpoints serve the source image (a remote source redirects only when its host is in the app's image allowlist, else 404) |
+| `incrementalRegeneration` | `false` | Next.js builds without the tag table and revalidation queue; prerendered pages are served from the build snapshot and never regenerate |
+| `edgeRoutes` | `'regional'` | Next.js `runtime: 'edge'` routes run as regional Lambda functions, not Lambda@Edge |
+| `buildId` | `'fixed'` | Unchanged build keeps its id, so a re-deploy skips the asset upload and can hotswap |
+
+Each prop also works alone, with door limits: `imageOptimization: false` and
+`edgeRoutes: 'regional'` need the API Gateway door, and `buildId: 'fixed'` fails
+synth behind a door with an edge cache (CloudFront, stacked), all with
+`UnsupportedHostingSettingError`. `'fixed'` has no atomic switch-over, so use it
+for throwaway environments only. `incrementalRegeneration: false` works behind
+every door.
+
+**`npm run sandbox:preview`** (templates with a frontend, `create-blocks-app@0.4.0`)
+deploys the sandbox backend plus the app in preview shape and prints its URL. It
+runs `startSandbox({ preview: true, deployOnly: true })`, which adds
+`--context previewMode=true` next to `sandboxMode=true` (key exported as
+`PREVIEW_MODE_CONTEXT` from `@aws-blocks/blocks/scripts`). The scaffolded
+`index.cdk.ts` reads it:
+
+```typescript
+const sandboxMode = app.node.tryGetContext('sandboxMode') === 'true';
+const previewMode = app.node.tryGetContext('previewMode') === 'true';
+
+if (!sandboxMode || previewMode) {
+  new Hosting(blocksStack, 'Hosting', {
+    ...(previewMode ? HostingPresets.preview : HostingPresets.production),
+    root: join(__dirname, '..'),
+    buildCommand: 'npm run build',
+    buildOutputDir: 'dist',
+    api: blocksStack,
+  });
+}
+```
+
+- It deploys once and exits: no `cdk watch`, no local dev server. Run it again
+  to re-deploy.
+- Only a preview **re-deploy** uses `--hotswap-fallback`: a code-only change goes
+  straight to the Lambda functions in seconds. A changed frontend build or an
+  infrastructure change does a full deploy. Hotswap drifts the stack from its
+  template, which is why no other sandbox uses it.
+- A deploy counts as a re-deploy when `.blocks-sandbox/outputs.json` exists in
+  the current directory; the stack is not queried.
+- `sandbox`, `sandbox:deploy` and `sandbox:preview` deploy **one** stack. A plain
+  sandbox deploy removes the preview hosting (it warns first). Tear down with
+  `npm run sandbox:destroy`.
+- An app scaffolded before `create-blocks-app@0.4.0` adopts it by adding the
+  `previewMode` branch above, `preview` to the `startSandbox` call
+  (`const preview = process.argv.includes('--preview')` and
+  `deployOnly: preview || process.argv.includes('--deploy-only')`), and a
+  `"sandbox:preview": "tsx aws-blocks/scripts/sandbox.ts --preview"` script.
 
 ## Custom domain
 
@@ -333,8 +531,12 @@ new Hosting(blocksStack, 'Hosting', {
   CloudFront error responses.
 - **`logging: { enabled: true, retentionDays }`** — CloudFront access logs to a
   dedicated S3 bucket, default 90-day retention.
-- **`geoRestriction: { type: 'whitelist' | 'blacklist', countries }`** — CloudFront
-  geo restriction by ISO country code.
+- **`geoRestriction: { type, countries }`**: CloudFront geo restriction by ISO
+  country code. Under `frontDoor.features`, `type` is `'allowlist'` or
+  `'denylist'` (legacy `'whitelist'` / `'blacklist'` mean the same). The
+  deprecated top-level prop's TypeScript type still only lists the legacy names.
+  Any other value fails synth; before 0.9.0 a JavaScript caller passing anything
+  but `'whitelist'` silently got a denylist.
 - **`quotas`** — raise these ONLY to match an AWS quota increase you were actually
   granted; over-setting does not raise the AWS ceiling, it just turns a clear
   synth error into an opaque CloudFormation rollback. `edgeFunctions` default is
@@ -356,19 +558,21 @@ CloudFront/KVS edge router already resolves directory indexes (`/about` →
 `about/index.html`). The reference test-app (`test-apps/hosting-ssr-astro-default404`)
 deploys default `output: 'static'` with no `build.format` and routes correctly.
 
-## What there is NO surface for: VPC
+## What there is NO surface for: an SSR function in a VPC
 
-The core `Hosting` construct exposes **no VPC configuration** — there is no `vpc`
-prop on `HostingProps` and none on the SSR compute config. `test-apps/vpc-smoke`
-is a stub (a package.json, a `.blocks/config.json`, and a `client.js` — no VPC
-infrastructure), not a working example. Do not go looking for a VPC option; wiring
-the SSR Lambda into a VPC is not a supported first-class feature here.
+The only VPC setting on `Hosting` is the `vpc` of the ALB and stacked front
+doors, which places the **load balancer** (see "Front doors"). There is no `vpc`
+on the SSR compute config, so the SSR Lambda itself cannot be put into a VPC.
+`test-apps/vpc-smoke` is a stub with no VPC infrastructure, not a working
+example.
 
 ## Deploy commands
 
 ```bash
 npm run sandbox           # backend-only ephemeral sandbox — Hosting is NOT built
-npm run sandbox:destroy   # tear down the sandbox
+npm run sandbox:deploy    # same, deploys once and exits
+npm run sandbox:preview   # sandbox backend + Hosting in HostingPresets.preview shape
+npm run sandbox:destroy   # tear down the sandbox (preview included)
 npm run deploy            # production deploy — builds the frontend and Hosting
 npm run destroy           # tear down the production stack
 ```
@@ -379,7 +583,7 @@ rarely edit the `Hosting` block by hand.
 
 ## What it provisions
 
-A private S3 bucket (CloudFront OAC only), a CloudFront distribution with the
+On the default CloudFront door: a private S3 bucket (CloudFront OAC only), a CloudFront distribution with the
 security-headers policy, the `config.json` deployment, and — as configured — an
 SSR Lambda (OpenNext or LWA), image-optimization Lambda, CloudFront Functions /
 Lambda@Edge for routing and skew protection, an ACM-backed alias + Route 53

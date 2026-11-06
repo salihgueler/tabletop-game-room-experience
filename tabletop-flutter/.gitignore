@@ -50,3 +50,5 @@ node_modules/
 .blocks-sandbox/
 .hosting/
 cdk.out/
+# Generated JS client entry (rewritten by every dev run and deploy; the Dart client does not use it)
+/aws-blocks/client.js
