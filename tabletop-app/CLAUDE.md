@@ -23,16 +23,16 @@ npm run deploy             # production deploy (Hosting + CloudFront)
 npm run destroy
 ```
 
-The verification loop for backend changes: **edit `aws-blocks/index.ts` → `npm run
+The verification loop for backend changes: **edit `cdk-blocks/index.ts` → `npm run
 typecheck` → restart dev server → curl the JSON-RPC endpoint.** Do not touch frontend
 work until the backend typechecks clean.
 
 ## Layout
 
-- `aws-blocks/index.ts` — **the entire backend**: Zod schemas, auth, the turn engine,
+- `cdk-blocks/index.ts` — **the entire backend**: Zod schemas, auth, the turn engine,
   the AI DM + companion agents, realtime channels, seed data, and every API method.
   This is the only place game logic lives. **Edit this for all backend work.**
-- `aws-blocks/index.cdk.ts`, `index.handler.ts`, `client.js` — **generated. Never edit.**
+- `cdk-blocks/index.cdk.ts`, `index.handler.ts`, `client.js` — **generated. Never edit.**
   `client.js` is regenerated when you run dev after adding/removing an API export.
 - `src/` — React SPA. `api.js` (typed RPC client + auth helpers), `screens/`
   (`AuthScreen`, `Login` = character select, `GuildHall`, `GameRoom`), `components/`,
@@ -41,20 +41,20 @@ work until the backend typechecks clean.
 
 ## Hard rules (AWS Blocks conventions)
 
-- **Only edit `aws-blocks/index.ts` for backend logic.** The `.cdk.ts` / `.handler.ts`
+- **Only edit `cdk-blocks/index.ts` for backend logic.** The `.cdk.ts` / `.handler.ts`
   / `client.js` files are codegen.
 - **Every top-level `export` in `index.ts` becomes an API namespace.** Domain constants
   are intentionally NOT exported — they're returned via `getConstants()`. Don't add
   stray exports.
 - **Auth:** use `auth.createApi()` and `auth.requireAuth(context)`. Don't hand-roll
   auth wrappers.
-- **Don't scan to list.** DistributedTable has a `scan()`, but it's a full-table walk —
+- **Don't scan to list.** KVStore has a `scan()`, but it's a full-table walk —
   the wrong tool for a listing you run constantly. List via a constant partition key + a
   GSI instead (see the `byCreated` index on `games`, queried with `listKey: { equals: 'all' }`).
 - **Short Scope/Realtime IDs.** The scope is `'tt'` and namespaces are short (`state`,
   `chat`, `thinking`) because the full channel path includes stack + scope prefixes —
   short names keep logs and URLs readable.
-- The frontend imports the typed `api` / `authApi` from the `aws-blocks` workspace
+- The frontend imports the typed `api` / `authApi` from the `cdk-blocks` workspace
   package — never reaches into backend internals.
 
 ## How the game runs (mental model)
@@ -91,7 +91,7 @@ so many games run concurrently and isolated. Agents stream their reasoning to th
 Deployed agents point at an **explicit Bedrock inference-profile ID**
 (`DEPLOYED_MODEL` = `global.anthropic.claude-sonnet-4-6`, Claude Sonnet 4.6), NOT a
 `BedrockModels.*` preset. We pin it because presets track "current best" and can shift
-under you across `@aws-blocks/blocks` upgrades — pinning keeps deployed behavior stable
+under you across `aws-cdk-blocks` upgrades — pinning keeps deployed behavior stable
 and auditable. (The pinned id is the same one `BedrockModels.BALANCED` resolves to today;
 the `global.` prefix is a region-agnostic inference profile.)
 
@@ -106,14 +106,14 @@ invokable inference profile and update that one line. Model fallback chain:
 
 ## Local vs deployed (why "works locally, breaks deployed" happens)
 
-Blocks run as in-memory/file mocks locally (persist to `.bb-data/` — `rm -rf` to reset)
+Blocks run as in-memory/file mocks locally (persist to `.cdk-blocks/local/data/` — `rm -rf` to reset)
 but as real AWS services when deployed:
 
 | Block        | Local                          | Deployed                             |
 |--------------|--------------------------------|--------------------------------------|
 | Agent        | Ollama or canned, in-process   | **Bedrock AgentCore Runtime → Bedrock**, async |
 | Realtime     | local WebSocket on :3001       | API Gateway WebSocket (WSS)          |
-| DistributedTable | file mock                  | DynamoDB (+ GSIs)                    |
+| KVStore          | file mock                  | DynamoDB (+ GSIs)                    |
 
 The Agent's `stream()` submits the turn and returns a `channelId` right away, and
 `complete()` waits for a `done` chunk over Realtime. Locally the agent loop runs in the

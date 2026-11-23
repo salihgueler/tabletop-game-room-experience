@@ -66,10 +66,10 @@ Diagram: [`../designs/architecture.excalidraw`](../designs/architecture.excalidr
         │  typed RPC                ▲  Realtime
         ▼  api.*()                  │  (WebSocket)
    ┌───────────────────────────────────────────┐
-   │  ⚙  AWS Blocks Backend · aws-blocks/index.ts│
+   │  ⚙  AWS Blocks Backend · cdk-blocks/index.ts│
    │  one Lambda — all game logic lives here     │
    │                                             │
-   │  AuthBasic   DistributedTable×4             │
+   │  Auth        KVStore×4                      │
    │  Realtime    Agent×5 (1 DM + 4 companions)  │
    └───────────────────────────────────────────┘
         │  inference
@@ -89,22 +89,22 @@ Diagram: [`../designs/architecture.excalidraw`](../designs/architecture.excalidr
 - **Models**: all agents use **Bedrock Claude Sonnet 4.6** deployed (pinned via an
   explicit inference-profile ID — see the note in [`CLAUDE.md`](CLAUDE.md)), **Ollama
   `llama3.1:8b`** locally, and a canned provider as an offline fallback. Configured
-  in `aws-blocks/index.ts`.
+  in `cdk-blocks/index.ts`.
 - **Local vs deployed**: every block runs as an in-memory/file mock locally and as a
   real AWS service when deployed (Agent → Bedrock AgentCore Runtime + Bedrock, Realtime → API Gateway
-  WebSocket, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost
+  WebSocket, KVStore → DynamoDB). "Works locally, breaks deployed" is almost
   always a Bedrock/IAM/model issue — check CloudWatch first.
 - The frontend imports the fully-typed `api` / `authApi` clients from the
-  `aws-blocks` workspace package. `client.js` is auto-generated — never edit it.
+  `cdk-blocks` workspace package. `client.js` is auto-generated — never edit it.
 
 ## Tech stack
 
 | Layer      | Choice                                                              |
 | ---------- | ------------------------------------------------------------------- |
 | Frontend   | React 18 + Vite 5 (SPA), plain CSS design system (`theme.css`)      |
-| Backend    | AWS Blocks (`@aws-blocks/blocks`) — single `ApiNamespace` on Lambda |
-| Auth       | AuthBasic (username/password + HttpOnly session cookie)             |
-| Data       | DistributedTable ×4 (DynamoDB + GSIs when deployed)                 |
+| Backend    | AWS Blocks (`aws-cdk-blocks`) — single `ApiNamespace` on Lambda |
+| Auth       | Auth (username/password + emailed sign-up code, Cognito deployed)   |
+| Data       | KVStore ×4 (DynamoDB + GSIs when deployed)                          |
 | Realtime   | Realtime ×3 namespaces (API Gateway WebSocket / local WS)           |
 | AI         | Agent ×5 (Strands) — Bedrock / Ollama / canned fallback chain       |
 | Validation | Zod 4                                                               |
@@ -124,15 +124,15 @@ Diagram: [`../designs/architecture.excalidraw`](../designs/architecture.excalidr
 ```bash
 npm install
 npm run dev        # client http://localhost:3000, backend http://localhost:3001
-npm run typecheck  # type-check the backend (run after any aws-blocks/index.ts edit)
+npm run typecheck  # type-check the backend (run after any cdk-blocks/index.ts edit)
 npm run build      # production frontend build to dist/
 ```
 
 The client runs on **:3000** and proxies API/auth/realtime to the backend on
 **:3001** (same-origin so the session cookie sticks — see `vite.config.js`).
 
-Local dev uses in-memory/file mocks for every block (persists to `.bb-data/` —
-`rm -rf .bb-data` to reset). For real AI DM responses locally, run Ollama (see below).
+Local dev uses in-memory/file mocks for every block (persists to `.cdk-blocks/local/data/` —
+`rm -rf .cdk-blocks/local/data` to reset). For real AI DM responses locally, run Ollama (see below).
 Otherwise the canned provider keeps the game playable offline.
 
 ## Local AI setup (Ollama)
@@ -156,7 +156,7 @@ narration or contextual actions. To get real local AI responses:
    ```
 
 3. **Pull the model** — the agents use `llama3.1:8b` (matches `OllamaModels.SMALL` in
-   `aws-blocks/index.ts`). Download it once (~4.7 GB):
+   `cdk-blocks/index.ts`). Download it once (~4.7 GB):
 
    ```bash
    ollama pull llama3.1:8b
@@ -192,7 +192,7 @@ Lambda log group for `runAgent done` rather than `runAgent error`.
 
 ## Gameplay flow
 
-1. **Auth** — themed username/password sign-in / register (AuthBasic).
+1. **Auth** — themed username/password sign-in / register with an emailed code (Auth).
 2. **Character Select** — pick one of 20 sprites across 4 classes (Paladin, Sorcerer,
    Rogue, Ranger); persisted to your account.
 3. **Guild Hall** (`homepage.png`) — public game list (seeded on first load),
@@ -210,7 +210,7 @@ and a session lasts at most **15 minutes** before the DM closes the tale.
 
 ## API reference
 
-All methods live in the `api` namespace in `aws-blocks/index.ts` and are called as
+All methods live in the `api` namespace in `cdk-blocks/index.ts` and are called as
 typed RPC from the frontend (`api.methodName(...)`). Every method except `getConstants`
 requires auth.
 
@@ -244,7 +244,7 @@ Three Realtime namespaces (keyed per `gameId`) push live updates:
 
 ```
 tabletop-app/
-├─ aws-blocks/
+├─ cdk-blocks/
 │  ├─ index.ts          # THE backend: schemas, auth, turn engine, AI agents, API
 │  ├─ index.cdk.ts      # CDK entry (generated — don't edit)
 │  ├─ index.handler.ts  # Lambda handler (generated — don't edit)
@@ -264,8 +264,8 @@ tabletop-app/
 └─ vite.config.js       # port 3000 + same-origin proxy to backend :3001
 ```
 
-`aws-blocks/index.ts` is the only place game logic lives. The frontend imports the
-typed `api` / `authApi` from the `aws-blocks` workspace package and never reaches into
+`cdk-blocks/index.ts` is the only place game logic lives. The frontend imports the
+typed `api` / `authApi` from the `cdk-blocks` workspace package and never reaches into
 backend internals.
 
 ## Configuration
@@ -275,7 +275,7 @@ backend internals.
 - **`BLOCKS_SANDBOX`** — set to `true` in sandbox mode so auth cookies use cross-domain
   attributes (frontend on localhost, API on API Gateway). Set automatically by the
   sandbox flow.
-- **Deployed AI model** — pinned in `aws-blocks/index.ts` as `DEPLOYED_MODEL`
+- **Deployed AI model** — pinned in `cdk-blocks/index.ts` as `DEPLOYED_MODEL`
   (`global.anthropic.claude-sonnet-4-6` — Claude Sonnet 4.6 via a region-agnostic
   inference profile). See the ⚠️ note in [`CLAUDE.md`](CLAUDE.md) for why we pin an
   explicit inference-profile ID instead of a `BedrockModels.*` preset.
@@ -293,7 +293,7 @@ backend internals.
 - **Agent returns canned/mock responses locally** — Ollama isn't running or the model
   isn't pulled. Run `ollama serve` and `ollama pull llama3.1:8b`, or accept the canned
   provider for offline play.
-- **Stale/odd local state** — delete `.bb-data/` and restart `npm run dev`.
+- **Stale/odd local state** — delete `.cdk-blocks/local/data/` and restart `npm run dev`.
 - **Type errors after editing the backend** — run `npm run typecheck` and fix before
   starting the dev server. Run dev once after adding/removing an API export to
   regenerate `client.js`.

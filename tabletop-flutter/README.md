@@ -8,16 +8,16 @@ live in this directory.
 
 ```text
 tabletop-flutter/
-├── aws-blocks/          # Auth, data, Realtime, Agents, API, and deployment
+├── cdk-blocks/          # Auth, data, Realtime, Agents, API, and deployment
 ├── lib/                 # Flutter application and generated Dart client
-├── .blocks/config.json  # Independent stack identity
+├── .cdk-blocks/config.json  # Independent stack identity
 ├── package.json         # Backend, codegen, sandbox, and deploy commands
 └── pubspec.yaml         # Flutter dependencies
 ```
 
 ## Features
 
-- AuthBasic sign-in and registration
+- Auth sign-in and registration
 - Character creation with all 20 pixel sprites
 - Public/private Guild Hall games
 - Responsive game table, turn order, actions, chat, dice, and timer
@@ -42,9 +42,9 @@ Flutter UI
   -> ViewModels -> Repository -> generated Blocks RPC client
                                       |
                                       v
-aws-blocks/index.ts
-  -> AuthBasic
-  -> DistributedTable (characters, games, state, chat)
+cdk-blocks/index.ts
+  -> Auth
+  -> KVStore (characters, games, state, chat)
   -> Realtime (state, chat, thinking)
   -> Agent (Dungeon Master and four companion personas)
 ```
@@ -91,7 +91,7 @@ app's backend; the two applications do not share services or data.
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start this app's local Blocks backend on port 3001 |
-| `npm run typecheck` | Type-check `aws-blocks/` |
+| `npm run typecheck` | Type-check `cdk-blocks/` |
 | `npm run generate` | Regenerate the OpenRPC spec and formatted Dart bindings |
 | `npm run verify` | Type-check, analyze, test, and build Flutter web |
 | `dart run tool/blocks_chat_smoke.dart` | Test auth, history, and Realtime against a running backend |
@@ -100,7 +100,7 @@ app's backend; the two applications do not share services or data.
 
 ## Regenerate the typed client
 
-After changing `aws-blocks/index.ts`, regenerate the spec and Dart client:
+After changing `cdk-blocks/index.ts`, regenerate the spec and Dart client:
 
 ```bash
 npm run generate
@@ -111,7 +111,7 @@ Never edit `lib/blocks.blocks.dart` by hand.
 The generation path is:
 
 ```text
-aws-blocks/index.ts
+cdk-blocks/index.ts
   -> lib/blocks.spec.json
   -> lib/blocks.blocks.dart
 ```
@@ -133,15 +133,15 @@ dart run tool/blocks_chat_smoke.dart
 
 ## Local data
 
-Local Blocks data belongs to this application and is stored in `.bb-data/`.
+Local Blocks data belongs to this application and is stored in `.cdk-blocks/local/data/`.
 Deleting that directory resets local users, characters, games, and chat:
 
 ```bash
 npm run cleanup
-rm -rf .bb-data
+rm -rf .cdk-blocks/local/data
 ```
 
-Do not copy `.bb-data/` from `tabletop-app`; the applications have independent
+Do not copy `.cdk-blocks/local/data/` from `tabletop-app`; the applications have independent
 scope IDs and contracts.
 
 ## AI behavior
@@ -192,7 +192,7 @@ scripts rather than invoking CDK directly.
 - **Chat updates stop:** polling keeps state usable; restart the backend and run
   the chat smoke command to check the Realtime subscription.
 - **Reset local accounts and games:** stop the backend, run `npm run cleanup`,
-  then delete `.bb-data/`.
+  then delete `.cdk-blocks/local/data/`.
 
 The app follows a UI/ViewModel/Repository/Service structure under `lib/`. Its
 backend is independently namespaced with Blocks scope `tf` and stack ID

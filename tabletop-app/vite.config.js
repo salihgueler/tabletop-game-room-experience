@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  // Resolve the `aws-blocks` workspace package to its browser client (client.js).
+  // Resolve the `cdk-blocks` workspace package to its browser client (client.js).
   resolve: {
     conditions: ['browser'],
   },
@@ -16,9 +16,12 @@ export default defineConfig({
     // dropped, which broke sign-in (sign-up appeared to work only because it
     // returns the session inline).
     proxy: {
-      // Proxy ONLY the API + auth endpoints (not the whole /aws-blocks/ path —
-      // that would swallow the workspace source like /aws-blocks/client.js that
+      // Proxy ONLY the API + auth endpoints (not the whole /cdk-blocks/ path —
+      // that would swallow the workspace source like /cdk-blocks/client.js that
       // Vite must serve itself).
+      // aws-cdk-blocks 1.0 serves /cdk-blocks/* and keeps /aws-blocks/* as an alias.
+      '/cdk-blocks/api': { target: 'http://localhost:3001', changeOrigin: true },
+      '/cdk-blocks/auth': { target: 'http://localhost:3001', changeOrigin: true },
       '/aws-blocks/api': { target: 'http://localhost:3001', changeOrigin: true },
       '/aws-blocks/auth': { target: 'http://localhost:3001', changeOrigin: true },
       '/realtime': { target: 'ws://localhost:3001', ws: true, changeOrigin: true },

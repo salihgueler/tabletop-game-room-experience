@@ -1,5 +1,5 @@
 {
-  "app": "npx tsx -C cdk aws-blocks/index.cdk.ts",
+  "app": "npx tsx -C cdk cdk-blocks/index.cdk.ts",
   "watch": {
     "include": [
       "**"
@@ -10,6 +10,8 @@
       "**/*.d.ts",
       "node_modules/**",
       ".blocks-sandbox/**",
+      ".cdk-blocks-sandbox/**",
+      ".cdk-blocks/local/**",
       "dist/**"
     ]
   }
