@@ -14,5 +14,5 @@
     "noEmit": true,
     "outDir": "build-temp"
   },
-  "include": ["aws-blocks/**/*"]
+  "include": ["cdk-blocks/**/*"]
 }

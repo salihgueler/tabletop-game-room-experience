@@ -1,13 +1,13 @@
 /**
- * Backend — aws-blocks/index.ts
+ * Backend — cdk-blocks/index.ts
  *
  * Flutter Tabletop: authoritative D&D-style game engine for the Adventurer's
  * Guild Hall. All game logic lives here — Flutter is a typed RPC + Realtime
  * consumer with no game logic of its own.
  *
  * Blocks used:
- *   - AuthBasic ......... username/password login + sessions
- *   - DistributedTable .. games, gameState, chatMessages, characters (persistence)
+ *   - Auth .............. username/password login + sessions (Cognito when deployed)
+ *   - KVStore ........... games, gameState, chatMessages, characters (persistence)
  *   - Realtime .......... live broadcast of game state + chat to all players in a room
  *   - Agent ............. AI Dungeon Master narration (Bedrock deployed, Ollama local,
  *                         canned fallback offline)
@@ -16,12 +16,12 @@ import {
   ApiError,
   ApiNamespace,
   Scope,
-  AuthBasic,
-  DistributedTable,
+  Auth,
+  KVStore,
   Realtime,
   Agent,
   OllamaModels,
-} from "@aws-blocks/blocks";
+} from "aws-cdk-blocks";
 import { z } from "zod";
 
 // Short scope id — it prefixes every resource and Realtime channel path; short
@@ -87,9 +87,20 @@ const OPENERS: Record<string, string> = {
 };
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
-const auth = new AuthBasic(scope, "auth", {
-  passwordPolicy: { minLength: 8 },
-  crossDomain: process.env.BLOCKS_SANDBOX === "true",
+// Migrated from AuthBasic (same block id "auth"). AuthBasic has no migration
+// path: existing users must sign up again after the first deploy (MIGRATION.md,
+// "AuthBasic"); the old users/codes tables and jwt-secret parameter are retained
+// under BlocksPresets.production. Sign-up now confirms the email address with an
+// emailed code, and Cognito's default sender caps that at 50 emails/day. The
+// password policy and 24-hour session keep AuthBasic's old behaviour.
+const auth = new Auth(scope, "auth", {
+  emailPassword: {
+    passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireDigits: false, requireSymbols: false },
+  },
+  session: {
+    crossDomain: process.env.BLOCKS_SANDBOX === "true",
+    ttlSeconds: 86_400,
+  },
 });
 export const authApi = auth.createApi();
 
@@ -146,7 +157,7 @@ const gameSchema = z.object({
   createdAt: z.number(),
 });
 
-const games = new DistributedTable(scope, "games", {
+const games = new KVStore(scope, "games", {
   schema: gameSchema,
   key: { partitionKey: "listKey", sortKey: "gameId" },
   indexes: {
@@ -181,7 +192,7 @@ const gameStateSchema = z.object({
   version: z.number(),
 });
 
-const gameStates = new DistributedTable(scope, "gameStates", {
+const gameStates = new KVStore(scope, "gameStates", {
   schema: gameStateSchema,
   key: { partitionKey: "gameId" },
 });
@@ -200,7 +211,7 @@ const chatSchema = z.object({
   kind: z.enum(["say", "dm", "action", "roll", "system"]).default("say"),
 });
 
-const chatMessages = new DistributedTable(scope, "chat", {
+const chatMessages = new KVStore(scope, "chat", {
   schema: chatSchema,
   key: { partitionKey: "gameId", sortKey: "ts" },
 });
@@ -214,7 +225,7 @@ const characterSchema = z.object({
   sprite: z.string(),
 });
 
-const characters = new DistributedTable(scope, "characters", {
+const characters = new KVStore(scope, "characters", {
   schema: characterSchema,
   key: { partitionKey: "userId" },
 });
@@ -246,7 +257,7 @@ const rt = new Realtime(scope, "rt", {
 // ─── Deployed model (pinned) ─────────────────────────────────────────────────
 // All deployed agents point at an EXPLICIT Bedrock inference-profile id rather
 // than a BedrockModels.* preset. Presets track "current best" and can shift under
-// you across @aws-blocks/blocks upgrades; pinning keeps deployed behavior stable
+// you across aws-cdk-blocks upgrades; pinning keeps deployed behavior stable
 // and makes the exact model auditable. This value is Claude Sonnet 4.6 via the
 // region-agnostic `global.` inference profile (the same id BedrockModels.BALANCED
 // currently resolves to). If Bedrock retires it, update this one line.
@@ -259,8 +270,12 @@ const DEPLOYED_MODEL = {
 // Inference-only: we just want a narrated line per action, no conversation
 // persistence. Bedrock when deployed, Ollama (llama3.1:8b) locally, canned
 // provider as the implicit final fallback (works fully offline).
+// sessionScope 'shared' keeps the pre-1.0 behaviour: the server calls stream()
+// with no conversationId/channelId (each turn gets a fresh server-generated id
+// no caller can choose), and no userId, which the 'user' default would require.
 const dm = new Agent(scope, "dm", {
   inferenceOnly: true,
+  sessionScope: "shared",
   model: {
     deployed: DEPLOYED_MODEL,
     local: OllamaModels.SMALL,
@@ -292,6 +307,7 @@ const companions: Record<string, Agent> = {};
 for (const cls of CORE_CLASSES) {
   companions[cls] = new Agent(scope, `c-${cls}`, {
     inferenceOnly: true,
+    sessionScope: "shared", // same reason as the DM above
     model: {
       deployed: DEPLOYED_MODEL,
       local: OllamaModels.SMALL,
@@ -765,7 +781,11 @@ async function finalizeIfExpired(state: GameState): Promise<boolean> {
     },
   ]);
   const g = await games.get({ listKey: "all", gameId: state.gameId });
-  if (g) await games.put({ ...g, status: "Finished" });
+  if (g)
+    await games.put(
+      { listKey: g.listKey, gameId: g.gameId },
+      { ...g, status: "Finished" },
+    );
   return true;
 }
 
@@ -773,10 +793,13 @@ async function finalizeIfExpired(state: GameState): Promise<boolean> {
 async function syncLobbyStatus(state: GameState) {
   const g = await games.get({ listKey: "all", gameId: state.gameId });
   if (g)
-    await games.put({
-      ...g,
-      status: hasOpenSeat(state) ? "Awaiting Players" : "In Session",
-    });
+    await games.put(
+      { listKey: g.listKey, gameId: g.gameId },
+      {
+        ...g,
+        status: hasOpenSeat(state) ? "Awaiting Players" : "In Session",
+      },
+    );
 }
 
 async function loadState(gameId: string): Promise<GameState> {
@@ -787,7 +810,7 @@ async function loadState(gameId: string): Promise<GameState> {
 
 async function saveAndBroadcast(state: GameState) {
   const next = { ...state, version: state.version + 1 };
-  await gameStates.put(next);
+  await gameStates.put({ gameId: next.gameId }, next);
   await rt.publish("state", next.gameId, {
     gameId: next.gameId,
     version: next.version,
@@ -847,7 +870,7 @@ async function transcribe(
       text: e.text,
       kind: e.kind,
     };
-    await chatMessages.put(msg);
+    await chatMessages.put({ gameId: msg.gameId, ts: msg.ts }, msg);
     await rt.publish("chat", state.gameId, msg);
   }
 }
@@ -947,7 +970,7 @@ async function postBotChat(
     text,
     kind: "say" as const,
   };
-  await chatMessages.put(msg);
+  await chatMessages.put({ gameId: msg.gameId, ts: msg.ts }, msg);
   await rt.publish("chat", gameId, msg);
 }
 
@@ -991,7 +1014,7 @@ async function seedIfEmpty() {
   let i = 0;
   for (const g of SEED_GAMES) {
     const gameId = `seed-${i}`;
-    await games.put({
+    await games.put({ listKey: "all", gameId }, {
       listKey: "all",
       gameId,
       name: g.name,
@@ -1021,7 +1044,7 @@ async function seedIfEmpty() {
       hp: 20,
       slot,
     }));
-    await gameStates.put({
+    await gameStates.put({ gameId }, {
       gameId,
       scenario: g.theme,
       dmName: g.dmType,
@@ -1069,7 +1092,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   }) {
     const user = await auth.requireAuth(context);
     const character = { userId: user.username, ...input };
-    await characters.put(character);
+    await characters.put({ userId: character.userId }, character);
     return character;
   },
 
@@ -1082,12 +1105,14 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   async listGames() {
     await seedIfEmpty();
     // Public listing via constant-PK GSI (no scan).
-    const all = await Array.fromAsync(
-      games.query({
-        index: "byCreated",
-        where: { listKey: { equals: "all" } },
-      }),
-    );
+    const all = (
+      await Array.fromAsync(
+        games.query({
+          index: "byCreated",
+          where: { listKey: { equals: "all" } },
+        }),
+      )
+    ).map((entry) => entry.value);
     // Only public games in the lobby; newest first. Occupancy is computed from
     // the live state: seats held by real humans vs AI-filled/open seats.
     const publicGames = all.filter((g) => g.isPublic).reverse();
@@ -1164,7 +1189,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       ? null
       : input.accessCode?.trim() || makeAccessCode();
 
-    await games.put({
+    await games.put({ listKey: "all", gameId }, {
       listKey: "all",
       gameId,
       name,
@@ -1216,18 +1241,20 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       version: 0,
     };
     if (fillMode === "ai") await beginAdventure(state);
-    await gameStates.put(state);
+    await gameStates.put({ gameId: state.gameId }, state);
     return { gameId, accessCode };
   },
 
   async joinPrivate(accessCode: string) {
     await auth.requireAuth(context);
-    const all = await Array.fromAsync(
-      games.query({
-        index: "byCreated",
-        where: { listKey: { equals: "all" } },
-      }),
-    );
+    const all = (
+      await Array.fromAsync(
+        games.query({
+          index: "byCreated",
+          where: { listKey: { equals: "all" } },
+        }),
+      )
+    ).map((entry) => entry.value);
     const game = all.find((g) => g.accessCode && g.accessCode === accessCode);
     if (!game) throw new ApiError("No game found for that access code", 404, { name: "AccessCodeNotFound" });
     return { gameId: game.gameId };
@@ -1376,9 +1403,11 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
   // --- Chat ---
   async getChatHistory(gameId: string) {
     await auth.requireAuth(context);
-    return await Array.fromAsync(
-      chatMessages.query({ where: { gameId: { equals: gameId } } }),
-    );
+    return (
+      await Array.fromAsync(
+        chatMessages.query({ where: { gameId: { equals: gameId } } }),
+      )
+    ).map((entry) => entry.value);
   },
 
   async sendChat(gameId: string, text: string) {
@@ -1395,7 +1424,7 @@ export const api = new ApiNamespace(scope, "api", (context) => ({
       text: text.trim(),
       kind: "say" as const,
     };
-    await chatMessages.put(msg);
+    await chatMessages.put({ gameId: msg.gameId, ts: msg.ts }, msg);
     await rt.publish("chat", gameId, msg);
     return { ok: true };
   },

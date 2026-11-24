@@ -48,7 +48,9 @@ app.*.map.json
 node_modules/
 .bb-data/
 .blocks-sandbox/
+.cdk-blocks-sandbox/
+.cdk-blocks/local/
 .hosting/
 cdk.out/
 # Generated JS client entry (rewritten by every dev run and deploy; the Dart client does not use it)
-/aws-blocks/client.js
+/cdk-blocks/client.js

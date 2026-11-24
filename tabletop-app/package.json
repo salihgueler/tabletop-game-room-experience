@@ -7,24 +7,32 @@
     "node": ">=20.0.0"
   },
   "workspaces": [
-    "aws-blocks"
+    "cdk-blocks"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "dev:server": "tsx watch aws-blocks/scripts/server.ts",
+    "dev:server": "cdk-blocks dev",
     "dev:client": "wait-on tcp:3001 && vite",
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
-    "sandbox": "tsx aws-blocks/scripts/sandbox.ts",
-    "sandbox:destroy": "tsx -C cdk aws-blocks/scripts/sandbox-destroy.ts",
-    "sandbox:console": "tsx aws-blocks/scripts/console.ts",
-    "cleanup": "tsx aws-blocks/scripts/cleanup.ts",
+    "sandbox": "cdk-blocks sandbox",
+    "sandbox:destroy": "cdk-blocks sandbox destroy",
+    "sandbox:console": "cdk-blocks sandbox console",
+    "cleanup": "cdk-blocks dev stop --all",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "tsx aws-blocks/scripts/deploy.ts",
-    "destroy": "tsx aws-blocks/scripts/destroy.ts"
+    "deploy": "cdk-blocks deploy",
+    "destroy": "cdk-blocks destroy",
+    "docs": "cdk-blocks docs",
+    "docs:search": "cdk-blocks docs --search",
+    "docs:api": "cdk-blocks docs --api",
+    "db": "cdk-blocks db",
+    "whoami": "cdk-blocks whoami",
+    "migrate": "cdk-blocks migrate",
+    "help": "cdk-blocks --help",
+    "generate-client": "cdk-blocks generate client"
   },
   "dependencies": {
-    "@aws-blocks/blocks": "0.9.0",
+    "aws-cdk-blocks": "1.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^4.3.0"
@@ -40,5 +48,11 @@
     "typescript": "^5.3.0",
     "vite": "^5.4.11",
     "wait-on": "^9.0.10"
+  },
+  "blocks": {
+    "dev": {
+      "port": 3001,
+      "frontend": false
+    }
   }
 }

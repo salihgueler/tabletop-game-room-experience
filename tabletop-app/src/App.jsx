@@ -4,7 +4,7 @@ import Login from './screens/Login.jsx'
 import GuildHall from './screens/GuildHall.jsx'
 import GameRoom from './screens/GameRoom.jsx'
 import { api, authApi } from './api.js'
-import { onAuthChange } from '@aws-blocks/blocks/ui'
+import { onAuthChange } from 'aws-cdk-blocks/ui'
 
 // Top-level flow: auth → character select → guild hall → game room.
 // Auth + character live in the backend; this only tracks which view to show.

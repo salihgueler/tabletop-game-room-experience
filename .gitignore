@@ -3,12 +3,16 @@ dist/
 build-temp/
 .bb-data/
 .blocks-sandbox/
+.cdk-blocks-sandbox/
+.cdk-blocks/local/
 # but keep the committed same-origin dev config (points the browser client at
 # the Vite proxy so the auth cookie stays same-origin)
 !tabletop-app/public/.blocks-sandbox/
 !tabletop-app/public/.blocks-sandbox/config.json
 cdk.out/
 tabletop-app/aws-blocks/client.js
+tabletop-app/cdk-blocks/client.js
 tabletop-app/aws-blocks/blocks.spec.json
+tabletop-app/cdk-blocks/blocks.spec.json
 *.log
 .DS_Store

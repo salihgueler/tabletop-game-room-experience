@@ -6,9 +6,9 @@ import {
   Hosting,
   registerConfig,
   SandboxDisableDeletionProtection,
-} from "@aws-blocks/blocks/cdk";
-import { BlocksPresets } from "@aws-blocks/blocks/cdk";
-import { getSandboxId, getStackId } from "@aws-blocks/blocks/scripts";
+} from "aws-cdk-blocks/cdk";
+import { BlocksPresets } from "aws-cdk-blocks/cdk";
+import { getSandboxId, getStackId } from "aws-cdk-blocks/scripts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 

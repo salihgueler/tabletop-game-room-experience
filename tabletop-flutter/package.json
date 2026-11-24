@@ -7,34 +7,48 @@
     "node": ">=22.0.0"
   },
   "workspaces": [
-    "aws-blocks"
+    "cdk-blocks"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "npm run dev:server",
-    "dev:server": "tsx watch aws-blocks/scripts/server.ts",
-    "generate:spec": "blocks-generate-spec aws-blocks/index.ts lib/blocks.spec.json",
+    "dev:server": "cdk-blocks dev",
+    "generate:spec": "blocks-generate-spec cdk-blocks/index.ts lib/blocks.spec.json",
     "generate:client": "dart run build_runner build --delete-conflicting-outputs && dart format lib/blocks.blocks.dart",
     "generate": "npm run generate:spec && npm run generate:client",
     "build": "flutter build web --release",
     "verify": "npm run typecheck && flutter analyze && flutter test && flutter build web",
-    "sandbox": "tsx aws-blocks/scripts/sandbox.ts",
-    "sandbox:destroy": "tsx -C cdk aws-blocks/scripts/sandbox-destroy.ts",
-    "sandbox:console": "tsx aws-blocks/scripts/console.ts",
-    "cleanup": "tsx aws-blocks/scripts/cleanup.ts",
-    "deploy": "tsx aws-blocks/scripts/deploy.ts",
-    "destroy": "tsx aws-blocks/scripts/destroy.ts"
+    "sandbox": "cdk-blocks sandbox",
+    "sandbox:destroy": "cdk-blocks sandbox destroy",
+    "sandbox:console": "cdk-blocks sandbox console",
+    "cleanup": "cdk-blocks dev stop --all",
+    "deploy": "cdk-blocks deploy",
+    "destroy": "cdk-blocks destroy",
+    "docs": "cdk-blocks docs",
+    "docs:search": "cdk-blocks docs --search",
+    "docs:api": "cdk-blocks docs --api",
+    "db": "cdk-blocks db",
+    "whoami": "cdk-blocks whoami",
+    "migrate": "cdk-blocks migrate",
+    "help": "cdk-blocks --help",
+    "generate-client": "cdk-blocks generate client"
   },
   "dependencies": {
-    "@aws-blocks/blocks": "0.9.0",
+    "aws-cdk-blocks": "1.0.1",
     "zod": "^4.3.0"
   },
   "devDependencies": {
-    "@aws-blocks/core": "^0.8.0",
+    "@aws-cdk-blocks/core": "1.0.1",
     "@types/node": "^20.0.0",
     "aws-cdk-lib": "^2.257.0",
     "constructs": "^10.6.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.0"
+  },
+  "blocks": {
+    "dev": {
+      "port": 3001,
+      "frontend": false
+    }
   }
 }

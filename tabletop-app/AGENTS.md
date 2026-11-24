@@ -14,7 +14,7 @@ Dungeon Master**, and AI companions. Built on **AWS Blocks**: all game logic,
 persistence, auth, realtime sync, and AI run server-side. The React SPA is a thin,
 fully-typed RPC + Realtime consumer with **no game logic**.
 
-- **`aws-blocks/index.ts` is the entire backend** — Zod schemas, auth, the turn engine,
+- **`cdk-blocks/index.ts` is the entire backend** — Zod schemas, auth, the turn engine,
   the AI DM + companion agents, realtime channels, seed data, and every API method. Edit
   this file for all backend work.
 - **`src/` is the React frontend** — `api.js` (typed RPC + auth helpers), `screens/`,
@@ -43,7 +43,7 @@ npm run sandbox / npm run sandbox:destroy   # ephemeral AWS sandbox
 npm run deploy  / npm run destroy           # production stack (Hosting + CloudFront)
 ```
 
-**Verification loop for backend edits:** edit `aws-blocks/index.ts` → `npm run
+**Verification loop for backend edits:** edit `cdk-blocks/index.ts` → `npm run
 typecheck` → (if an API export changed) restart `npm run dev` once to regenerate
 `client.js` → curl the JSON-RPC endpoint. Do not start frontend work until the backend
 typechecks clean.
@@ -57,16 +57,16 @@ typechecks clean.
 - Do **not** launch long-lived servers/watchers (`npm run dev`, `sandbox`, `deploy`) as
   part of automated validation — they don't terminate. Prefer `typecheck` / `build`.
 - For manual playtesting, run `npm run dev` and open http://localhost:3000. Reset local
-  state by deleting `.bb-data/` and restarting. See
+  state by deleting `.cdk-blocks/local/data/` and restarting. See
   [`docs/running-the-app.md`](docs/running-the-app.md).
 
 ## Code style guidelines
 
-- **Language:** TypeScript for the backend (`aws-blocks/`), JSX/JavaScript (ES modules,
+- **Language:** TypeScript for the backend (`cdk-blocks/`), JSX/JavaScript (ES modules,
   React 18) for the frontend. `"type": "module"` — use `import`/`export`, never
   `require`.
 - **Formatting:** match the surrounding file — 2-space indent, single quotes, no
-  semicolons in `src/` frontend files, semicolons in `aws-blocks/index.ts`. There is no
+  semicolons in `src/` frontend files, semicolons in `cdk-blocks/index.ts`. There is no
   autoformatter configured, so mirror the existing idiom rather than reformatting.
 - **Validation:** define API and persistence shapes with **Zod 4** schemas in
   `index.ts`; don't hand-validate.
@@ -81,27 +81,27 @@ typechecks clean.
 These are load-bearing. Violating them breaks codegen or deploys. Fuller explanations
 live in [`CLAUDE.md`](CLAUDE.md).
 
-- **Only edit `aws-blocks/index.ts` for backend logic.** `index.cdk.ts`,
+- **Only edit `cdk-blocks/index.ts` for backend logic.** `index.cdk.ts`,
   `index.handler.ts`, and `client.js` are **generated — never edit them.** `client.js`
   regenerates when you run `npm run dev` after adding/removing an API export.
 - **Every top-level `export` in `index.ts` becomes an API namespace.** Don't add stray
   exports; return domain constants via `getConstants()` instead of exporting them.
 - **Auth:** use `auth.createApi()` and `auth.requireAuth(context)`. Don't hand-roll auth
   wrappers.
-- **DistributedTable has no scan.** List via a constant partition key + a GSI (see
+- **KVStore: avoid scan.** List via a constant partition key + a GSI (see
   `byCreated` on `games`, queried with `listKey: { equals: 'all' }`).
-- The frontend imports the typed `api` / `authApi` from the `aws-blocks` workspace
+- The frontend imports the typed `api` / `authApi` from the `cdk-blocks` workspace
   package — it must never reach into backend internals.
 
 ## Security considerations
 
 - **Never hardcode secrets, credentials, AWS account IDs, client IDs, or deployed
-  endpoints** in source or docs. Auth uses AuthBasic (username/password → HttpOnly
+  endpoints** in source or docs. Auth uses the Auth block (username/password → HttpOnly
   session cookie); don't weaken cookie/session handling.
 - **The server is authoritative.** Never move game-outcome logic (dice rolls, DC checks,
   turn advancement, seat assignment) to the client, and never trust client-supplied
   state — validate inputs server-side with Zod and re-derive outcomes on the server.
-- **Local `.bb-data/`** holds mock users/state and is git-ignored. Don't commit it or any
+- **Local `.cdk-blocks/local/data/`** holds mock users/state and is git-ignored. Don't commit it or any
   generated artifact (`client.js`, `blocks.spec.json`, `cdk.out/`, `dist/`).
 - **Deploys touch real AWS resources.** Treat `npm run deploy` / `destroy` as
   destructive/outward-facing: only run them on explicit user request, and prefer the
@@ -119,7 +119,7 @@ live in [`CLAUDE.md`](CLAUDE.md).
   "Fix multiplayer sync: subscribe to state channel"). Match the existing `git log`
   style.
 - **Never commit generated or local files:** `node_modules/`, `dist/`, `cdk.out/`,
-  `.bb-data/`, `.blocks-sandbox/`, `aws-blocks/client.js`, `aws-blocks/blocks.spec.json`,
+  `.cdk-blocks/local/data/`, `.cdk-blocks-sandbox/`, `cdk-blocks/client.js`, `cdk-blocks/blocks.spec.json`,
   `*.log`. They're covered by `.gitignore` — don't force-add them.
 - **Before opening a PR:** `npm run typecheck` (backend) and `npm run build` (frontend)
   must pass. Summarize gameplay/behavior impact and note any deploy steps.
@@ -130,7 +130,7 @@ live in [`CLAUDE.md`](CLAUDE.md).
 
 - **Local vs deployed drift is expected.** Blocks run as in-memory/file mocks locally but
   as real AWS services when deployed (Agent → Bedrock AgentCore Runtime + Bedrock, Realtime → API
-  Gateway WebSocket, DistributedTable → DynamoDB). "Works locally, breaks deployed" is almost always
+  Gateway WebSocket, KVStore → DynamoDB). "Works locally, breaks deployed" is almost always
   a Bedrock / IAM / model-availability issue — check CloudWatch first, not the code.
 - **Session length** is controlled by `SESSION_MINUTES` (default `15`) in `index.ts` —
   lower it to test the expiry/game-over flow quickly.

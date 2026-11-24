@@ -1,5 +1,5 @@
 {
-  "name": "aws-blocks",
+  "name": "cdk-blocks",
   "version": "0.0.0",
   "private": true,
   "type": "module",

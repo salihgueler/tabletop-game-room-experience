@@ -429,20 +429,13 @@
 								"type": "string"
 							},
 							"kind": {
-								"oneOf": [
-									{
-										"type": "string",
-										"enum": [
-											"dm",
-											"action",
-											"roll",
-											"system",
-											"say"
-										]
-									},
-									{
-										"type": "null"
-									}
+								"type": "string",
+								"enum": [
+									"dm",
+									"action",
+									"roll",
+									"system",
+									"say"
 								]
 							}
 						},
@@ -451,7 +444,8 @@
 							"ts",
 							"who",
 							"color",
-							"text"
+							"text",
+							"kind"
 						]
 					}
 				}
@@ -466,327 +460,72 @@
 					"type": "object",
 					"properties": {
 						"scenarios": {
-							"type": "object",
-							"properties": {
-								"0": {
+							"type": "array",
+							"prefixItems": [
+								{
 									"type": "string",
 									"enum": [
 										"Cave Crypt"
 									]
 								},
-								"1": {
+								{
 									"type": "string",
 									"enum": [
 										"Dungeon Crawl"
 									]
 								},
-								"2": {
+								{
 									"type": "string",
 									"enum": [
 										"Magic Tower"
 									]
 								},
-								"3": {
+								{
 									"type": "string",
 									"enum": [
 										"Frozen Keep"
 									]
 								},
-								"4": {
+								{
 									"type": "string",
 									"enum": [
 										"Sunken Vault"
 									]
-								},
-								"length": {
-									"type": "number",
-									"enum": [
-										5
-									]
-								},
-								"toString": {
-									"type": "object"
-								},
-								"toLocaleString": {
-									"type": "object"
-								},
-								"concat": {
-									"type": "object"
-								},
-								"join": {
-									"type": "object"
-								},
-								"slice": {
-									"type": "object"
-								},
-								"indexOf": {
-									"type": "object"
-								},
-								"lastIndexOf": {
-									"type": "object"
-								},
-								"every": {
-									"type": "object"
-								},
-								"some": {
-									"type": "object"
-								},
-								"forEach": {
-									"type": "object"
-								},
-								"map": {
-									"type": "object"
-								},
-								"filter": {
-									"type": "object"
-								},
-								"reduce": {
-									"type": "object"
-								},
-								"reduceRight": {
-									"type": "object"
-								},
-								"find": {
-									"type": "object"
-								},
-								"findIndex": {
-									"type": "object"
-								},
-								"entries": {
-									"type": "object"
-								},
-								"keys": {
-									"type": "object"
-								},
-								"values": {
-									"type": "object"
-								},
-								"includes": {
-									"type": "object"
-								},
-								"flatMap": {
-									"type": "object"
-								},
-								"flat": {
-									"type": "object"
-								},
-								"at": {
-									"type": "object"
-								},
-								"findLast": {
-									"type": "object"
-								},
-								"findLastIndex": {
-									"type": "object"
-								},
-								"toReversed": {
-									"type": "object"
-								},
-								"toSorted": {
-									"type": "object"
-								},
-								"toSpliced": {
-									"type": "object"
-								},
-								"with": {
-									"type": "object"
 								}
-							},
-							"required": [
-								"0",
-								"1",
-								"2",
-								"3",
-								"4",
-								"length",
-								"toString",
-								"toLocaleString",
-								"concat",
-								"join",
-								"slice",
-								"indexOf",
-								"lastIndexOf",
-								"every",
-								"some",
-								"forEach",
-								"map",
-								"filter",
-								"reduce",
-								"reduceRight",
-								"find",
-								"findIndex",
-								"entries",
-								"keys",
-								"values",
-								"includes",
-								"flatMap",
-								"flat",
-								"at",
-								"findLast",
-								"findLastIndex",
-								"toReversed",
-								"toSorted",
-								"toSpliced",
-								"with"
-							]
+							],
+							"minItems": 5,
+							"maxItems": 5
 						},
 						"dmTypes": {
-							"type": "object",
-							"properties": {
-								"0": {
+							"type": "array",
+							"prefixItems": [
+								{
 									"type": "string",
 									"enum": [
 										"Grimjaw"
 									]
 								},
-								"1": {
+								{
 									"type": "string",
 									"enum": [
 										"Xandros"
 									]
 								},
-								"2": {
+								{
 									"type": "string",
 									"enum": [
 										"Mistweaver"
 									]
 								},
-								"3": {
+								{
 									"type": "string",
 									"enum": [
 										"Hollowvoice"
 									]
-								},
-								"length": {
-									"type": "number",
-									"enum": [
-										4
-									]
-								},
-								"toString": {
-									"type": "object"
-								},
-								"toLocaleString": {
-									"type": "object"
-								},
-								"concat": {
-									"type": "object"
-								},
-								"join": {
-									"type": "object"
-								},
-								"slice": {
-									"type": "object"
-								},
-								"indexOf": {
-									"type": "object"
-								},
-								"lastIndexOf": {
-									"type": "object"
-								},
-								"every": {
-									"type": "object"
-								},
-								"some": {
-									"type": "object"
-								},
-								"forEach": {
-									"type": "object"
-								},
-								"map": {
-									"type": "object"
-								},
-								"filter": {
-									"type": "object"
-								},
-								"reduce": {
-									"type": "object"
-								},
-								"reduceRight": {
-									"type": "object"
-								},
-								"find": {
-									"type": "object"
-								},
-								"findIndex": {
-									"type": "object"
-								},
-								"entries": {
-									"type": "object"
-								},
-								"keys": {
-									"type": "object"
-								},
-								"values": {
-									"type": "object"
-								},
-								"includes": {
-									"type": "object"
-								},
-								"flatMap": {
-									"type": "object"
-								},
-								"flat": {
-									"type": "object"
-								},
-								"at": {
-									"type": "object"
-								},
-								"findLast": {
-									"type": "object"
-								},
-								"findLastIndex": {
-									"type": "object"
-								},
-								"toReversed": {
-									"type": "object"
-								},
-								"toSorted": {
-									"type": "object"
-								},
-								"toSpliced": {
-									"type": "object"
-								},
-								"with": {
-									"type": "object"
 								}
-							},
-							"required": [
-								"0",
-								"1",
-								"2",
-								"3",
-								"length",
-								"toString",
-								"toLocaleString",
-								"concat",
-								"join",
-								"slice",
-								"indexOf",
-								"lastIndexOf",
-								"every",
-								"some",
-								"forEach",
-								"map",
-								"filter",
-								"reduce",
-								"reduceRight",
-								"find",
-								"findIndex",
-								"entries",
-								"keys",
-								"values",
-								"includes",
-								"flatMap",
-								"flat",
-								"at",
-								"findLast",
-								"findLastIndex",
-								"toReversed",
-								"toSorted",
-								"toSpliced",
-								"with"
-							]
+							],
+							"minItems": 4,
+							"maxItems": 4
 						},
 						"classMeta": {
 							"type": "object",
@@ -2081,8 +1820,117 @@
 									"action",
 									"credentialId"
 								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"setUpTotp"
+										]
+									}
+								},
+								"required": [
+									"action"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"verifyTotpSetup"
+										]
+									},
+									"code": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"action",
+									"code"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"getMfaPreference"
+										]
+									}
+								},
+								"required": [
+									"action"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"action": {
+										"type": "string",
+										"enum": [
+											"updateMfaPreference"
+										]
+									},
+									"sms": {
+										"oneOf": [
+											{
+												"type": "string",
+												"enum": [
+													"ENABLED",
+													"DISABLED",
+													"PREFERRED",
+													"NOT_PREFERRED"
+												]
+											},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"totp": {
+										"oneOf": [
+											{
+												"type": "string",
+												"enum": [
+													"ENABLED",
+													"DISABLED",
+													"PREFERRED",
+													"NOT_PREFERRED"
+												]
+											},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"email": {
+										"oneOf": [
+											{
+												"type": "string",
+												"enum": [
+													"ENABLED",
+													"DISABLED",
+													"PREFERRED",
+													"NOT_PREFERRED"
+												]
+											},
+											{
+												"type": "null"
+											}
+										]
+									}
+								},
+								"required": [
+									"action"
+								]
 							}
-						]
+						],
+						"x-blocks-type-name": "AuthActionInput"
 					}
 				}
 			],
@@ -2102,8 +1950,8 @@
 					"state": {
 						"type": "string",
 						"enum": [
-							"signedOut",
 							"signedIn",
+							"signedOut",
 							"confirmingSignUp",
 							"confirmingSignIn",
 							"confirmingMfa",
@@ -2170,6 +2018,16 @@
 					},
 					"username": {
 						"type": "string"
+					},
+					"displayName": {
+						"oneOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
 					}
 				},
 				"required": [
@@ -2229,6 +2087,16 @@
 								"type": "null"
 							}
 						]
+					},
+					"unavailable": {
+						"oneOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
 					}
 				},
 				"required": [
@@ -2250,9 +2118,9 @@
 						"type": "string",
 						"enum": [
 							"number",
+							"email",
 							"text",
 							"password",
-							"email",
 							"tel",
 							"hidden"
 						]
@@ -2279,11 +2147,5 @@
 				]
 			}
 		}
-	},
-	"servers": [
-		{
-			"name": "local",
-			"url": "http://localhost:3001/aws-blocks/api"
-		}
-	]
+	}
 }
